@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
     console.log("Starting admin user creation...");
     
     const url = Deno.env.get("SUPABASE_URL");
-    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY");
+    const key = Deno.env.get("CUSTOM_SERVICE_ROLE_KEY");
     
     console.log("URL:", url);
     console.log("Key length:", key?.length);
