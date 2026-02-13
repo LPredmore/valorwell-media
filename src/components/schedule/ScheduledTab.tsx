@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { format } from "date-fns";
-import { Pencil, TableIcon, CalendarDays } from "lucide-react";
+import { Pencil, TableIcon, CalendarDays, Upload, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useScheduledContent, useUpdateSchedule } from "@/hooks/useSchedule";
+import { usePublishYouTube } from "@/hooks/usePublishYouTube";
 import { ScheduleThumbnail } from "./ScheduleThumbnail";
 import { ScheduleDialog } from "./ScheduleDialog";
 import { CalendarView } from "./CalendarView";
@@ -14,8 +15,24 @@ import type { SocialContent } from "@/hooks/useContents";
 export function ScheduledTab() {
   const { data: items, isLoading } = useScheduledContent();
   const updateMutation = useUpdateSchedule();
+  const publishMutation = usePublishYouTube();
   const [view, setView] = useState<"table" | "calendar">("table");
   const [editItem, setEditItem] = useState<SocialContent | null>(null);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+
+  const handlePublish = (id: string) => {
+    setPublishingId(id);
+    publishMutation.mutate(id, {
+      onSuccess: (data) => {
+        toast({ title: "Posted to YouTube", description: `Video: ${data.url}` });
+        setPublishingId(null);
+      },
+      onError: (err: any) => {
+        toast({ title: "YouTube upload failed", description: err.message, variant: "destructive" });
+        setPublishingId(null);
+      },
+    });
+  };
 
   const handleUpdate = (scheduledAt: Date, platforms: string[]) => {
     if (!editItem) return;
@@ -81,7 +98,20 @@ export function ScheduledTab() {
                     ? format(new Date((item as any).scheduled_at), "MMM d, yyyy h:mm a")
                     : "—"}
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right space-x-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handlePublish(item.id)}
+                    disabled={publishingId === item.id || !item.video_storage_path}
+                    title="Post to YouTube"
+                  >
+                    {publishingId === item.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
                   <Button size="sm" variant="ghost" onClick={() => setEditItem(item)}>
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
