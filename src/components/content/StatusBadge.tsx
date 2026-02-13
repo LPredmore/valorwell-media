@@ -7,6 +7,8 @@ const STATUS_STYLES: Record<string, string> = {
   ready: "bg-info text-info-foreground",
   generating: "bg-warning text-warning-foreground",
   complete: "bg-success text-success-foreground",
+  scheduled: "bg-info text-info-foreground",
+  posted: "bg-primary text-primary-foreground",
   error: "bg-destructive text-destructive-foreground",
 };
 

@@ -273,6 +273,9 @@ export type Database = {
           image: string | null
           linkedin_desc: string | null
           post_length: Database["public"]["Enums"]["video_length"] | null
+          posted_at: string | null
+          scheduled_at: string | null
+          scheduled_platforms: string[] | null
           status: string
           topic: string
           updated_at: string
@@ -293,6 +296,9 @@ export type Database = {
           image?: string | null
           linkedin_desc?: string | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
+          posted_at?: string | null
+          scheduled_at?: string | null
+          scheduled_platforms?: string[] | null
           status?: string
           topic: string
           updated_at?: string
@@ -313,6 +319,9 @@ export type Database = {
           image?: string | null
           linkedin_desc?: string | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
+          posted_at?: string | null
+          scheduled_at?: string | null
+          scheduled_platforms?: string[] | null
           status?: string
           topic?: string
           updated_at?: string
