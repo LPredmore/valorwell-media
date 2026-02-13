@@ -6,6 +6,7 @@ import { useDeleteContent } from "@/hooks/useContents";
 import { useAutosave } from "@/hooks/useAutosave";
 import { StatusBadge } from "@/components/content/StatusBadge";
 import { VideoSection } from "@/components/content/VideoSection";
+import { ImageSection } from "@/components/content/ImageSection";
 import { ContentFieldCard } from "@/components/content/ContentFieldCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -225,6 +226,9 @@ export default function ContentDetail() {
           uploading={videoUploading}
           progress={videoProgress}
         />
+
+        {/* Cover Image */}
+        <ImageSection storagePath={content.image} />
 
         {/* Generated Content Fields */}
         <div className="space-y-4">
