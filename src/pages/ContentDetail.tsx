@@ -4,6 +4,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { useContent } from "@/hooks/useContent";
 import { useDeleteContent } from "@/hooks/useContents";
 import { useAutosave } from "@/hooks/useAutosave";
+import { usePublishYouTube } from "@/hooks/usePublishYouTube";
 import { StatusBadge } from "@/components/content/StatusBadge";
 import { VideoSection } from "@/components/content/VideoSection";
 import { ImageSection } from "@/components/content/ImageSection";
@@ -15,7 +16,7 @@ import { uploadVideoToR2 } from "@/lib/uploadVideo";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-import { ArrowLeft, Trash2, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, Trash2, Loader2, RefreshCw, Upload } from "lucide-react";
 import { CONTENT_FIELDS } from "@/lib/platforms";
 import {
   AlertDialog,
@@ -43,6 +44,7 @@ export default function ContentDetail() {
   const queryClient = useQueryClient();
   const { data: content, isLoading, error } = useContent(id);
   const deleteContent = useDeleteContent();
+  const publishMutation = usePublishYouTube();
   const [topic, setTopic] = useState("");
   const [topicInit, setTopicInit] = useState(false);
   const [videoUploading, setVideoUploading] = useState(false);
@@ -175,6 +177,32 @@ export default function ContentDetail() {
               Created {format(new Date(content.created_at), "MMM d, yyyy")}
             </span>
             <div className="flex-1" />
+            {(content.status === "complete" || content.status === "scheduled") && content.video_storage_path && (
+              <Button
+                variant="default"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => {
+                  publishMutation.mutate(content.id, {
+                    onSuccess: (data) => {
+                      toast({ title: "Posted to YouTube", description: `Video: ${data.url}` });
+                      queryClient.invalidateQueries({ queryKey: ["content", id] });
+                    },
+                    onError: (err: any) => {
+                      toast({ title: "YouTube upload failed", description: err.message, variant: "destructive" });
+                    },
+                  });
+                }}
+                disabled={publishMutation.isPending}
+              >
+                {publishMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+                Post to YouTube
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
