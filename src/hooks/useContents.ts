@@ -17,6 +17,9 @@ export type SocialContent = {
   video_original_filename: string | null;
   video_mime_type: string | null;
   error: string | null;
+  scheduled_at: string | null;
+  posted_at: string | null;
+  scheduled_platforms: string[] | null;
   created_at: string;
   updated_at: string;
 };

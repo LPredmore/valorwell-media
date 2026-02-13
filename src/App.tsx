@@ -9,6 +9,7 @@ import ContentList from "./pages/ContentList";
 import CreateContent from "./pages/CreateContent";
 import ContentDetail from "./pages/ContentDetail";
 import Instructions from "./pages/Instructions";
+import Schedule from "./pages/Schedule";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -25,6 +26,7 @@ const App = () => (
           <Route path="/content" element={<AuthGuard><ContentList /></AuthGuard>} />
           <Route path="/content/new" element={<AuthGuard><CreateContent /></AuthGuard>} />
           <Route path="/content/:id" element={<AuthGuard><ContentDetail /></AuthGuard>} />
+          <Route path="/schedule" element={<AuthGuard><Schedule /></AuthGuard>} />
           <Route path="/instructions" element={<AuthGuard><Instructions /></AuthGuard>} />
           {/* Redirect old routes */}
           <Route path="/jobs" element={<Navigate to="/content" replace />} />
