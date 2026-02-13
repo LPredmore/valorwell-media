@@ -14,60 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      content_jobs: {
-        Row: {
-          created_at: string
-          error: string | null
-          format: string
-          id: string
-          image_url_16x9: string | null
-          image_url_9x16: string | null
-          status: string
-          topic: string
-          updated_at: string
-          user_id: string
-          video_duration_seconds: number | null
-          video_mime_type: string | null
-          video_original_filename: string | null
-          video_public_url: string | null
-          video_storage_path: string | null
-        }
-        Insert: {
-          created_at?: string
-          error?: string | null
-          format?: string
-          id?: string
-          image_url_16x9?: string | null
-          image_url_9x16?: string | null
-          status?: string
-          topic: string
-          updated_at?: string
-          user_id: string
-          video_duration_seconds?: number | null
-          video_mime_type?: string | null
-          video_original_filename?: string | null
-          video_public_url?: string | null
-          video_storage_path?: string | null
-        }
-        Update: {
-          created_at?: string
-          error?: string | null
-          format?: string
-          id?: string
-          image_url_16x9?: string | null
-          image_url_9x16?: string | null
-          status?: string
-          topic?: string
-          updated_at?: string
-          user_id?: string
-          video_duration_seconds?: number | null
-          video_mime_type?: string | null
-          video_original_filename?: string | null
-          video_public_url?: string | null
-          video_storage_path?: string | null
-        }
-        Relationships: []
-      }
       creator_applications: {
         Row: {
           additional_info: string | null
@@ -269,56 +215,6 @@ export type Database = {
         }
         Relationships: []
       }
-      platform_outputs: {
-        Row: {
-          body: string | null
-          created_at: string
-          error: string | null
-          hashtags: string[] | null
-          id: string
-          job_id: string
-          platform: string
-          status: string
-          title: string | null
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          body?: string | null
-          created_at?: string
-          error?: string | null
-          hashtags?: string[] | null
-          id?: string
-          job_id: string
-          platform: string
-          status?: string
-          title?: string | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          body?: string | null
-          created_at?: string
-          error?: string | null
-          hashtags?: string[] | null
-          id?: string
-          job_id?: string
-          platform?: string
-          status?: string
-          title?: string | null
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "platform_outputs_job_id_fkey"
-            columns: ["job_id"]
-            isOneToOne: false
-            referencedRelation: "content_jobs"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       site_config: {
         Row: {
           key: string
@@ -334,6 +230,48 @@ export type Database = {
           key?: string
           updated_at?: string | null
           value?: string
+        }
+        Relationships: []
+      }
+      social_content: {
+        Row: {
+          created_at: string
+          facebook_desc: string | null
+          id: number
+          image: string | null
+          instagram_desc: string | null
+          linkedin_desc: string | null
+          Title: string | null
+          type: string | null
+          updated_at: string
+          video_url: string | null
+          youtube_desc: string | null
+        }
+        Insert: {
+          created_at?: string
+          facebook_desc?: string | null
+          id?: number
+          image?: string | null
+          instagram_desc?: string | null
+          linkedin_desc?: string | null
+          Title?: string | null
+          type?: string | null
+          updated_at?: string
+          video_url?: string | null
+          youtube_desc?: string | null
+        }
+        Update: {
+          created_at?: string
+          facebook_desc?: string | null
+          id?: number
+          image?: string | null
+          instagram_desc?: string | null
+          linkedin_desc?: string | null
+          Title?: string | null
+          type?: string | null
+          updated_at?: string
+          video_url?: string | null
+          youtube_desc?: string | null
         }
         Relationships: []
       }
