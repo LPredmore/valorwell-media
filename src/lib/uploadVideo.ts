@@ -1,47 +1,53 @@
-import * as tus from "tus-js-client";
 import { supabase } from "@/integrations/supabase/client";
 
-const PROJECT_ID = "asjhkidpuhqodryczuth";
-
-export function uploadVideoResumable(
-  bucketName: string,
+/**
+ * Upload a video file to Cloudflare R2 via a presigned URL.
+ * 1. Calls the r2-upload-url edge function to get a presigned PUT URL.
+ * 2. Uploads the file directly to R2 using XMLHttpRequest for progress tracking.
+ */
+export async function uploadVideoToR2(
   storagePath: string,
   file: File,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
 ): Promise<void> {
-  return new Promise(async (resolve, reject) => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-    if (!session) return reject(new Error("Not authenticated"));
+  if (!session) throw new Error("Not authenticated");
 
-    const upload = new tus.Upload(file, {
-      endpoint: `https://${PROJECT_ID}.storage.supabase.co/storage/v1/upload/resumable`,
-      retryDelays: [0, 3000, 5000, 10000, 20000],
-      headers: {
-        authorization: `Bearer ${session.access_token}`,
-        "x-upsert": "true",
-      },
-      uploadDataDuringCreation: true,
-      removeFingerprintOnSuccess: true,
-      metadata: {
-        bucketName,
-        objectName: storagePath,
-        contentType: file.type,
-        cacheControl: "3600",
-      },
-      chunkSize: 6 * 1024 * 1024, // 6MB required by Supabase
-      onError: (err) => reject(err),
-      onProgress: (bytesUploaded, bytesTotal) => {
-        onProgress?.((bytesUploaded / bytesTotal) * 100);
-      },
-      onSuccess: () => resolve(),
-    });
+  // 1. Get presigned URL from edge function
+  const { data, error } = await supabase.functions.invoke("r2-upload-url", {
+    body: { storagePath, contentType: file.type },
+  });
 
-    upload.findPreviousUploads().then((prev) => {
-      if (prev.length) upload.resumeFromPreviousUpload(prev[0]);
-      upload.start();
-    });
+  if (error || !data?.uploadUrl) {
+    throw new Error(error?.message ?? data?.error ?? "Failed to get upload URL");
+  }
+
+  const uploadUrl: string = data.uploadUrl;
+
+  // 2. Upload directly to R2 with progress
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl);
+    xhr.setRequestHeader("Content-Type", file.type);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        onProgress?.((e.loaded / e.total) * 100);
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new Error(`Upload failed with status ${xhr.status}`));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.send(file);
   });
 }
