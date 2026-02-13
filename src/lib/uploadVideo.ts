@@ -17,7 +17,7 @@ export function uploadVideoResumable(
     if (!session) return reject(new Error("Not authenticated"));
 
     const upload = new tus.Upload(file, {
-      endpoint: `https://${PROJECT_ID}.supabase.co/storage/v1/upload/resumable`,
+      endpoint: `https://${PROJECT_ID}.storage.supabase.co/storage/v1/upload/resumable`,
       retryDelays: [0, 3000, 5000, 10000, 20000],
       headers: {
         authorization: `Bearer ${session.access_token}`,
