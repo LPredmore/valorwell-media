@@ -3,7 +3,6 @@ import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { VideoUploader } from "@/components/jobs/VideoUploader";
 import { supabase } from "@/integrations/supabase/client";
 import { uploadVideoToR2 } from "@/lib/uploadVideo";
@@ -13,11 +12,10 @@ import { toast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 
-export default function CreateJob() {
+export default function CreateContent() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [topic, setTopic] = useState("");
-  const [format, setFormat] = useState<"short" | "long">("short");
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -27,28 +25,31 @@ export default function CreateJob() {
     if (!user || !videoFile || !topic.trim()) return;
 
     setUploading(true);
-    setProgress(10);
+    setProgress(5);
 
-    // 1. Create job
-    const { data: job, error: jobError } = await supabase
-      .from("content_jobs")
-      .insert({ topic: topic.trim(), format, user_id: user.id, status: "new" })
+    // 1. Create content row
+    const { data: content, error: insertError } = await supabase
+      .from("social_content")
+      .insert({ topic: topic.trim(), user_id: user.id, status: "uploading" } as any)
       .select()
       .single();
 
-    if (jobError || !job) {
-      toast({ title: "Failed to create job", description: jobError?.message, variant: "destructive" });
+    if (insertError || !content) {
+      toast({ title: "Failed to create content", description: insertError?.message, variant: "destructive" });
       setUploading(false);
       return;
     }
 
-    // 2. Upload video via TUS resumable upload
+    const contentId = (content as any).id as string;
+    setProgress(10);
+
+    // 2. Upload video to R2
     const ext = videoFile.name.split(".").pop();
-    const storagePath = `jobs/${job.id}/video.${ext}`;
+    const storagePath = `content/${contentId}/video.${ext}`;
 
     try {
       await uploadVideoToR2(storagePath, videoFile, (pct) => {
-        setProgress(30 + pct * 0.5); // map 0-100% to 30-80%
+        setProgress(10 + pct * 0.5);
       });
     } catch (uploadError: any) {
       toast({ title: "Video upload failed", description: uploadError?.message, variant: "destructive" });
@@ -56,37 +57,44 @@ export default function CreateJob() {
       return;
     }
 
-    // 3. Update job with video info
-    const { error: updateError } = await supabase
-      .from("content_jobs")
+    setProgress(65);
+
+    // 3. Update with video info and set status to generating
+    await supabase
+      .from("social_content")
       .update({
         video_storage_path: storagePath,
         video_mime_type: videoFile.type,
         video_original_filename: videoFile.name,
         status: "ready",
-      })
-      .eq("id", job.id);
+      } as any)
+      .eq("id", contentId);
 
-    if (updateError) {
-      toast({ title: "Failed to update job", description: updateError.message, variant: "destructive" });
-      setUploading(false);
-      return;
+    setProgress(70);
+
+    // 4. Call generate-content edge function
+    const { error: genError } = await supabase.functions.invoke("generate-content", {
+      body: { contentId },
+    });
+
+    if (genError) {
+      toast({ title: "Generation failed", description: genError.message, variant: "destructive" });
     }
 
     setProgress(100);
-    navigate(`/jobs/${job.id}`);
+    navigate(`/content/${contentId}`);
   };
 
   return (
     <AppLayout>
       <div className="mx-auto max-w-xl space-y-6">
         <div className="flex items-center gap-3">
-          <Link to="/jobs">
+          <Link to="/content">
             <Button variant="ghost" size="icon">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <h1 className="text-3xl font-extrabold tracking-tight">Create Job</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight">New Content</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -96,23 +104,9 @@ export default function CreateJob() {
               id="topic"
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="e.g. How to start a business"
+              placeholder="e.g. CHAMPVA telehealth access for military spouses"
               required
             />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="font-medium">Format</Label>
-            <RadioGroup value={format} onValueChange={(v) => setFormat(v as "short" | "long")} className="flex gap-4">
-              <div className="flex items-center gap-2">
-                <RadioGroupItem value="short" id="short" />
-                <Label htmlFor="short" className="cursor-pointer">Short</Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <RadioGroupItem value="long" id="long" />
-                <Label htmlFor="long" className="cursor-pointer">Long</Label>
-              </div>
-            </RadioGroup>
           </div>
 
           <div className="space-y-1.5">
@@ -126,7 +120,7 @@ export default function CreateJob() {
           </div>
 
           <Button type="submit" className="w-full" disabled={uploading || !videoFile || !topic.trim()}>
-            {uploading ? "Creating..." : "Create Job"}
+            {uploading ? "Creating & Generating..." : "Create & Generate"}
           </Button>
         </form>
       </div>

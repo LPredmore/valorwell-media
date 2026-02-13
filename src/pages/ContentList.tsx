@@ -1,29 +1,29 @@
 import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { JobsTable } from "@/components/jobs/JobsTable";
-import { useJobs, useDeleteJob } from "@/hooks/useJobs";
+import { ContentTable } from "@/components/content/ContentTable";
+import { useContents, useDeleteContent } from "@/hooks/useContents";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Search } from "lucide-react";
 import { Link } from "react-router-dom";
-import { JOB_STATUSES } from "@/lib/platforms";
+import { CONTENT_STATUSES } from "@/lib/platforms";
 
-export default function Jobs() {
+export default function ContentList() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const { data: jobs = [], isLoading } = useJobs(search, statusFilter);
-  const deleteJob = useDeleteJob();
+  const { data: items = [], isLoading } = useContents(search, statusFilter);
+  const deleteContent = useDeleteContent();
 
   return (
     <AppLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-extrabold tracking-tight">Jobs</h1>
-          <Link to="/jobs/new">
+          <h1 className="text-3xl font-extrabold tracking-tight">Content</h1>
+          <Link to="/content/new">
             <Button className="gap-2">
               <Plus className="h-4 w-4" />
-              New Job
+              New Content
             </Button>
           </Link>
         </div>
@@ -44,7 +44,7 @@ export default function Jobs() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
-              {JOB_STATUSES.map((s) => (
+              {CONTENT_STATUSES.map((s) => (
                 <SelectItem key={s} value={s} className="capitalize">
                   {s}
                 </SelectItem>
@@ -58,10 +58,10 @@ export default function Jobs() {
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
           </div>
         ) : (
-          <JobsTable
-            jobs={jobs}
-            onDelete={(id) => deleteJob.mutate(id)}
-            isDeleting={deleteJob.isPending}
+          <ContentTable
+            items={items}
+            onDelete={(id) => deleteContent.mutate(id)}
+            isDeleting={deleteContent.isPending}
           />
         )}
       </div>

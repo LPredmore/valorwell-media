@@ -2,8 +2,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "react-router-dom";
-import { LogOut, Briefcase, Settings } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { LogOut, FileText, Settings } from "lucide-react";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const { signOut, user } = useAuth();
@@ -15,18 +14,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-50 border-b border-border bg-card/80 backdrop-blur-sm">
         <div className="container flex h-16 items-center justify-between">
           <div className="flex items-center gap-8">
-            <Link to="/jobs" className="text-xl font-extrabold tracking-tight text-foreground">
+            <Link to="/content" className="text-xl font-extrabold tracking-tight text-foreground">
               Content<span className="text-primary">Hub</span>
             </Link>
             <nav className="flex items-center gap-1">
-              <Link to="/jobs">
+              <Link to="/content">
                 <Button
-                  variant={location.pathname.startsWith("/jobs") ? "secondary" : "ghost"}
+                  variant={location.pathname.startsWith("/content") ? "secondary" : "ghost"}
                   size="sm"
                   className="gap-2"
                 >
-                  <Briefcase className="h-4 w-4" />
-                  Jobs
+                  <FileText className="h-4 w-4" />
+                  Content
                 </Button>
               </Link>
               {isAdmin && (

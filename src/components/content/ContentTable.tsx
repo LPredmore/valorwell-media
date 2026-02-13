@@ -1,11 +1,10 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { JobStatusBadge } from "./JobStatusBadge";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "./StatusBadge";
 import { Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
-import type { ContentJob } from "@/hooks/useJobs";
+import type { SocialContent } from "@/hooks/useContents";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,19 +18,19 @@ import {
 } from "@/components/ui/alert-dialog";
 
 interface Props {
-  jobs: ContentJob[];
+  items: SocialContent[];
   onDelete: (id: string) => void;
   isDeleting: boolean;
 }
 
-export function JobsTable({ jobs, onDelete, isDeleting }: Props) {
+export function ContentTable({ items, onDelete, isDeleting }: Props) {
   const navigate = useNavigate();
 
-  if (jobs.length === 0) {
+  if (items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border py-16">
-        <p className="text-lg font-medium text-muted-foreground">No jobs yet</p>
-        <p className="text-sm text-muted-foreground">Create your first content job to get started.</p>
+        <p className="text-lg font-medium text-muted-foreground">No content yet</p>
+        <p className="text-sm text-muted-foreground">Create your first content to get started.</p>
       </div>
     );
   }
@@ -42,30 +41,24 @@ export function JobsTable({ jobs, onDelete, isDeleting }: Props) {
         <TableHeader>
           <TableRow>
             <TableHead className="font-semibold">Topic</TableHead>
-            <TableHead className="font-semibold">Format</TableHead>
             <TableHead className="font-semibold">Status</TableHead>
             <TableHead className="font-semibold">Created</TableHead>
             <TableHead className="w-12" />
           </TableRow>
         </TableHeader>
         <TableBody>
-          {jobs.map((job) => (
+          {items.map((item) => (
             <TableRow
-              key={job.id}
+              key={item.id}
               className="cursor-pointer hover:bg-muted/50"
-              onClick={() => navigate(`/jobs/${job.id}`)}
+              onClick={() => navigate(`/content/${item.id}`)}
             >
-              <TableCell className="font-medium">{job.topic}</TableCell>
+              <TableCell className="font-medium">{item.topic}</TableCell>
               <TableCell>
-                <Badge variant="outline" className="capitalize">
-                  {job.format}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <JobStatusBadge status={job.status} />
+                <StatusBadge status={item.status} />
               </TableCell>
               <TableCell className="text-muted-foreground">
-                {format(new Date(job.created_at), "MMM d, yyyy")}
+                {format(new Date(item.created_at), "MMM d, yyyy")}
               </TableCell>
               <TableCell>
                 <AlertDialog>
@@ -81,16 +74,16 @@ export function JobsTable({ jobs, onDelete, isDeleting }: Props) {
                   </AlertDialogTrigger>
                   <AlertDialogContent onClick={(e) => e.stopPropagation()}>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Delete this job?</AlertDialogTitle>
+                      <AlertDialogTitle>Delete this content?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This will permanently delete the job, all platform outputs, and uploaded files.
+                        This will permanently delete this content and all generated outputs.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
                       <AlertDialogAction
                         className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        onClick={() => onDelete(job.id)}
+                        onClick={() => onDelete(item.id)}
                         disabled={isDeleting}
                       >
                         Delete
