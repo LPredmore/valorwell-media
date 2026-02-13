@@ -1,25 +1,32 @@
 
 
-# Update Image Instructions with ValorWell Styling Prompt
+# Add Post Length Selector to Create Content Form
 
 ## What Changes
 
-Update the two existing rows in the `image_instructions` table (IDs 1 and 2) with your detailed ValorWell thumbnail styling prompt.
+Add a required "Video Length" radio group to the `/content/new` form that lets the user choose between **Short** and **Long** before submitting. The selected value is saved directly to the `post_length` column on insert.
 
-## 16:9 (Landscape) - ID 2
+## UI Change
 
-The full prompt you provided, with one added composition note: "Landscape orientation: use the wide frame to create cinematic depth and horizontal storytelling."
+A new field between "Topic" and "Video" with two radio buttons:
+- **Short** -- for short-form content (Reels, TikTok, Shorts)
+- **Long** -- for long-form content (YouTube, Facebook)
 
-## 9:16 (Vertical) - ID 1
-
-The full prompt you provided, with these vertical-specific alterations in the Composition section:
-- "Portrait orientation: use the tall frame for vertical storytelling, stacking subject above secondary elements."
-- "Leave clean negative space for headline typography (upper third)."
-- "Account for platform UI overlays (profile icons, like buttons, captions) in the lower 20% of the frame."
-
-Everything else (lighting, color palette, typography, mood, brand mark, subjects, constraints, never-do rules) stays identical between both.
+The submit button stays disabled until a value is selected (in addition to the existing topic + video requirements).
 
 ## Technical Details
 
-Two SQL UPDATE statements against the `image_instructions` table, updating the `instruction` column and incrementing the `version` for rows with `aspect_ratio = '16:9'` and `aspect_ratio = '9:16'`.
+### File: `src/pages/CreateContent.tsx`
 
+1. Add `postLength` state (`useState<"Short" | "Long" | null>(null)`)
+2. Add a RadioGroup (from the existing `@radix-ui/react-radio-group` component at `src/components/ui/radio-group.tsx`) between the Topic and Video fields
+3. Include `post_length: postLength` in the `.insert()` call when creating the content row
+4. Add `!postLength` to the submit button's `disabled` condition
+
+### File: `src/integrations/supabase/types.ts`
+
+This file is auto-generated and cannot be edited manually. The `post_length` column already exists in the DB as a `USER-DEFINED` enum type (`video_length`) with values `Short` and `Long`. The insert call will use `as any` casting (same pattern already used elsewhere in this file) to accommodate the enum value.
+
+### No database migration needed
+
+The `post_length` column and `video_length` enum already exist in the database.
