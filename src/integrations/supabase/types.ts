@@ -231,6 +231,8 @@ export type Database = {
         Row: {
           component: string
           created_at: string
+          hashtag_max: number | null
+          hashtag_min: number | null
           id: number
           instruction: string
           is_active: boolean
@@ -242,6 +244,8 @@ export type Database = {
         Insert: {
           component: string
           created_at?: string
+          hashtag_max?: number | null
+          hashtag_min?: number | null
           id?: number
           instruction: string
           is_active?: boolean
@@ -253,6 +257,8 @@ export type Database = {
         Update: {
           component?: string
           created_at?: string
+          hashtag_max?: number | null
+          hashtag_min?: number | null
           id?: number
           instruction?: string
           is_active?: boolean
