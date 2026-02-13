@@ -1,100 +1,105 @@
 
 
-# Scheduling System for Social Content
+# YouTube API Integration for Posting Videos
 
-## Architecture Decision
+## How YouTube Upload Works
 
-**Extend `social_content` rather than creating a separate scheduling table.** Each row already represents a single content piece with its lifecycle tracked by `status`. Scheduling is the next phase of that lifecycle, not a separate entity. A separate table would create a 1:1 join that adds complexity for no normalization benefit -- the scheduling metadata belongs to the content row.
+YouTube's Data API v3 requires OAuth2 user credentials (not service accounts). The flow is:
 
-### New columns on `social_content`:
-- `scheduled_at` (timestamptz, nullable) -- when the post is scheduled to go live
-- `posted_at` (timestamptz, nullable) -- when the post was actually published
-- `scheduled_platforms` (text[], nullable) -- which platforms this post targets (future-proofing for API integration)
+1. Exchange a stored refresh token for an access token
+2. Initiate a resumable upload session with video metadata (title, description, privacy, category)
+3. Stream the video file to that session URL
+4. YouTube returns the published video ID
 
-### Status flow update:
+**Important constraint**: Videos uploaded via unverified OAuth apps are locked to "Private". The Google Cloud project must go through YouTube API verification to upload as Public/Unlisted. Until verified, uploads will work but remain Private.
+
+## Architecture
+
+A new edge function `publish-youtube` handles the entire server-side flow:
+
 ```text
-new -> uploading -> ready -> generating -> complete -> scheduled -> posted
-                                                   -> error
+Client (trigger) --> publish-youtube edge function
+                        |
+                        +--> Exchange refresh token for access token (Google OAuth)
+                        +--> Fetch video from R2 (presigned GET)
+                        +--> Resumable upload to YouTube Data API v3
+                        +--> Update social_content row (status=posted, posted_at, video_url=youtube link)
 ```
 
-Two new status values: `scheduled` and `posted`. A content item moves to `scheduled` when the user sets a `scheduled_at` date, and to `posted` when it has been published (manually or via API in the future).
+The function is invoked per content item when the user clicks a "Post Now" button or (later) by a scheduled cron trigger.
 
-## New Page: `/schedule`
+## Existing Secrets (Already Configured)
 
-A dedicated scheduling page at `/schedule` with three tabs. This is separate from `/content` because it serves a different workflow: content creation vs. content distribution. Mixing them into one page would overload the content list with scheduling concerns.
+These are already in Supabase secrets -- no new secrets needed:
 
-### Tab 1: Unscheduled
+- `GOOGLE_OAUTH_CLIENT_ID`
+- `GOOGLE_OAUTH_CLIENT_SECRET`
+- `GOOGLE_OAUTH_REFRESH_TOKEN`
+- `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`
 
-Shows all content with `status = 'complete'` (generated but not yet scheduled).
+## Implementation Details
 
-| Column | Source |
-|--------|--------|
-| Topic | `topic` |
-| Created On | `created_at` |
-| Thumbnail | `image` (small 48x48 via `r2-read-url`) |
-| Action | "Schedule" button per row |
+### 1. New Edge Function: `supabase/functions/publish-youtube/index.ts`
 
-Clicking "Schedule" opens a dialog with:
-- Date/time picker for `scheduled_at`
-- Multi-select checkboxes for platforms (YouTube, Facebook, LinkedIn, Instagram/TikTok)
-- Confirm button that sets `status = 'scheduled'`, `scheduled_at`, and `scheduled_platforms`
+**Input**: `{ contentId: string }`
 
-### Tab 2: Scheduled
+**Steps**:
 
-Two view modes toggled by a button group: **Table** and **Calendar**.
+1. Authenticate the caller (require auth header, verify ownership via RLS)
+2. Fetch the `social_content` row -- need `youtube_title`, `youtube_desc`, `video_storage_path`, `video_mime_type`
+3. Validate the content has a video and generated text
+4. Exchange `GOOGLE_OAUTH_REFRESH_TOKEN` for an access token via `https://oauth2.googleapis.com/token`
+5. Fetch the video from R2 using a presigned URL (reuse the same `aws4fetch` pattern from `r2-read-url`)
+6. Initiate a resumable upload:
+   - `POST https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status`
+   - Body: `{ snippet: { title, description, categoryId: "22" }, status: { privacyStatus: "private" } }`
+   - Returns a `Location` header with the upload URI
+7. `PUT` the video bytes to that upload URI
+8. Parse the response for the YouTube video ID
+9. Update the `social_content` row: `status = "posted"`, `posted_at = now()`, `video_url = https://youtu.be/{videoId}`
 
-**Table view:**
+**Error handling**: If upload fails, set `status = "error"` and store the error message. The user can retry.
 
-| Column | Source |
-|--------|--------|
-| Topic | `topic` |
-| Scheduled Date | `scheduled_at` |
-| Thumbnail | `image` |
-| Action | Edit button (re-opens scheduling dialog to change date/platforms) |
+### 2. Config: `supabase/config.toml`
 
-**Calendar view:**
-- Built with date-fns (already installed) and a custom grid component -- no new dependency
-- Toggle between Weekly and Monthly views
-- Each day cell shows scheduled content as small cards with topic + thumbnail
-- Clicking a card navigates to the content detail page
+Add:
+```toml
+[functions.publish-youtube]
+verify_jwt = false
+```
 
-### Tab 3: Past
+### 3. UI: Add "Post to YouTube" action
 
-Shows all content with `status = 'posted'`.
+**File: `src/components/schedule/ScheduledTab.tsx`**
 
-| Column | Source |
-|--------|--------|
-| Topic | `topic` |
-| Date Posted | `posted_at` |
+Add a "Post" button next to the Edit button for each scheduled item. Clicking it:
+- Calls `supabase.functions.invoke("publish-youtube", { body: { contentId } })`
+- Shows a loading spinner during upload
+- On success, the item moves from Scheduled to Past tab via query invalidation
+- On failure, shows a toast with the error
 
-Simple read-only archive view.
+**File: `src/pages/ContentDetail.tsx`**
 
-## File Changes
+Add a "Post to YouTube" button in the header actions area (visible when `status === "scheduled"` or `status === "complete"`).
 
-### Database Migration
-- Add `scheduled_at`, `posted_at`, `scheduled_platforms` columns to `social_content`
-- Update `CONTENT_STATUSES` in `src/lib/platforms.ts` to include `"scheduled"` and `"posted"`
+### 4. New hook: `src/hooks/usePublishYouTube.ts`
 
-### New Files
+A React Query mutation wrapping the edge function call, with query invalidation for `["schedule"]` and `["contents"]` on success.
 
-1. **`src/pages/Schedule.tsx`** -- Main scheduling page with three tabs (Unscheduled, Scheduled, Past)
-2. **`src/components/schedule/UnscheduledTab.tsx`** -- Table of complete/unscheduled content with schedule action
-3. **`src/components/schedule/ScheduledTab.tsx`** -- Table + Calendar toggle for scheduled content
-4. **`src/components/schedule/PastTab.tsx`** -- Table of posted content
-5. **`src/components/schedule/ScheduleDialog.tsx`** -- Dialog with date/time picker and platform selector
-6. **`src/components/schedule/CalendarView.tsx`** -- Monthly/weekly calendar grid
-7. **`src/components/schedule/ScheduleThumbnail.tsx`** -- Reusable small thumbnail component that calls `r2-read-url`
-8. **`src/hooks/useSchedule.ts`** -- React Query hooks for fetching unscheduled, scheduled, and posted content, plus mutation for scheduling
+## What This Does NOT Cover (Future Work)
 
-### Modified Files
+- **Automated scheduled posting** (cron trigger) -- currently manual "Post Now" only
+- **Other platforms** (Facebook, LinkedIn, Instagram/TikTok) -- same pattern, different APIs
+- **OAuth consent flow in-app** -- the refresh token is pre-configured in secrets, meaning it's tied to one YouTube channel. A full multi-user OAuth flow would require a different architecture.
+- **YouTube API verification** -- uploads will be Private until the Google Cloud project is verified
 
-1. **`src/App.tsx`** -- Add `/schedule` route
-2. **`src/components/AppLayout.tsx`** -- Add "Schedule" nav link (with Calendar icon)
-3. **`src/lib/platforms.ts`** -- Add `"scheduled"` and `"posted"` to `CONTENT_STATUSES`
-4. **`src/hooks/useContents.ts`** -- Add `scheduled_at`, `posted_at`, `scheduled_platforms` to `SocialContent` type
-5. **`src/components/content/StatusBadge.tsx`** -- Add color mappings for `scheduled` and `posted` statuses
+## File Summary
 
-### Calendar Implementation
-
-The calendar is a custom component, not a third-party calendar library. Monthly view renders a 7-column CSS grid with day cells. Weekly view renders 7 day columns. Content cards are positioned in cells by matching `scheduled_at` to the cell's date. This keeps the bundle small and gives full styling control. The existing `date-fns` library handles all date math (startOfWeek, eachDayOfInterval, isSameDay, etc.).
+| File | Action |
+|------|--------|
+| `supabase/functions/publish-youtube/index.ts` | Create |
+| `supabase/config.toml` | Add publish-youtube config |
+| `src/hooks/usePublishYouTube.ts` | Create |
+| `src/components/schedule/ScheduledTab.tsx` | Add Post button |
+| `src/pages/ContentDetail.tsx` | Add Post to YouTube button |
 
