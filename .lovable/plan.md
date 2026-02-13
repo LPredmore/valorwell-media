@@ -1,23 +1,36 @@
 
-# Update Image Generation Model to GPT-5 Image Mini
 
-## What Changes
+# Regenerate Image for Existing Content
 
-Update the model ID in `supabase/functions/generate-content/index.ts` from the broken `openai/gpt-image-1` to `openai/gpt-5-image-mini`.
+## What It Does
+
+Creates a new edge function called `regenerate-image` that takes a content ID, reads the already-generated text fields (YouTube title and description), and runs only the image generation pipeline (prompt crafting, image generation, R2 upload, and database update). This will be called once for the existing post (`d09170ac`), and will also be available for future use.
+
+## How It Works
+
+1. A new edge function receives the `contentId`
+2. It fetches the existing content row to get `youtube_title` and `youtube_desc`
+3. It runs the same image pipeline already in `generate-content`: GPT-4.1 Mini crafts a prompt, GPT-5 Image Mini generates the image, and the result is uploaded to R2
+4. It saves the R2 storage path to the `image` column on the content row
+5. The frontend already handles displaying images when the `image` column is populated, so no UI changes are needed
 
 ## Technical Detail
 
-**File:** `supabase/functions/generate-content/index.ts`
+**New file:** `supabase/functions/regenerate-image/index.ts`
 
-Three small changes:
+- Accepts `{ contentId }` in the request body
+- Authenticates the user via the Authorization header
+- Fetches the content row (using user client for RLS)
+- Fetches active `image_instructions`
+- Calls GPT-4.1 Mini to craft an image prompt from the existing title/description
+- Calls GPT-5 Image Mini to generate the image
+- Decodes the base64 result and uploads to R2 at `content/{contentId}/cover.png`
+- Updates `social_content.image` with the storage path
+- Returns success/error
 
-1. **Line 223** - Update the prompt description reference:
-   - `"A detailed prompt optimized for gpt-image-1 image generation"` -> `"A detailed prompt optimized for gpt-5-image-mini image generation"`
+**Updated file:** `supabase/config.toml`
 
-2. **Line 256** - Update the model ID:
-   - `model: "openai/gpt-image-1"` -> `model: "openai/gpt-5-image-mini"`
+- Add `[functions.regenerate-image]` with `verify_jwt = false` (auth validated in code)
 
-3. **Line 269** - Update the error message reference:
-   - `"No image returned from gpt-image-1"` -> `"No image returned from gpt-5-image-mini"`
+**No UI changes** -- after deploying, I'll invoke the function directly for your existing post to trigger the image generation.
 
-No other files need changes. The edge function will be redeployed automatically.
