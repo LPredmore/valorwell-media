@@ -1,32 +1,100 @@
 
 
-# Add Post Length Selector to Create Content Form
+# Scheduling System for Social Content
 
-## What Changes
+## Architecture Decision
 
-Add a required "Video Length" radio group to the `/content/new` form that lets the user choose between **Short** and **Long** before submitting. The selected value is saved directly to the `post_length` column on insert.
+**Extend `social_content` rather than creating a separate scheduling table.** Each row already represents a single content piece with its lifecycle tracked by `status`. Scheduling is the next phase of that lifecycle, not a separate entity. A separate table would create a 1:1 join that adds complexity for no normalization benefit -- the scheduling metadata belongs to the content row.
 
-## UI Change
+### New columns on `social_content`:
+- `scheduled_at` (timestamptz, nullable) -- when the post is scheduled to go live
+- `posted_at` (timestamptz, nullable) -- when the post was actually published
+- `scheduled_platforms` (text[], nullable) -- which platforms this post targets (future-proofing for API integration)
 
-A new field between "Topic" and "Video" with two radio buttons:
-- **Short** -- for short-form content (Reels, TikTok, Shorts)
-- **Long** -- for long-form content (YouTube, Facebook)
+### Status flow update:
+```text
+new -> uploading -> ready -> generating -> complete -> scheduled -> posted
+                                                   -> error
+```
 
-The submit button stays disabled until a value is selected (in addition to the existing topic + video requirements).
+Two new status values: `scheduled` and `posted`. A content item moves to `scheduled` when the user sets a `scheduled_at` date, and to `posted` when it has been published (manually or via API in the future).
 
-## Technical Details
+## New Page: `/schedule`
 
-### File: `src/pages/CreateContent.tsx`
+A dedicated scheduling page at `/schedule` with three tabs. This is separate from `/content` because it serves a different workflow: content creation vs. content distribution. Mixing them into one page would overload the content list with scheduling concerns.
 
-1. Add `postLength` state (`useState<"Short" | "Long" | null>(null)`)
-2. Add a RadioGroup (from the existing `@radix-ui/react-radio-group` component at `src/components/ui/radio-group.tsx`) between the Topic and Video fields
-3. Include `post_length: postLength` in the `.insert()` call when creating the content row
-4. Add `!postLength` to the submit button's `disabled` condition
+### Tab 1: Unscheduled
 
-### File: `src/integrations/supabase/types.ts`
+Shows all content with `status = 'complete'` (generated but not yet scheduled).
 
-This file is auto-generated and cannot be edited manually. The `post_length` column already exists in the DB as a `USER-DEFINED` enum type (`video_length`) with values `Short` and `Long`. The insert call will use `as any` casting (same pattern already used elsewhere in this file) to accommodate the enum value.
+| Column | Source |
+|--------|--------|
+| Topic | `topic` |
+| Created On | `created_at` |
+| Thumbnail | `image` (small 48x48 via `r2-read-url`) |
+| Action | "Schedule" button per row |
 
-### No database migration needed
+Clicking "Schedule" opens a dialog with:
+- Date/time picker for `scheduled_at`
+- Multi-select checkboxes for platforms (YouTube, Facebook, LinkedIn, Instagram/TikTok)
+- Confirm button that sets `status = 'scheduled'`, `scheduled_at`, and `scheduled_platforms`
 
-The `post_length` column and `video_length` enum already exist in the database.
+### Tab 2: Scheduled
+
+Two view modes toggled by a button group: **Table** and **Calendar**.
+
+**Table view:**
+
+| Column | Source |
+|--------|--------|
+| Topic | `topic` |
+| Scheduled Date | `scheduled_at` |
+| Thumbnail | `image` |
+| Action | Edit button (re-opens scheduling dialog to change date/platforms) |
+
+**Calendar view:**
+- Built with date-fns (already installed) and a custom grid component -- no new dependency
+- Toggle between Weekly and Monthly views
+- Each day cell shows scheduled content as small cards with topic + thumbnail
+- Clicking a card navigates to the content detail page
+
+### Tab 3: Past
+
+Shows all content with `status = 'posted'`.
+
+| Column | Source |
+|--------|--------|
+| Topic | `topic` |
+| Date Posted | `posted_at` |
+
+Simple read-only archive view.
+
+## File Changes
+
+### Database Migration
+- Add `scheduled_at`, `posted_at`, `scheduled_platforms` columns to `social_content`
+- Update `CONTENT_STATUSES` in `src/lib/platforms.ts` to include `"scheduled"` and `"posted"`
+
+### New Files
+
+1. **`src/pages/Schedule.tsx`** -- Main scheduling page with three tabs (Unscheduled, Scheduled, Past)
+2. **`src/components/schedule/UnscheduledTab.tsx`** -- Table of complete/unscheduled content with schedule action
+3. **`src/components/schedule/ScheduledTab.tsx`** -- Table + Calendar toggle for scheduled content
+4. **`src/components/schedule/PastTab.tsx`** -- Table of posted content
+5. **`src/components/schedule/ScheduleDialog.tsx`** -- Dialog with date/time picker and platform selector
+6. **`src/components/schedule/CalendarView.tsx`** -- Monthly/weekly calendar grid
+7. **`src/components/schedule/ScheduleThumbnail.tsx`** -- Reusable small thumbnail component that calls `r2-read-url`
+8. **`src/hooks/useSchedule.ts`** -- React Query hooks for fetching unscheduled, scheduled, and posted content, plus mutation for scheduling
+
+### Modified Files
+
+1. **`src/App.tsx`** -- Add `/schedule` route
+2. **`src/components/AppLayout.tsx`** -- Add "Schedule" nav link (with Calendar icon)
+3. **`src/lib/platforms.ts`** -- Add `"scheduled"` and `"posted"` to `CONTENT_STATUSES`
+4. **`src/hooks/useContents.ts`** -- Add `scheduled_at`, `posted_at`, `scheduled_platforms` to `SocialContent` type
+5. **`src/components/content/StatusBadge.tsx`** -- Add color mappings for `scheduled` and `posted` statuses
+
+### Calendar Implementation
+
+The calendar is a custom component, not a third-party calendar library. Monthly view renders a 7-column CSS grid with day cells. Weekly view renders 7 day columns. Content cards are positioned in cells by matching `scheduled_at` to the cell's date. This keeps the bundle small and gives full styling control. The existing `date-fns` library handles all date math (startOfWeek, eachDayOfInterval, isSameDay, etc.).
+
