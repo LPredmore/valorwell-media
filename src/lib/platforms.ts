@@ -1,29 +1,12 @@
-export const PLATFORMS = {
-  youtube_video: { label: "YouTube Video", icon: "Youtube" },
-  youtube_short: { label: "YouTube Short", icon: "Youtube" },
-  tiktok: { label: "TikTok", icon: "Music2" },
-  instagram_reel: { label: "Instagram Reel", icon: "Instagram" },
-  x: { label: "X (Twitter)", icon: "Twitter" },
-  linkedin: { label: "LinkedIn", icon: "Linkedin" },
-  facebook: { label: "Facebook", icon: "Facebook" },
+export const CONTENT_STATUSES = ["new", "uploading", "ready", "generating", "complete", "error"] as const;
+export type ContentStatus = (typeof CONTENT_STATUSES)[number];
+
+export const CONTENT_FIELDS = {
+  youtube_title: "YouTube Title",
+  youtube_desc: "YouTube Description",
+  facebook_desc: "Facebook Caption",
+  linkedin_desc: "LinkedIn Post",
+  ig_tiktok_desc: "Instagram + TikTok Caption",
 } as const;
 
-export type PlatformKey = keyof typeof PLATFORMS;
-
-export const FORMAT_PLATFORMS: Record<string, PlatformKey[]> = {
-  long: ["youtube_video", "x", "linkedin", "facebook"],
-  short: ["youtube_short", "tiktok", "instagram_reel", "x", "linkedin", "facebook"],
-};
-
-export const HASHTAG_LIMITS: Record<PlatformKey, number> = {
-  youtube_video: 15,
-  youtube_short: 12,
-  tiktok: 15,
-  instagram_reel: 20,
-  x: 3,
-  linkedin: 7,
-  facebook: 10,
-};
-
-export const JOB_STATUSES = ["new", "ready", "processing", "completed", "error"] as const;
-export type JobStatus = (typeof JOB_STATUSES)[number];
+export type ContentFieldKey = keyof typeof CONTENT_FIELDS;

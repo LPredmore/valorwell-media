@@ -5,9 +5,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthGuard } from "@/components/AuthGuard";
 import Login from "./pages/Login";
-import Jobs from "./pages/Jobs";
-import CreateJob from "./pages/CreateJob";
-import JobDetail from "./pages/JobDetail";
+import ContentList from "./pages/ContentList";
+import CreateContent from "./pages/CreateContent";
+import ContentDetail from "./pages/ContentDetail";
 import Instructions from "./pages/Instructions";
 import NotFound from "./pages/NotFound";
 
@@ -21,11 +21,15 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/" element={<Navigate to="/jobs" replace />} />
-          <Route path="/jobs" element={<AuthGuard><Jobs /></AuthGuard>} />
-          <Route path="/jobs/new" element={<AuthGuard><CreateJob /></AuthGuard>} />
-          <Route path="/jobs/:id" element={<AuthGuard><JobDetail /></AuthGuard>} />
+          <Route path="/" element={<Navigate to="/content" replace />} />
+          <Route path="/content" element={<AuthGuard><ContentList /></AuthGuard>} />
+          <Route path="/content/new" element={<AuthGuard><CreateContent /></AuthGuard>} />
+          <Route path="/content/:id" element={<AuthGuard><ContentDetail /></AuthGuard>} />
           <Route path="/instructions" element={<AuthGuard><Instructions /></AuthGuard>} />
+          {/* Redirect old routes */}
+          <Route path="/jobs" element={<Navigate to="/content" replace />} />
+          <Route path="/jobs/new" element={<Navigate to="/content/new" replace />} />
+          <Route path="/jobs/:id" element={<Navigate to="/content" replace />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

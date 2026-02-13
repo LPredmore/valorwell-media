@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      content_instructions: {
+        Row: {
+          created_at: string
+          id: number
+          instruction: string
+          is_active: boolean
+          scope: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          id?: never
+          instruction: string
+          is_active?: boolean
+          scope: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          id?: never
+          instruction?: string
+          is_active?: boolean
+          scope?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: []
+      }
       creator_applications: {
         Row: {
           additional_info: string | null
@@ -236,42 +266,60 @@ export type Database = {
       social_content: {
         Row: {
           created_at: string
+          error: string | null
           facebook_desc: string | null
-          id: number
+          id: string
+          ig_tiktok_desc: string | null
           image: string | null
-          instagram_desc: string | null
           linkedin_desc: string | null
-          Title: string | null
-          type: string | null
+          status: string
+          topic: string
           updated_at: string
+          user_id: string
+          video_mime_type: string | null
+          video_original_filename: string | null
+          video_storage_path: string | null
           video_url: string | null
           youtube_desc: string | null
+          youtube_title: string | null
         }
         Insert: {
           created_at?: string
+          error?: string | null
           facebook_desc?: string | null
-          id?: number
+          id?: string
+          ig_tiktok_desc?: string | null
           image?: string | null
-          instagram_desc?: string | null
           linkedin_desc?: string | null
-          Title?: string | null
-          type?: string | null
+          status?: string
+          topic: string
           updated_at?: string
+          user_id: string
+          video_mime_type?: string | null
+          video_original_filename?: string | null
+          video_storage_path?: string | null
           video_url?: string | null
           youtube_desc?: string | null
+          youtube_title?: string | null
         }
         Update: {
           created_at?: string
+          error?: string | null
           facebook_desc?: string | null
-          id?: number
+          id?: string
+          ig_tiktok_desc?: string | null
           image?: string | null
-          instagram_desc?: string | null
           linkedin_desc?: string | null
-          Title?: string | null
-          type?: string | null
+          status?: string
+          topic?: string
           updated_at?: string
+          user_id?: string
+          video_mime_type?: string | null
+          video_original_filename?: string | null
+          video_storage_path?: string | null
           video_url?: string | null
           youtube_desc?: string | null
+          youtube_title?: string | null
         }
         Relationships: []
       }
@@ -387,10 +435,6 @@ export type Database = {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
-        Returns: boolean
-      }
-      owns_job: {
-        Args: { _job_id: string; _user_id: string }
         Returns: boolean
       }
     }

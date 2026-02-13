@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -6,32 +6,55 @@ import { supabase } from "@/integrations/supabase/client";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PLATFORMS, type PlatformKey } from "@/lib/platforms";
 import { toast } from "@/hooks/use-toast";
 import { Save } from "lucide-react";
-import type { Tables } from "@/integrations/supabase/types";
 
-type PlatformInstruction = Tables<"platform_instructions">;
-type ImageInstruction = Tables<"image_instructions">;
+type ContentInstruction = {
+  id: number;
+  scope: string;
+  instruction: string;
+  is_active: boolean;
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
 
-function PlatformRow({ row }: { row: PlatformInstruction }) {
+type ImageInstruction = {
+  id: number;
+  aspect_ratio: string;
+  instruction: string;
+  is_active: boolean;
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+const SCOPE_LABELS: Record<string, string> = {
+  global: "Global Instructions",
+  youtube_title: "YouTube Title",
+  youtube_desc: "YouTube Description",
+  facebook_desc: "Facebook Caption",
+  linkedin_desc: "LinkedIn Post",
+  ig_tiktok_desc: "Instagram + TikTok Caption",
+  hashtags: "Hashtag Rules",
+};
+
+function ContentInstructionRow({ row }: { row: ContentInstruction }) {
   const queryClient = useQueryClient();
   const [instruction, setInstruction] = useState(row.instruction);
-  const [aspectRatio, setAspectRatio] = useState(row.preferred_aspect_ratio);
   const [isActive, setIsActive] = useState(row.is_active);
 
   const mutation = useMutation({
     mutationFn: async () => {
       const { error } = await supabase
-        .from("platform_instructions")
-        .update({ instruction, preferred_aspect_ratio: aspectRatio, is_active: isActive })
+        .from("content_instructions")
+        .update({ instruction, is_active: isActive } as any)
         .eq("id", row.id);
       if (error) throw error;
     },
     onSuccess: () => {
       toast({ title: "Saved" });
-      queryClient.invalidateQueries({ queryKey: ["platform-instructions"] });
+      queryClient.invalidateQueries({ queryKey: ["content-instructions"] });
     },
     onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -39,25 +62,16 @@ function PlatformRow({ row }: { row: PlatformInstruction }) {
   return (
     <div className="space-y-2 rounded-lg border border-border bg-card p-4">
       <div className="flex items-center justify-between">
-        <div>
-          <span className="text-sm font-semibold capitalize">{row.component}</span>
-          <span className="ml-2 text-xs text-muted-foreground">v{row.version}</span>
-        </div>
-        <div className="flex items-center gap-3">
+        <span className="text-sm font-semibold">{SCOPE_LABELS[row.scope] || row.scope}</span>
+        {row.scope !== "global" && (
           <Switch checked={isActive} onCheckedChange={setIsActive} />
-          <Select value={aspectRatio} onValueChange={setAspectRatio}>
-            <SelectTrigger className="h-8 w-24 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="16:9">16:9</SelectItem>
-              <SelectItem value="9:16">9:16</SelectItem>
-              <SelectItem value="1:1">1:1</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        )}
       </div>
-      <Textarea value={instruction} onChange={(e) => setInstruction(e.target.value)} rows={3} />
+      <Textarea
+        value={instruction}
+        onChange={(e) => setInstruction(e.target.value)}
+        rows={row.scope === "global" ? 8 : 4}
+      />
       <Button size="sm" onClick={() => mutation.mutate()} disabled={mutation.isPending} className="gap-1.5">
         <Save className="h-3.5 w-3.5" />
         Save
@@ -104,16 +118,15 @@ function ImageRow({ row }: { row: ImageInstruction }) {
 export default function Instructions() {
   const { isAdmin, isLoading: adminLoading } = useIsAdmin();
 
-  const { data: platformInstructions = [] } = useQuery({
-    queryKey: ["platform-instructions"],
+  const { data: contentInstructions = [] } = useQuery({
+    queryKey: ["content-instructions"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("platform_instructions")
+        .from("content_instructions")
         .select("*")
-        .order("platform")
-        .order("component");
+        .order("id");
       if (error) throw error;
-      return data as PlatformInstruction[];
+      return data as unknown as ContentInstruction[];
     },
     enabled: isAdmin,
   });
@@ -152,38 +165,35 @@ export default function Instructions() {
     );
   }
 
-  // Group platform instructions by platform
-  const grouped = platformInstructions.reduce<Record<string, PlatformInstruction[]>>((acc, row) => {
-    if (!acc[row.platform]) acc[row.platform] = [];
-    acc[row.platform].push(row);
-    return acc;
-  }, {});
+  const globalInstruction = contentInstructions.find((r) => r.scope === "global");
+  const fieldInstructions = contentInstructions.filter((r) => r.scope !== "global");
 
   return (
     <AppLayout>
       <div className="mx-auto max-w-3xl space-y-10">
         <h1 className="text-3xl font-extrabold tracking-tight">Instructions</h1>
 
-        {/* Platform Instructions */}
-        <section className="space-y-6">
-          <h2 className="text-xl font-bold">Platform Instructions</h2>
-          {Object.entries(grouped).map(([platform, rows]) => (
-            <div key={platform} className="space-y-3">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                {PLATFORMS[platform as PlatformKey]?.label || platform}
-              </h3>
-              {rows.map((row) => (
-                <PlatformRow key={row.id} row={row} />
-              ))}
-            </div>
+        {/* Global Instructions */}
+        {globalInstruction && (
+          <section className="space-y-4">
+            <h2 className="text-xl font-bold">Global Instructions</h2>
+            <ContentInstructionRow row={globalInstruction} />
+          </section>
+        )}
+
+        {/* Field Instructions */}
+        <section className="space-y-4">
+          <h2 className="text-xl font-bold">Field Instructions</h2>
+          {fieldInstructions.map((row) => (
+            <ContentInstructionRow key={row.id} row={row} />
           ))}
-          {Object.keys(grouped).length === 0 && (
-            <p className="text-sm text-muted-foreground">No platform instructions configured.</p>
+          {fieldInstructions.length === 0 && (
+            <p className="text-sm text-muted-foreground">No field instructions configured.</p>
           )}
         </section>
 
         {/* Image Instructions */}
-        <section className="space-y-6">
+        <section className="space-y-4">
           <h2 className="text-xl font-bold">Image Instructions</h2>
           {imageInstructions.map((row) => (
             <ImageRow key={row.id} row={row} />
