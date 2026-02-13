@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
+import { uploadVideoResumable } from "@/lib/uploadVideo";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -69,17 +70,15 @@ export default function JobDetail() {
     const ext = file.name.split(".").pop();
     const storagePath = `jobs/${id}/video.${ext}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from("content-media")
-      .upload(storagePath, file, { upsert: true });
-
-    if (uploadError) {
-      toast({ title: "Upload failed", description: uploadError.message, variant: "destructive" });
+    try {
+      await uploadVideoResumable("content-media", storagePath, file, (pct) => {
+        setVideoProgress(20 + pct * 0.5);
+      });
+    } catch (uploadError: any) {
+      toast({ title: "Upload failed", description: uploadError?.message, variant: "destructive" });
       setVideoUploading(false);
       return;
     }
-
-    setVideoProgress(70);
 
     const { error: updateError } = await supabase
       .from("content_jobs")
