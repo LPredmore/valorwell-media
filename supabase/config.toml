@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.publish-youtube]
 verify_jwt = false
+
+[functions.regenerate-image]
+verify_jwt = false
