@@ -272,6 +272,7 @@ export type Database = {
           ig_tiktok_desc: string | null
           image: string | null
           linkedin_desc: string | null
+          post_length: Database["public"]["Enums"]["video_length"] | null
           status: string
           topic: string
           updated_at: string
@@ -291,6 +292,7 @@ export type Database = {
           ig_tiktok_desc?: string | null
           image?: string | null
           linkedin_desc?: string | null
+          post_length?: Database["public"]["Enums"]["video_length"] | null
           status?: string
           topic: string
           updated_at?: string
@@ -310,6 +312,7 @@ export type Database = {
           ig_tiktok_desc?: string | null
           image?: string | null
           linkedin_desc?: string | null
+          post_length?: Database["public"]["Enums"]["video_length"] | null
           status?: string
           topic?: string
           updated_at?: string
@@ -440,6 +443,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
+      video_length: "Short" | "Long"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -568,6 +572,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
+      video_length: ["Short", "Long"],
     },
   },
 } as const
