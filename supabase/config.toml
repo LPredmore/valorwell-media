@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.generate-content]
 verify_jwt = false
+
+[functions.r2-read-url]
+verify_jwt = false

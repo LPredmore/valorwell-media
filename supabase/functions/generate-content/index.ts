@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { AwsClient } from "npm:aws4fetch@1.0.18";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,7 +23,6 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-  // Get the user's JWT from the Authorization header
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
     return new Response(JSON.stringify({ error: "Missing authorization header" }), {
@@ -31,12 +31,9 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Create a client with the user's JWT for ownership check
   const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
     global: { headers: { Authorization: authHeader } },
   });
-
-  // Service role client for updates
   const adminClient = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
@@ -79,10 +76,8 @@ Deno.serve(async (req) => {
       instructionsByScope[row.scope] = row.instruction;
     }
 
-    // Build system prompt from global instruction
     const systemPrompt = instructionsByScope["global"] || "You are a social media content generation assistant.";
 
-    // Build user prompt with per-field rules
     const fieldScopes = ["youtube_title", "youtube_desc", "facebook_desc", "linkedin_desc", "ig_tiktok_desc", "hashtags"];
     let fieldRules = "";
     for (const scope of fieldScopes) {
@@ -93,7 +88,7 @@ Deno.serve(async (req) => {
 
     const userPrompt = `Topic: ${content.topic}${fieldRules}`;
 
-    // Call OpenRouter with tool calling for structured output
+    // ── Step 1: Generate text (Claude Sonnet) ──
     const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -133,7 +128,7 @@ Deno.serve(async (req) => {
 
     if (!openRouterResponse.ok) {
       const errText = await openRouterResponse.text();
-      console.error("OpenRouter error:", openRouterResponse.status, errText);
+      console.error("OpenRouter text error:", openRouterResponse.status, errText);
       await adminClient
         .from("social_content")
         .update({ status: "error", error: `OpenRouter API error: ${openRouterResponse.status}` })
@@ -161,7 +156,7 @@ Deno.serve(async (req) => {
 
     const generated = JSON.parse(toolCall.function.arguments);
 
-    // Update the social_content row with generated fields
+    // Save text fields (status stays 'generating' while image is produced)
     const { error: updateError } = await adminClient
       .from("social_content")
       .update({
@@ -170,7 +165,6 @@ Deno.serve(async (req) => {
         facebook_desc: generated.facebook_desc,
         linkedin_desc: generated.linkedin_desc,
         ig_tiktok_desc: generated.ig_tiktok_desc,
-        status: "complete",
         error: null,
       })
       .eq("id", contentId);
@@ -182,6 +176,144 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // ── Step 2: Image generation (soft failure) ──
+    try {
+      // Fetch image instructions
+      const { data: imageInstructions } = await adminClient
+        .from("image_instructions")
+        .select("instruction, aspect_ratio")
+        .eq("is_active", true);
+
+      const imageRules = (imageInstructions || [])
+        .map((r) => `Aspect ratio: ${r.aspect_ratio}\n${r.instruction}`)
+        .join("\n\n");
+
+      // Step 2a: Craft image prompt with GPT-4.1 Mini
+      const promptCraftResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-4.1-mini",
+          messages: [
+            {
+              role: "system",
+              content:
+                "You craft optimized image generation prompts for gpt-image-1. Given content context and rules, produce a single detailed image prompt that will generate a compelling cover image.",
+            },
+            {
+              role: "user",
+              content: `Title: ${generated.youtube_title}\n\nDescription: ${generated.youtube_desc}\n\n${imageRules ? `Image rules:\n${imageRules}` : ""}`,
+            },
+          ],
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "save_prompt",
+                description: "Save the crafted image generation prompt.",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    image_prompt: {
+                      type: "string",
+                      description: "A detailed prompt optimized for gpt-image-1 image generation",
+                    },
+                  },
+                  required: ["image_prompt"],
+                  additionalProperties: false,
+                },
+              },
+            },
+          ],
+          tool_choice: { type: "function", function: { name: "save_prompt" } },
+        }),
+      });
+
+      if (!promptCraftResponse.ok) {
+        const errText = await promptCraftResponse.text();
+        throw new Error(`Prompt craft failed (${promptCraftResponse.status}): ${errText}`);
+      }
+
+      const promptResult = await promptCraftResponse.json();
+      const promptToolCall = promptResult.choices?.[0]?.message?.tool_calls?.[0];
+      if (!promptToolCall) throw new Error("GPT-4.1 Mini did not return a tool call");
+
+      const { image_prompt } = JSON.parse(promptToolCall.function.arguments);
+      console.log("Crafted image prompt:", image_prompt);
+
+      // Step 2b: Generate image with gpt-image-1
+      const imageResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-image-1",
+          messages: [{ role: "user", content: image_prompt }],
+          modalities: ["image"],
+        }),
+      });
+
+      if (!imageResponse.ok) {
+        const errText = await imageResponse.text();
+        throw new Error(`Image generation failed (${imageResponse.status}): ${errText}`);
+      }
+
+      const imageResult = await imageResponse.json();
+      const base64Url = imageResult.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+      if (!base64Url) throw new Error("No image returned from gpt-image-1");
+
+      // Step 2c: Upload to R2
+      const base64Data = base64Url.replace(/^data:image\/\w+;base64,/, "");
+      const imageBytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+
+      const R2_ENDPOINT = Deno.env.get("R2_ENDPOINT")!;
+      const R2_ACCESS_KEY_ID = Deno.env.get("R2_ACCESS_KEY_ID")!;
+      const R2_SECRET_ACCESS_KEY = Deno.env.get("R2_SECRET_ACCESS_KEY")!;
+      const R2_BUCKET_NAME = Deno.env.get("R2_BUCKET_NAME")!;
+
+      const r2Client = new AwsClient({
+        accessKeyId: R2_ACCESS_KEY_ID,
+        secretAccessKey: R2_SECRET_ACCESS_KEY,
+        service: "s3",
+        region: "auto",
+      });
+
+      const storagePath = `content/${contentId}/cover.png`;
+      const r2Url = `${R2_ENDPOINT}/${R2_BUCKET_NAME}/${storagePath}`;
+
+      const uploadResp = await r2Client.fetch(r2Url, {
+        method: "PUT",
+        headers: { "Content-Type": "image/png" },
+        body: imageBytes,
+      });
+
+      if (!uploadResp.ok) {
+        throw new Error(`R2 upload failed: ${uploadResp.status}`);
+      }
+
+      // Step 2d: Save image path
+      await adminClient
+        .from("social_content")
+        .update({ image: storagePath })
+        .eq("id", contentId);
+
+      console.log("Image generated and uploaded:", storagePath);
+    } catch (imgError) {
+      console.error("Image generation error (soft):", imgError);
+      // Soft failure - text is preserved, just log the error
+    }
+
+    // ── Step 3: Set status to complete ──
+    await adminClient
+      .from("social_content")
+      .update({ status: "complete" })
+      .eq("id", contentId);
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200,
