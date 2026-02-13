@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { VideoUploader } from "@/components/jobs/VideoUploader";
 import { supabase } from "@/integrations/supabase/client";
+import { uploadVideoResumable } from "@/lib/uploadVideo";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
@@ -41,23 +42,19 @@ export default function CreateJob() {
       return;
     }
 
-    setProgress(30);
-
-    // 2. Upload video
+    // 2. Upload video via TUS resumable upload
     const ext = videoFile.name.split(".").pop();
     const storagePath = `jobs/${job.id}/video.${ext}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from("content-media")
-      .upload(storagePath, videoFile, { upsert: true });
-
-    if (uploadError) {
-      toast({ title: "Video upload failed", description: uploadError.message, variant: "destructive" });
+    try {
+      await uploadVideoResumable("content-media", storagePath, videoFile, (pct) => {
+        setProgress(30 + pct * 0.5); // map 0-100% to 30-80%
+      });
+    } catch (uploadError: any) {
+      toast({ title: "Video upload failed", description: uploadError?.message, variant: "destructive" });
       setUploading(false);
       return;
     }
-
-    setProgress(80);
 
     // 3. Update job with video info
     const { error: updateError } = await supabase
