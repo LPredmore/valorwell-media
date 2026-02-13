@@ -1,30 +1,26 @@
 
 
-## Fix: Use a Custom Secret Name for the Service Role Key
+## Assign Admin Role to Existing User
 
-### The Problem
-The `SUPABASE_SERVICE_ROLE_KEY` and `SERVICE_ROLE_KEY` secrets are system-managed and contain a 41-character credential (not the JWT). Even when updated, they may get overwritten. This is why the edge function keeps failing.
+### What Happened
+The user `info@valorwell.org` was successfully created in Supabase Auth during an earlier attempt, but the outage hit before the admin role could be assigned. Now the edge function fails because it tries to create the user again and gets "already registered."
 
-### The Solution
-Use a **new custom secret name** that won't conflict with system-managed secrets, then update the edge function to read from it.
+### What Needs to Change
 
-### Steps
+**Update the `create-admin-user` edge function** to handle the "user already exists" case:
 
-1. **Create a new secret** called `CUSTOM_SERVICE_ROLE_KEY`
-   - You'll be prompted to paste your Service Role Key (the long JWT starting with `eyJ...` from Supabase Dashboard -> Settings -> API)
+1. Try to create the user as before
+2. If the error says the user already exists, look up the existing user by email instead of failing
+3. Insert the admin role using the found user ID
+4. Return success either way
 
-2. **Update the edge function** to use `CUSTOM_SERVICE_ROLE_KEY` instead of the system-managed ones:
-   - Change the key lookup line from:
-     `Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SERVICE_ROLE_KEY")`
-   - To:
-     `Deno.env.get("CUSTOM_SERVICE_ROLE_KEY")`
+**After successful role assignment:**
+- Clean up by deleting the `create-admin-user` edge function (it's a one-time utility)
 
-3. **Deploy and invoke** the function to create the admin user
+### Technical Details
 
-4. **Clean up** - delete the edge function and the custom secret after success
-
-### Where to Find Your Service Role Key
-- Go to your Supabase Dashboard
-- Navigate to **Project Settings** then **API**
-- Copy the **Service Role Key** (the long string starting with `eyJ...`)
+In `supabase/functions/create-admin-user/index.ts`:
+- After catching the "already registered" error, call `supabaseAdmin.auth.admin.listUsers()` filtered by email to get the user ID
+- Use that ID to insert into `user_roles`
+- Keep all other logic the same
 
