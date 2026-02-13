@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
-import { uploadVideoResumable } from "@/lib/uploadVideo";
+import { uploadVideoToR2 } from "@/lib/uploadVideo";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -71,7 +71,7 @@ export default function JobDetail() {
     const storagePath = `jobs/${id}/video.${ext}`;
 
     try {
-      await uploadVideoResumable("content-media", storagePath, file, (pct) => {
+      await uploadVideoToR2(storagePath, file, (pct) => {
         setVideoProgress(20 + pct * 0.5);
       });
     } catch (uploadError: any) {

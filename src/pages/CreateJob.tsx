@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { VideoUploader } from "@/components/jobs/VideoUploader";
 import { supabase } from "@/integrations/supabase/client";
-import { uploadVideoResumable } from "@/lib/uploadVideo";
+import { uploadVideoToR2 } from "@/lib/uploadVideo";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
@@ -47,7 +47,7 @@ export default function CreateJob() {
     const storagePath = `jobs/${job.id}/video.${ext}`;
 
     try {
-      await uploadVideoResumable("content-media", storagePath, videoFile, (pct) => {
+      await uploadVideoToR2(storagePath, videoFile, (pct) => {
         setProgress(30 + pct * 0.5); // map 0-100% to 30-80%
       });
     } catch (uploadError: any) {
