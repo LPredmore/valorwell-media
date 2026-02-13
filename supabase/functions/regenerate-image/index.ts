@@ -24,17 +24,14 @@ Deno.serve(async (req) => {
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader) {
-    return new Response(JSON.stringify({ error: "Missing authorization header" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
 
   const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-    global: { headers: { Authorization: authHeader } },
+    global: { headers: { Authorization: authHeader || "" } },
   });
   const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+
+  // Use adminClient for fetch when no auth header (admin invocation)
+  const fetchClient = authHeader ? userClient : adminClient;
 
   try {
     const { contentId } = await req.json();
@@ -45,8 +42,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Fetch the content row (RLS ensures ownership)
-    const { data: content, error: fetchError } = await userClient
+    // Fetch the content row
+    const { data: content, error: fetchError } = await fetchClient
       .from("social_content")
       .select("youtube_title, youtube_desc")
       .eq("id", contentId)
