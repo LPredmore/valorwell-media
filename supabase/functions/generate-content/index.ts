@@ -220,7 +220,7 @@ Deno.serve(async (req) => {
                   properties: {
                     image_prompt: {
                       type: "string",
-                      description: "A detailed prompt optimized for gpt-image-1 image generation",
+                      description: "A detailed prompt optimized for gpt-5-image-mini image generation",
                     },
                   },
                   required: ["image_prompt"],
@@ -253,7 +253,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "openai/gpt-image-1",
+          model: "openai/gpt-5-image-mini",
           messages: [{ role: "user", content: image_prompt }],
           modalities: ["image"],
         }),
@@ -266,7 +266,7 @@ Deno.serve(async (req) => {
 
       const imageResult = await imageResponse.json();
       const base64Url = imageResult.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-      if (!base64Url) throw new Error("No image returned from gpt-image-1");
+      if (!base64Url) throw new Error("No image returned from gpt-5-image-mini");
 
       // Step 2c: Upload to R2
       const base64Data = base64Url.replace(/^data:image\/\w+;base64,/, "");
