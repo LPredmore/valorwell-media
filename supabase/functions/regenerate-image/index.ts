@@ -181,10 +181,10 @@ Deno.serve(async (req) => {
       throw new Error(`R2 upload failed: ${uploadResp.status}`);
     }
 
-    // Step 4: Save image path
+    // Step 4: Save image path and prompt
     await adminClient
       .from("social_content")
-      .update({ image: storagePath })
+      .update({ image: storagePath, image_prompt } as any)
       .eq("id", contentId);
 
     console.log("Image regenerated and uploaded:", storagePath);

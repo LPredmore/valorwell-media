@@ -271,6 +271,7 @@ export type Database = {
           id: string
           ig_tiktok_desc: string | null
           image: string | null
+          image_prompt: string | null
           linkedin_desc: string | null
           post_length: Database["public"]["Enums"]["video_length"] | null
           posted_at: string | null
@@ -294,6 +295,7 @@ export type Database = {
           id?: string
           ig_tiktok_desc?: string | null
           image?: string | null
+          image_prompt?: string | null
           linkedin_desc?: string | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
           posted_at?: string | null
@@ -317,6 +319,7 @@ export type Database = {
           id?: string
           ig_tiktok_desc?: string | null
           image?: string | null
+          image_prompt?: string | null
           linkedin_desc?: string | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
           posted_at?: string | null

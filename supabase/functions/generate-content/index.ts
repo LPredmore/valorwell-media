@@ -297,10 +297,10 @@ Deno.serve(async (req) => {
         throw new Error(`R2 upload failed: ${uploadResp.status}`);
       }
 
-      // Step 2d: Save image path
+      // Step 2d: Save image path and prompt
       await adminClient
         .from("social_content")
-        .update({ image: storagePath })
+        .update({ image: storagePath, image_prompt } as any)
         .eq("id", contentId);
 
       console.log("Image generated and uploaded:", storagePath);
