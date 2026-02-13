@@ -11,11 +11,13 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 export default function CreateContent() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [topic, setTopic] = useState("");
+  const [postLength, setPostLength] = useState<"Short" | "Long" | null>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -30,7 +32,7 @@ export default function CreateContent() {
     // 1. Create content row
     const { data: content, error: insertError } = await supabase
       .from("social_content")
-      .insert({ topic: topic.trim(), user_id: user.id, status: "uploading" } as any)
+      .insert({ topic: topic.trim(), user_id: user.id, status: "uploading", post_length: postLength } as any)
       .select()
       .single();
 
@@ -110,6 +112,24 @@ export default function CreateContent() {
           </div>
 
           <div className="space-y-1.5">
+            <Label className="font-medium">Video Length</Label>
+            <RadioGroup
+              value={postLength ?? ""}
+              onValueChange={(val) => setPostLength(val as "Short" | "Long")}
+              className="flex gap-4"
+            >
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="Short" id="short" />
+                <Label htmlFor="short" className="cursor-pointer">Short <span className="text-muted-foreground text-sm">(Reels, TikTok, Shorts)</span></Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="Long" id="long" />
+                <Label htmlFor="long" className="cursor-pointer">Long <span className="text-muted-foreground text-sm">(YouTube, Facebook)</span></Label>
+              </div>
+            </RadioGroup>
+          </div>
+
+          <div className="space-y-1.5">
             <Label className="font-medium">Video</Label>
             <VideoUploader
               onFileSelected={setVideoFile}
@@ -119,7 +139,7 @@ export default function CreateContent() {
             />
           </div>
 
-          <Button type="submit" className="w-full" disabled={uploading || !videoFile || !topic.trim()}>
+          <Button type="submit" className="w-full" disabled={uploading || !videoFile || !topic.trim() || !postLength}>
             {uploading ? "Creating & Generating..." : "Create & Generate"}
           </Button>
         </form>
