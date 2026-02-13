@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.regenerate-image]
 verify_jwt = false
+
+[functions.google-account-info]
+verify_jwt = false
