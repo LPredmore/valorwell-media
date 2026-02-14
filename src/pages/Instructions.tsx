@@ -19,16 +19,6 @@ type ContentInstruction = {
   updated_at: string;
 };
 
-type ImageInstruction = {
-  id: number;
-  aspect_ratio: string;
-  instruction: string;
-  is_active: boolean;
-  version: number;
-  created_at: string;
-  updated_at: string;
-};
-
 const SCOPE_LABELS: Record<string, string> = {
   global: "Global Instructions",
   youtube_title: "YouTube Title",
@@ -80,41 +70,6 @@ function ContentInstructionRow({ row }: { row: ContentInstruction }) {
   );
 }
 
-function ImageRow({ row }: { row: ImageInstruction }) {
-  const queryClient = useQueryClient();
-  const [instruction, setInstruction] = useState(row.instruction);
-  const [isActive, setIsActive] = useState(row.is_active);
-
-  const mutation = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase
-        .from("image_instructions")
-        .update({ instruction, is_active: isActive })
-        .eq("id", row.id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast({ title: "Saved" });
-      queryClient.invalidateQueries({ queryKey: ["image-instructions"] });
-    },
-    onError: (e) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
-
-  return (
-    <div className="space-y-2 rounded-lg border border-border bg-card p-4">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">{row.aspect_ratio}</span>
-        <Switch checked={isActive} onCheckedChange={setIsActive} />
-      </div>
-      <Textarea value={instruction} onChange={(e) => setInstruction(e.target.value)} rows={3} />
-      <Button size="sm" onClick={() => mutation.mutate()} disabled={mutation.isPending} className="gap-1.5">
-        <Save className="h-3.5 w-3.5" />
-        Save
-      </Button>
-    </div>
-  );
-}
-
 export default function Instructions() {
   const { isAdmin, isLoading: adminLoading } = useIsAdmin();
 
@@ -127,19 +82,6 @@ export default function Instructions() {
         .order("id");
       if (error) throw error;
       return data as unknown as ContentInstruction[];
-    },
-    enabled: isAdmin,
-  });
-
-  const { data: imageInstructions = [] } = useQuery({
-    queryKey: ["image-instructions"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("image_instructions")
-        .select("*")
-        .order("aspect_ratio");
-      if (error) throw error;
-      return data as ImageInstruction[];
     },
     enabled: isAdmin,
   });
@@ -189,17 +131,6 @@ export default function Instructions() {
           ))}
           {fieldInstructions.length === 0 && (
             <p className="text-sm text-muted-foreground">No field instructions configured.</p>
-          )}
-        </section>
-
-        {/* Image Instructions */}
-        <section className="space-y-4">
-          <h2 className="text-xl font-bold">Image Instructions</h2>
-          {imageInstructions.map((row) => (
-            <ImageRow key={row.id} row={row} />
-          ))}
-          {imageInstructions.length === 0 && (
-            <p className="text-sm text-muted-foreground">No image instructions configured.</p>
           )}
         </section>
       </div>
