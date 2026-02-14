@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { uploadVideoToR2 } from "@/lib/uploadVideo";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ImageIcon, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
@@ -19,8 +19,35 @@ export default function CreateContent() {
   const [topic, setTopic] = useState("");
   const [postLength, setPostLength] = useState<"Short" | "Long" | null>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageSelect = useCallback((file: File) => {
+    setImageFile(file);
+    const url = URL.createObjectURL(file);
+    setImagePreview(url);
+  }, []);
+
+  const handleImageDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files?.[0];
+      if (file && file.type.startsWith("image/")) {
+        handleImageSelect(file);
+      }
+    },
+    [handleImageSelect]
+  );
+
+  const clearImage = useCallback(() => {
+    setImageFile(null);
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImagePreview(null);
+    if (imageInputRef.current) imageInputRef.current.value = "";
+  }, [imagePreview]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,12 +73,12 @@ export default function CreateContent() {
     setProgress(10);
 
     // 2. Upload video to R2
-    const ext = videoFile.name.split(".").pop();
-    const storagePath = `content/${contentId}/video.${ext}`;
+    const videoExt = videoFile.name.split(".").pop();
+    const videoPath = `content/${contentId}/video.${videoExt}`;
 
     try {
-      await uploadVideoToR2(storagePath, videoFile, (pct) => {
-        setProgress(10 + pct * 0.5);
+      await uploadVideoToR2(videoPath, videoFile, (pct) => {
+        setProgress(10 + pct * 0.4);
       });
     } catch (uploadError: any) {
       toast({ title: "Video upload failed", description: uploadError?.message, variant: "destructive" });
@@ -59,22 +86,41 @@ export default function CreateContent() {
       return;
     }
 
+    setProgress(55);
+
+    // 3. Upload cover image to R2 (optional)
+    let imagePath: string | null = null;
+    if (imageFile) {
+      const imgExt = imageFile.name.split(".").pop();
+      imagePath = `content/${contentId}/cover.${imgExt}`;
+      try {
+        await uploadVideoToR2(imagePath, imageFile, (pct) => {
+          setProgress(55 + pct * 0.1);
+        });
+      } catch (uploadError: any) {
+        toast({ title: "Image upload failed", description: uploadError?.message, variant: "destructive" });
+        // Continue without image — it's optional
+        imagePath = null;
+      }
+    }
+
     setProgress(65);
 
-    // 3. Update with video info and set status to generating
+    // 4. Update with video/image info and set status to ready
     await supabase
       .from("social_content")
       .update({
-        video_storage_path: storagePath,
+        video_storage_path: videoPath,
         video_mime_type: videoFile.type,
         video_original_filename: videoFile.name,
+        ...(imagePath ? { image: imagePath } : {}),
         status: "ready",
       } as any)
       .eq("id", contentId);
 
     setProgress(70);
 
-    // 4. Call generate-content edge function
+    // 5. Call generate-content edge function
     const { error: genError } = await supabase.functions.invoke("generate-content", {
       body: { contentId },
     });
@@ -137,6 +183,44 @@ export default function CreateContent() {
               progress={progress}
               currentFilename={videoFile?.name}
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="font-medium">Cover Image <span className="text-muted-foreground font-normal">(Optional)</span></Label>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImageSelect(file);
+              }}
+            />
+            {imagePreview ? (
+              <div className="relative overflow-hidden rounded-lg border border-border bg-muted">
+                <img src={imagePreview} alt="Cover preview" className="h-48 w-full object-cover" />
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="icon"
+                  className="absolute right-2 top-2 h-7 w-7"
+                  onClick={clearImage}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <div
+                className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-muted/50 p-8 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted"
+                onClick={() => imageInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleImageDrop}
+              >
+                <ImageIcon className="h-8 w-8" />
+                <span>Click or drag an image to upload</span>
+              </div>
+            )}
           </div>
 
           <Button type="submit" className="w-full" disabled={uploading || !videoFile || !topic.trim() || !postLength}>
