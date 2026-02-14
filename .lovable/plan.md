@@ -1,34 +1,72 @@
 
 
-# Add Google Sign-In to Login Page and Fix YouTube Connection
+# Replace AI Image Generation with Manual Cover Image Upload
 
-## What this does
-Adds a "Sign in with Google" button on the login page so users can log in with their Google account, and ensures the YouTube connection flow on Settings works correctly.
+## Overview
+Remove all AI-powered image generation code and replace it with an optional cover image upload field on the Create Content page. The cover image will be uploaded to R2 (same as videos) and displayed on the Content Detail page.
 
-## Changes
+## What gets removed
 
-### 1. Update Login Page (`src/pages/Login.tsx`)
-- Add a "Sign in with Google" button below the existing email/password form
-- Add a visual divider ("or") between the two login methods
-- The Google sign-in button will call `supabase.auth.signInWithOAuth({ provider: "google" })` with `redirectTo` set to the app's origin (so after Google login, the user lands back in the app)
-- Fix the existing redirect from `/jobs` to `/content` (line 18 and 30 currently navigate to `/jobs`)
+### 1. Delete the `regenerate-image` edge function entirely
+- `supabase/functions/regenerate-image/index.ts` -- the entire function is solely for AI image regeneration
 
-### 2. Update Settings Page (`src/pages/Settings.tsx`)
-- The "Connect YouTube Account" button already calls `signInWithOAuth` with YouTube scopes and `redirectTo` pointing to `/settings` -- this should now work with the corrected Supabase URL configuration
-- No code changes needed here, but we will verify the redirect URL uses `window.location.origin` correctly
+### 2. Remove image generation from `generate-content` edge function
+- Remove the entire "Step 2: Image generation" block (lines 180-310) -- this is the GPT-4.1 Mini prompt crafting + FLUX.2 Pro image generation + R2 upload
+- Remove the `AwsClient` import (line 2) since it's only used for image upload to R2
+- After saving text fields, go straight to setting status to "complete"
 
-## Important Notes
-- The **Supabase OAuth Server** you enabled is unrelated to Google sign-in. It's for making your Supabase project act as an identity provider for other apps. It won't cause issues, but it's not needed for this feature.
-- Since your Site URL and Redirect URLs are now configured correctly, both Google login and the YouTube connection flow should work.
+### 3. Remove Image Instructions from the Instructions page
+- `src/pages/Instructions.tsx`: Remove the `ImageRow` component, the `ImageInstruction` type, the `image-instructions` query, and the "Image Instructions" section from the JSX
+
+## What gets added
+
+### 4. Add optional cover image upload to `src/pages/CreateContent.tsx`
+- Add an image file state (`imageFile`) and a preview URL
+- Add a drag-and-drop image upload area (similar pattern to `VideoUploader` but accepting `image/*`)
+- Mark it as "(Optional)" in the label
+- On submit, if an image file is provided, upload it to R2 at `content/{contentId}/cover.png` using the existing `uploadVideoToR2` helper (which works for any file type -- it just gets a presigned URL and uploads via tus/PUT)
+- Save the R2 storage path to the `image` column on the `social_content` row
+
+### 5. Update `src/pages/ContentDetail.tsx`
+- The `ImageSection` component already displays the cover image from R2 -- no changes needed there
+- Remove or hide any "Regenerate" button references that trigger image regeneration (the current Regenerate button regenerates ALL content including image, which is fine to keep for text -- it just won't regenerate images anymore)
+
+### 6. Update `src/components/content/ImageSection.tsx`
+- Change the "No image generated yet" text to "No cover image" since images are now manually uploaded
+
+## What stays the same
+- The `image` column on `social_content` continues to store the R2 path
+- The `ImageSection` component continues to fetch and display the image via `r2-read-url`
+- The `ImageLightbox` component stays as-is
+- Video upload flow is unchanged
 
 ## Technical Details
 
-### Login.tsx changes:
-- Import Google icon (using a simple SVG inline or from lucide)
-- Add `handleGoogleLogin` function that calls `supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin + "/content" } })`
-- Add a separator and Google button to the JSX
-- Fix navigation targets from `/jobs` to `/content`
+### CreateContent.tsx image upload flow:
+1. User optionally selects/drops an image file
+2. Show a thumbnail preview of the selected image
+3. On form submit, after creating the content row and uploading the video:
+   - Get a presigned upload URL from `r2-upload-url` for path `content/{contentId}/cover.{ext}`
+   - Upload the image file to R2
+   - Update the `social_content` row with `image: storagePath`
+4. Then call `generate-content` for text generation as before
 
-### No database changes needed
-Google OAuth users will automatically get entries in `auth.users` via Supabase Auth.
+### generate-content edge function (simplified):
+- Generate text with Claude Sonnet (unchanged)
+- Save text fields (unchanged)
+- Set status to "complete" (no more image step in between)
+- The `AwsClient` import can be removed since R2 upload is no longer done server-side
+
+### Files modified:
+- `src/pages/CreateContent.tsx` -- add optional image upload field
+- `src/components/content/ImageSection.tsx` -- update empty state text
+- `src/pages/Instructions.tsx` -- remove Image Instructions section
+- `supabase/functions/generate-content/index.ts` -- remove image generation block and AwsClient import
+
+### Files deleted:
+- `supabase/functions/regenerate-image/index.ts` -- entire function removed
+
+### Edge function deployment:
+- Redeploy `generate-content`
+- Delete deployed `regenerate-image` function
 
