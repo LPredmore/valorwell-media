@@ -1,100 +1,87 @@
 
 
-# Remove All Image Generation, Add Manual Cover Image Upload
+# Add AI-Generated Post Title to Content Pipeline
 
 ## Overview
 
-Strip every trace of AI image generation from the system -- edge functions, database table, admin UI, and content generation pipeline -- and replace it with a simple optional file upload on the Create Content page. The image gets stored in R2 (same infrastructure as videos) with only a path reference in the database.
+Add `post_title` as a new AI-generated field that fires alongside all other platform copy during content generation. It gets its own editable instruction row in the database (same pattern as `youtube_title`, `facebook_desc`, etc.) and appears in both the Instructions admin page and the Content Detail page.
 
-## Why this architecture
+## Why this approach
 
-The existing `uploadVideoToR2` helper is misnamed but functionally generic: it gets a presigned PUT URL from `r2-upload-url` and uploads any file via XHR with progress tracking. Reusing it for images means zero new backend code for the upload itself. The image path goes into the existing `image` column on `social_content`. No new tables, no new edge functions, no new columns.
-
-The `image_prompt` column stays in the database for now -- dropping columns risks data loss on existing rows and requires a migration. It will simply go unused. If you want it removed later, that's a separate destructive migration with a data check.
+The `post_title` column already exists on `social_content` and `posted_content`. The instruction system is built around scope-keyed rows in `content_instructions` -- adding a new scope row is the established pattern. The AI tool call in `generate-content` already uses structured output with required fields. Adding `post_title` as another required property in the same tool call means it generates atomically with everything else -- no extra API call, no separate step, no race condition.
 
 ---
 
-## Removals
+## Database
 
-### 1. Delete `supabase/functions/regenerate-image/index.ts`
-The entire edge function exists solely for AI image regeneration. Delete the file and remove the deployed function.
+### Insert a new instruction row into `content_instructions`
 
-### 2. Remove `[functions.regenerate-image]` from `supabase/config.toml` (lines 18-19)
+```sql
+INSERT INTO content_instructions (scope, instruction, is_active)
+VALUES (
+  'post_title',
+  'Maximum 60 characters. The title must create tension and curiosity -- the reader should feel this is vitally important and they will miss out if they skip it. Include at least one core keyword for the topic and target demographic. Avoid clickbait cliches like "SHOCKING" or "YOU WON''T BELIEVE." The tone should be urgent but credible.',
+  true
+);
+```
 
-### 3. Strip image generation from `supabase/functions/generate-content/index.ts`
-- Remove `import { AwsClient }` (line 2) -- only used for server-side R2 image upload
-- Remove the entire "Step 2: Image generation" block (lines 180-310) -- prompt crafting, FLUX.2 Pro call, R2 upload, and `image_prompt` save
-- Change the comment on line 159 from "status stays 'generating' while image is produced" to just saving text fields
-- The function flow becomes: generate text with Claude -> save text fields -> set status to "complete"
-- Redeploy `generate-content`
-
-### 4. Remove Image Instructions from `src/pages/Instructions.tsx`
-- Remove the `ImageInstruction` type (lines 22-30)
-- Remove the `ImageRow` component (lines 83-116)
-- Remove the `image-instructions` query (lines 134-145)
-- Remove the "Image Instructions" section from JSX (lines 195-204)
-
-### 5. Drop the `image_instructions` database table
-This table only served AI image generation rules. With generation removed, the table is dead weight. A migration will `DROP TABLE image_instructions` -- the table has no foreign keys and no other code references it after the Instructions.tsx cleanup.
+No schema changes needed -- the `post_title` column is already on both `social_content` and `posted_content`.
 
 ---
 
-## Additions
+## Edge Function: `generate-content`
 
-### 6. Add optional cover image upload to `src/pages/CreateContent.tsx`
+### Add `post_title` to the field scopes array (line 81)
 
-New state:
-- `imageFile: File | null` -- selected image
-- `imagePreview: string | null` -- object URL for thumbnail preview
+Add `"post_title"` to the `fieldScopes` array so its instruction gets included in the prompt when active.
 
-New UI (between the Video uploader and the Submit button):
-- Label: "Cover Image (Optional)"
-- A drop zone accepting `image/*` with click-to-browse
-- When an image is selected, show a thumbnail preview with a remove button
-- Cleanup the object URL on unmount
+### Add `post_title` to the tool call schema (line 112)
 
-Updated submit flow (after video upload succeeds):
-1. If `imageFile` exists, compute `storagePath = content/{contentId}/cover.{ext}`
-2. Call `uploadVideoToR2(storagePath, imageFile)` -- works for any file type
-3. Update the `social_content` row: `{ image: storagePath }`
-4. Then call `generate-content` as before
+Add a new property to the `save_content` function parameters:
 
-### 7. Update `src/components/content/ImageSection.tsx`
-- Change "No image generated yet" to "No cover image"
+```
+post_title: { type: "string", description: "Content title, max 60 characters, creates tension and curiosity with a core keyword" }
+```
+
+Add `"post_title"` to the `required` array.
+
+### Save `post_title` in the DB update (line 162)
+
+Add `post_title: generated.post_title` to the update object.
 
 ---
 
-## What stays untouched
+## Frontend
 
-- The `image` column on `social_content` and `posted_content` -- continues to store the R2 path string
-- The `image_prompt` column -- left in place to avoid a destructive migration; simply unused
-- `ImageSection` component logic -- already fetches and displays images from R2 via `r2-read-url`
-- `ImageLightbox` component -- unchanged
-- The "Regenerate" button on ContentDetail -- still calls `generate-content` for text regeneration, which will no longer touch images
-- `r2-upload-url` and `r2-read-url` edge functions -- unchanged
-- `uploadVideoToR2` helper -- reused as-is for image uploads
+### `src/lib/platforms.ts`
+
+Add `post_title: "Post Title"` to `CONTENT_FIELDS` -- this makes it appear automatically in the ContentDetail generated fields loop.
+
+### `src/pages/ContentDetail.tsx`
+
+Add a character target for `post_title` in the `CHAR_TARGETS` map: `post_title: "≤60"`.
+
+### `src/pages/Instructions.tsx`
+
+Add `post_title: "Post Title"` to the `SCOPE_LABELS` map. No other changes needed -- the Instructions page already dynamically renders all rows from the `content_instructions` query.
+
+### `src/hooks/useContents.ts`
+
+Add `post_title: string | null` to the `SocialContent` type.
 
 ---
 
 ## Files changed
 
-| File | Action |
+| File | Change |
 |------|--------|
-| `supabase/functions/regenerate-image/index.ts` | Delete |
-| `supabase/config.toml` | Remove `regenerate-image` entry |
-| `supabase/functions/generate-content/index.ts` | Remove image generation block and AwsClient import |
-| `src/pages/Instructions.tsx` | Remove ImageRow, ImageInstruction type, image-instructions query, and Image Instructions section |
-| `src/pages/CreateContent.tsx` | Add optional image file upload with preview |
-| `src/components/content/ImageSection.tsx` | Update empty-state text |
+| `content_instructions` table | Insert new row with scope `post_title` |
+| `supabase/functions/generate-content/index.ts` | Add `post_title` to fieldScopes, tool schema, and DB update |
+| `src/lib/platforms.ts` | Add `post_title` to `CONTENT_FIELDS` |
+| `src/pages/ContentDetail.tsx` | Add `post_title` char target |
+| `src/pages/Instructions.tsx` | Add `post_title` to `SCOPE_LABELS` |
+| `src/hooks/useContents.ts` | Add `post_title` to type |
 
-## Database migration
+## Edge function deployment
 
-```sql
-DROP TABLE IF EXISTS public.image_instructions;
-```
-
-## Edge function operations
-
-- Redeploy: `generate-content`
-- Delete deployed: `regenerate-image`
-
+Redeploy: `generate-content`
