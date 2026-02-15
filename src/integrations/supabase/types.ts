@@ -245,6 +245,81 @@ export type Database = {
         }
         Relationships: []
       }
+      posted_content: {
+        Row: {
+          created_at: string
+          error: string | null
+          facebook_desc: string | null
+          id: string
+          ig_tiktok_desc: string | null
+          image: string | null
+          image_prompt: string | null
+          linkedin_desc: string | null
+          post_length: Database["public"]["Enums"]["video_length"] | null
+          posted_at: string | null
+          scheduled_at: string | null
+          scheduled_platforms: string[] | null
+          status: string
+          topic: string
+          updated_at: string
+          user_id: string
+          video_mime_type: string | null
+          video_original_filename: string | null
+          video_storage_path: string | null
+          video_url: string | null
+          youtube_desc: string | null
+          youtube_title: string | null
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          facebook_desc?: string | null
+          id?: string
+          ig_tiktok_desc?: string | null
+          image?: string | null
+          image_prompt?: string | null
+          linkedin_desc?: string | null
+          post_length?: Database["public"]["Enums"]["video_length"] | null
+          posted_at?: string | null
+          scheduled_at?: string | null
+          scheduled_platforms?: string[] | null
+          status?: string
+          topic: string
+          updated_at?: string
+          user_id: string
+          video_mime_type?: string | null
+          video_original_filename?: string | null
+          video_storage_path?: string | null
+          video_url?: string | null
+          youtube_desc?: string | null
+          youtube_title?: string | null
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          facebook_desc?: string | null
+          id?: string
+          ig_tiktok_desc?: string | null
+          image?: string | null
+          image_prompt?: string | null
+          linkedin_desc?: string | null
+          post_length?: Database["public"]["Enums"]["video_length"] | null
+          posted_at?: string | null
+          scheduled_at?: string | null
+          scheduled_platforms?: string[] | null
+          status?: string
+          topic?: string
+          updated_at?: string
+          user_id?: string
+          video_mime_type?: string | null
+          video_original_filename?: string | null
+          video_storage_path?: string | null
+          video_url?: string | null
+          youtube_desc?: string | null
+          youtube_title?: string | null
+        }
+        Relationships: []
+      }
       site_config: {
         Row: {
           key: string
