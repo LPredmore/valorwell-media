@@ -202,7 +202,7 @@ Deno.serve(async (req) => {
             {
               role: "system",
               content:
-                "You craft optimized image generation prompts for gpt-image-1. Given content context and rules, produce a single detailed image prompt that will generate a compelling cover image.",
+                "You craft optimized image generation prompts for FLUX.2 Pro. Given content context and rules, produce a single detailed image prompt that will generate a compelling cover image.",
             },
             {
               role: "user",
@@ -220,7 +220,7 @@ Deno.serve(async (req) => {
                   properties: {
                     image_prompt: {
                       type: "string",
-                      description: "A detailed prompt optimized for gpt-5-image-mini image generation",
+                      description: "A detailed prompt optimized for FLUX.2 Pro image generation",
                     },
                   },
                   required: ["image_prompt"],
@@ -253,7 +253,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "openai/gpt-5-image-mini",
+          model: "black-forest-labs/flux.2-pro",
           messages: [{ role: "user", content: image_prompt }],
           modalities: ["image"],
         }),
@@ -266,7 +266,7 @@ Deno.serve(async (req) => {
 
       const imageResult = await imageResponse.json();
       const base64Url = imageResult.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-      if (!base64Url) throw new Error("No image returned from gpt-5-image-mini");
+      if (!base64Url) throw new Error("No image returned from FLUX.2 Pro");
 
       // Step 2c: Upload to R2
       const base64Data = base64Url.replace(/^data:image\/\w+;base64,/, "");
