@@ -123,30 +123,35 @@ export function usePostNow() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (contentId: string) => {
-      // Fetch the content
-      const { data: row, error: fetchError } = await supabase
-        .from("social_content")
-        .select("*")
-        .eq("id", contentId)
-        .single();
-      if (fetchError || !row) throw fetchError || new Error("Not found");
-
+    mutationFn: async ({
+      contentId,
+      playlistId,
+    }: {
+      contentId: string;
+      playlistId: number | null;
+    }) => {
+      // Save playlist_id and mark as scheduled with scheduled_at = now
       const now = new Date().toISOString();
-      const { id: _id, ...rest } = row as any;
-
-      // Insert into posted_content
-      const { error: insertError } = await supabase
-        .from("posted_content")
-        .insert({ ...rest, status: "posted", posted_at: now } as any);
-      if (insertError) throw insertError;
-
-      // Update social_content status
       const { error: updateError } = await supabase
         .from("social_content")
-        .update({ status: "posted", posted_at: now } as any)
+        .update({
+          playlist_id: playlistId,
+          status: "scheduled",
+          scheduled_at: now,
+        } as any)
         .eq("id", contentId);
       if (updateError) throw updateError;
+
+      // Invoke the edge function to do the actual posting
+      const { data, error: fnError } = await supabase.functions.invoke(
+        "post-scheduled-content",
+        { body: { contentId } }
+      );
+      if (fnError) throw fnError;
+
+      const result = typeof data === "string" ? JSON.parse(data) : data;
+      if (result?.error) throw new Error(result.error);
+      if (result?.posted === 0) throw new Error("Edge function did not post the content");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["schedule"] });

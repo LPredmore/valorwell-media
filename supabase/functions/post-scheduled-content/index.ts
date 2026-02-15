@@ -16,22 +16,52 @@ Deno.serve(async (req) => {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
   try {
-    // Find all scheduled content whose scheduled_at has passed
-    const { data: rows, error: fetchError } = await supabase
-      .from("social_content")
-      .select("*")
-      .eq("status", "scheduled")
-      .lte("scheduled_at", new Date().toISOString());
-
-    if (fetchError) {
-      console.error("Fetch error:", fetchError);
-      return new Response(JSON.stringify({ error: fetchError.message }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Check for optional contentId in request body (immediate posting)
+    let contentId: string | null = null;
+    try {
+      const body = await req.json();
+      contentId = body?.contentId ?? null;
+    } catch {
+      // No body or invalid JSON — fall through to cron behavior
     }
 
-    if (!rows || rows.length === 0) {
+    let rows: any[] = [];
+
+    if (contentId) {
+      // Immediate posting: fetch a single specific row
+      const { data, error } = await supabase
+        .from("social_content")
+        .select("*")
+        .eq("id", contentId)
+        .single();
+
+      if (error) {
+        console.error("Fetch error for contentId:", error);
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      rows = [data];
+    } else {
+      // Cron behavior: find all scheduled content whose scheduled_at has passed
+      const { data, error } = await supabase
+        .from("social_content")
+        .select("*")
+        .eq("status", "scheduled")
+        .lte("scheduled_at", new Date().toISOString());
+
+      if (error) {
+        console.error("Fetch error:", error);
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      rows = data ?? [];
+    }
+
+    if (rows.length === 0) {
       return new Response(JSON.stringify({ posted: 0 }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -43,7 +73,7 @@ Deno.serve(async (req) => {
     for (const row of rows) {
       const now = new Date().toISOString();
 
-      // Copy to posted_content
+      // Copy to posted_content (strip id so a new one is generated)
       const { id: _id, ...rest } = row;
       const { error: insertError } = await supabase
         .from("posted_content")
