@@ -4,7 +4,6 @@ import { CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -20,22 +19,24 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-
-const PLATFORMS = [
-  { id: "youtube", label: "YouTube" },
-  { id: "facebook", label: "Facebook" },
-  { id: "linkedin", label: "LinkedIn" },
-  { id: "instagram_tiktok", label: "Instagram + TikTok" },
-] as const;
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { usePlaylists } from "@/hooks/useSchedule";
 
 interface ScheduleDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (scheduledAt: Date, platforms: string[]) => void;
+  onConfirm: (scheduledAt: Date, playlistId: number | null) => void;
   loading?: boolean;
   initialDate?: Date;
   initialTime?: string;
-  initialPlatforms?: string[];
+  initialPlaylistId?: number | null;
+  postLength?: string | null;
   title?: string;
 }
 
@@ -46,25 +47,33 @@ export function ScheduleDialog({
   loading,
   initialDate,
   initialTime,
-  initialPlatforms,
+  initialPlaylistId,
+  postLength,
   title = "Schedule Post",
 }: ScheduleDialogProps) {
   const [date, setDate] = useState<Date | undefined>(initialDate);
   const [time, setTime] = useState(initialTime ?? "09:00");
-  const [platforms, setPlatforms] = useState<string[]>(initialPlatforms ?? []);
-
-  const togglePlatform = (id: string) => {
-    setPlatforms((prev) =>
-      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
-    );
-  };
+  const [playlistId, setPlaylistId] = useState<number | null>(initialPlaylistId ?? null);
+  const { data: playlists } = usePlaylists();
 
   const handleConfirm = () => {
     if (!date) return;
     const [hours, minutes] = time.split(":").map(Number);
-    const scheduledAt = new Date(date);
-    scheduledAt.setHours(hours, minutes, 0, 0);
-    onConfirm(scheduledAt, platforms);
+    const selectedAt = new Date(date);
+    selectedAt.setHours(hours, minutes, 0, 0);
+
+    // Apply time offset based on post length
+    let offsetHours = 0;
+    if (postLength === "Short") offsetHours = 2;
+    else if (postLength === "Long") offsetHours = 6;
+
+    const actualScheduledAt = new Date(selectedAt.getTime() - offsetHours * 60 * 60 * 1000);
+
+    // If the adjusted time is in the past, use now
+    const now = new Date();
+    const finalTime = actualScheduledAt <= now ? now : actualScheduledAt;
+
+    onConfirm(finalTime, playlistId);
   };
 
   return (
@@ -72,7 +81,14 @@ export function ScheduleDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>Choose a date, time, and target platforms.</DialogDescription>
+          <DialogDescription>
+            Choose a date and time.
+            {postLength && (
+              <span className="block text-xs mt-1">
+                {postLength === "Short" ? "Short content schedules 2h early." : "Long content schedules 6h early."}
+              </span>
+            )}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
@@ -110,21 +126,23 @@ export function ScheduleDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="font-medium">Platforms</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {PLATFORMS.map((p) => (
-                <label
-                  key={p.id}
-                  className="flex items-center gap-2 cursor-pointer rounded-md border border-border px-3 py-2 text-sm hover:bg-accent transition-colors"
-                >
-                  <Checkbox
-                    checked={platforms.includes(p.id)}
-                    onCheckedChange={() => togglePlatform(p.id)}
-                  />
-                  {p.label}
-                </label>
-              ))}
-            </div>
+            <Label className="font-medium">Playlist <span className="text-muted-foreground font-normal">(Optional)</span></Label>
+            <Select
+              value={playlistId?.toString() ?? "none"}
+              onValueChange={(val) => setPlaylistId(val === "none" ? null : Number(val))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a playlist" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No playlist</SelectItem>
+                {playlists?.map((p) => (
+                  <SelectItem key={p.id} value={p.id.toString()}>
+                    {p.playlist_title || `Playlist ${p.id}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -132,7 +150,7 @@ export function ScheduleDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleConfirm} disabled={!date || platforms.length === 0 || loading}>
+          <Button onClick={handleConfirm} disabled={!date || loading}>
             {loading ? "Saving..." : "Confirm"}
           </Button>
         </DialogFooter>

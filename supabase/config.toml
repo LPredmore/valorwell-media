@@ -21,3 +21,6 @@ verify_jwt = false
 
 [functions.youtube-save-connection]
 verify_jwt = false
+
+[functions.post-scheduled-content]
+verify_jwt = false

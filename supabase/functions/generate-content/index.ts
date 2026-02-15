@@ -167,7 +167,7 @@ Deno.serve(async (req) => {
         facebook_desc: generated.facebook_desc,
         linkedin_desc: generated.linkedin_desc,
         ig_tiktok_desc: generated.ig_tiktok_desc,
-        status: "complete",
+        status: "unscheduled",
         error: null,
       })
       .eq("id", contentId);

@@ -24,8 +24,8 @@ export function PastTab() {
           <TableRow key={item.id}>
             <TableCell className="font-medium">{item.topic}</TableCell>
             <TableCell className="text-muted-foreground">
-              {(item as any).posted_at
-                ? format(new Date((item as any).posted_at), "MMM d, yyyy h:mm a")
+              {item.posted_at
+                ? format(new Date(item.posted_at), "MMM d, yyyy h:mm a")
                 : "—"}
             </TableCell>
           </TableRow>

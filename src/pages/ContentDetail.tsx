@@ -178,7 +178,7 @@ export default function ContentDetail() {
               Created {format(new Date(content.created_at), "MMM d, yyyy")}
             </span>
             <div className="flex-1" />
-            {(content.status === "complete" || content.status === "scheduled") && content.video_storage_path && (
+            {(content.status === "unscheduled" || content.status === "scheduled") && content.video_storage_path && (
               <Button
                 variant="default"
                 size="sm"

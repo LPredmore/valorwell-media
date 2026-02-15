@@ -24,7 +24,6 @@ export default function CreateContent() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // Cleanup object URL on unmount or when imageFile changes
   useEffect(() => {
     return () => {
       if (imagePreview) URL.revokeObjectURL(imagePreview);
@@ -43,17 +42,21 @@ export default function CreateContent() {
     setImagePreview(null);
   };
 
+  const hasBothMedia = !!videoFile && !!imageFile;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !videoFile || !topic.trim()) return;
+    if (!user || !topic.trim()) return;
 
     setUploading(true);
     setProgress(5);
 
+    const initialStatus = hasBothMedia ? "incomplete" : "incomplete";
+
     // 1. Create content row
     const { data: content, error: insertError } = await supabase
       .from("social_content")
-      .insert({ topic: topic.trim(), user_id: user.id, status: "uploading", post_length: postLength } as any)
+      .insert({ topic: topic.trim(), user_id: user.id, status: initialStatus, post_length: postLength } as any)
       .select()
       .single();
 
@@ -66,18 +69,21 @@ export default function CreateContent() {
     const contentId = (content as any).id as string;
     setProgress(10);
 
-    // 2. Upload video to R2
-    const videoExt = videoFile.name.split(".").pop();
-    const videoStoragePath = `content/${contentId}/video.${videoExt}`;
+    // 2. Upload video to R2 (if provided)
+    let videoStoragePath: string | null = null;
+    if (videoFile) {
+      const videoExt = videoFile.name.split(".").pop();
+      videoStoragePath = `content/${contentId}/video.${videoExt}`;
 
-    try {
-      await uploadVideoToR2(videoStoragePath, videoFile, (pct) => {
-        setProgress(10 + pct * 0.4);
-      });
-    } catch (uploadError: any) {
-      toast({ title: "Video upload failed", description: uploadError?.message, variant: "destructive" });
-      setUploading(false);
-      return;
+      try {
+        await uploadVideoToR2(videoStoragePath, videoFile, (pct) => {
+          setProgress(10 + pct * 0.4);
+        });
+      } catch (uploadError: any) {
+        toast({ title: "Video upload failed", description: uploadError?.message, variant: "destructive" });
+        setUploading(false);
+        return;
+      }
     }
 
     setProgress(55);
@@ -100,27 +106,31 @@ export default function CreateContent() {
 
     setProgress(65);
 
-    // 4. Update with video/image info and set status to ready
-    await supabase
-      .from("social_content")
-      .update({
-        video_storage_path: videoStoragePath,
-        video_mime_type: videoFile.type,
-        video_original_filename: videoFile.name,
-        status: "ready",
-        ...(imageStoragePath ? { image: imageStoragePath } : {}),
-      } as any)
-      .eq("id", contentId);
+    // 4. Update with video/image info
+    const updateData: any = {};
+    if (videoStoragePath) {
+      updateData.video_storage_path = videoStoragePath;
+      updateData.video_mime_type = videoFile!.type;
+      updateData.video_original_filename = videoFile!.name;
+    }
+    if (imageStoragePath) {
+      updateData.image = imageStoragePath;
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      await supabase.from("social_content").update(updateData).eq("id", contentId);
+    }
 
     setProgress(70);
 
-    // 5. Call generate-content edge function
-    const { error: genError } = await supabase.functions.invoke("generate-content", {
-      body: { contentId },
-    });
-
-    if (genError) {
-      toast({ title: "Generation failed", description: genError.message, variant: "destructive" });
+    // 5. If both media present, call generate-content (will set status to unscheduled)
+    if (videoStoragePath && imageStoragePath) {
+      const { error: genError } = await supabase.functions.invoke("generate-content", {
+        body: { contentId },
+      });
+      if (genError) {
+        toast({ title: "Generation failed", description: genError.message, variant: "destructive" });
+      }
     }
 
     setProgress(100);
@@ -170,7 +180,7 @@ export default function CreateContent() {
           </div>
 
           <div className="space-y-1.5">
-            <Label className="font-medium">Video</Label>
+            <Label className="font-medium">Video <span className="text-muted-foreground font-normal">(Optional)</span></Label>
             <VideoUploader
               onFileSelected={setVideoFile}
               uploading={uploading}
@@ -210,8 +220,8 @@ export default function CreateContent() {
             )}
           </div>
 
-          <Button type="submit" className="w-full" disabled={uploading || !videoFile || !topic.trim() || !postLength}>
-            {uploading ? "Creating & Generating..." : "Create & Generate"}
+          <Button type="submit" className="w-full" disabled={uploading || !topic.trim() || !postLength}>
+            {uploading ? "Creating..." : hasBothMedia ? "Create & Generate" : "Create"}
           </Button>
         </form>
       </div>
