@@ -149,7 +149,13 @@ export function ScheduleDialog({
                   onSelect={setDate}
                   initialFocus
                   className={cn("p-3 pointer-events-auto")}
-                  disabled={(d) => d < new Date(new Date().setHours(0, 0, 0, 0))}
+                  disabled={(d) => {
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const check = new Date(d);
+                    check.setHours(0, 0, 0, 0);
+                    return check.getTime() < today.getTime();
+                  }}
                 />
               </PopoverContent>
             </Popover>
