@@ -2,6 +2,7 @@ export const CONTENT_STATUSES = ["new", "uploading", "ready", "generating", "com
 export type ContentStatus = (typeof CONTENT_STATUSES)[number];
 
 export const CONTENT_FIELDS = {
+  post_title: "Post Title",
   youtube_title: "YouTube Title",
   youtube_desc: "YouTube Description",
   facebook_desc: "Facebook Caption",
