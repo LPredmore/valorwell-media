@@ -1,4 +1,4 @@
-export const CONTENT_STATUSES = ["new", "uploading", "ready", "generating", "complete", "scheduled", "posted", "error"] as const;
+export const CONTENT_STATUSES = ["incomplete", "unscheduled", "scheduled", "posted"] as const;
 export type ContentStatus = (typeof CONTENT_STATUSES)[number];
 
 export const CONTENT_FIELDS = {

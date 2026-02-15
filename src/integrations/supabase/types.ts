@@ -242,12 +242,13 @@ export type Database = {
           ig_tiktok_desc: string | null
           image: string | null
           linkedin_desc: string | null
+          playlist_id: number | null
           post_length: Database["public"]["Enums"]["video_length"] | null
           post_title: string | null
           posted_at: string | null
           scheduled_at: string | null
           scheduled_platforms: string[] | null
-          status: string
+          status: Database["public"]["Enums"]["post_status"]
           topic: string
           updated_at: string
           user_id: string
@@ -266,12 +267,13 @@ export type Database = {
           ig_tiktok_desc?: string | null
           image?: string | null
           linkedin_desc?: string | null
+          playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
           post_title?: string | null
           posted_at?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
-          status?: string
+          status?: Database["public"]["Enums"]["post_status"]
           topic: string
           updated_at?: string
           user_id: string
@@ -290,12 +292,13 @@ export type Database = {
           ig_tiktok_desc?: string | null
           image?: string | null
           linkedin_desc?: string | null
+          playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
           post_title?: string | null
           posted_at?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
-          status?: string
+          status?: Database["public"]["Enums"]["post_status"]
           topic?: string
           updated_at?: string
           user_id?: string
@@ -306,7 +309,15 @@ export type Database = {
           youtube_desc?: string | null
           youtube_title?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "posted_content_playlist_id_fkey"
+            columns: ["playlist_id"]
+            isOneToOne: false
+            referencedRelation: "playlists"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       site_config: {
         Row: {
@@ -335,12 +346,13 @@ export type Database = {
           ig_tiktok_desc: string | null
           image: string | null
           linkedin_desc: string | null
+          playlist_id: number | null
           post_length: Database["public"]["Enums"]["video_length"] | null
           post_title: string | null
           posted_at: string | null
           scheduled_at: string | null
           scheduled_platforms: string[] | null
-          status: string
+          status: Database["public"]["Enums"]["post_status"]
           topic: string
           updated_at: string
           user_id: string
@@ -359,12 +371,13 @@ export type Database = {
           ig_tiktok_desc?: string | null
           image?: string | null
           linkedin_desc?: string | null
+          playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
           post_title?: string | null
           posted_at?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
-          status?: string
+          status?: Database["public"]["Enums"]["post_status"]
           topic: string
           updated_at?: string
           user_id: string
@@ -383,12 +396,13 @@ export type Database = {
           ig_tiktok_desc?: string | null
           image?: string | null
           linkedin_desc?: string | null
+          playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
           post_title?: string | null
           posted_at?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
-          status?: string
+          status?: Database["public"]["Enums"]["post_status"]
           topic?: string
           updated_at?: string
           user_id?: string
@@ -399,7 +413,15 @@ export type Database = {
           youtube_desc?: string | null
           youtube_title?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "social_content_playlist_id_fkey"
+            columns: ["playlist_id"]
+            isOneToOne: false
+            referencedRelation: "playlists"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       support_session_inquiries: {
         Row: {

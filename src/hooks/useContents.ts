@@ -21,6 +21,8 @@ export type SocialContent = {
   scheduled_at: string | null;
   posted_at: string | null;
   scheduled_platforms: string[] | null;
+  playlist_id: number | null;
+  post_length: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -38,7 +40,7 @@ export function useContents(search?: string, statusFilter?: string) {
         query = query.ilike("topic", `%${search}%`);
       }
       if (statusFilter && statusFilter !== "all") {
-        query = query.eq("status", statusFilter);
+        query = query.eq("status", statusFilter as any);
       }
 
       const { data, error } = await query;

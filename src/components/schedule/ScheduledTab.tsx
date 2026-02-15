@@ -34,10 +34,10 @@ export function ScheduledTab() {
     });
   };
 
-  const handleUpdate = (scheduledAt: Date, platforms: string[]) => {
+  const handleUpdate = (scheduledAt: Date, playlistId: number | null) => {
     if (!editItem) return;
     updateMutation.mutate(
-      { id: editItem.id, scheduledAt, platforms },
+      { id: editItem.id, scheduledAt, playlistId },
       {
         onSuccess: () => {
           toast({ title: "Schedule updated" });
@@ -94,8 +94,8 @@ export function ScheduledTab() {
                 <TableCell><ScheduleThumbnail imagePath={item.image} /></TableCell>
                 <TableCell className="font-medium">{item.topic}</TableCell>
                 <TableCell className="text-muted-foreground">
-                  {(item as any).scheduled_at
-                    ? format(new Date((item as any).scheduled_at), "MMM d, yyyy h:mm a")
+                  {item.scheduled_at
+                    ? format(new Date(item.scheduled_at), "MMM d, yyyy h:mm a")
                     : "—"}
                 </TableCell>
                 <TableCell className="text-right space-x-1">
@@ -129,13 +129,14 @@ export function ScheduledTab() {
           onConfirm={handleUpdate}
           loading={updateMutation.isPending}
           title="Edit Schedule"
-          initialDate={(editItem as any).scheduled_at ? new Date((editItem as any).scheduled_at) : undefined}
+          initialDate={editItem.scheduled_at ? new Date(editItem.scheduled_at) : undefined}
           initialTime={
-            (editItem as any).scheduled_at
-              ? format(new Date((editItem as any).scheduled_at), "HH:mm")
+            editItem.scheduled_at
+              ? format(new Date(editItem.scheduled_at), "HH:mm")
               : undefined
           }
-          initialPlatforms={(editItem as any).scheduled_platforms ?? []}
+          initialPlaylistId={(editItem as any).playlist_id ?? null}
+          postLength={editItem.post_length}
         />
       )}
     </>
