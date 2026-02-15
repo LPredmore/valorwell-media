@@ -2,7 +2,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "react-router-dom";
-import { LogOut, FileText, Settings, CalendarDays, Cog } from "lucide-react";
+import { LogOut, FileText, Settings, CalendarDays } from "lucide-react";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const { signOut, user } = useAuth();
@@ -50,16 +50,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   </Button>
                 </Link>
               )}
-              <Link to="/settings">
-                <Button
-                  variant={location.pathname === "/settings" ? "secondary" : "ghost"}
-                  size="sm"
-                  className="gap-2"
-                >
-                  <Cog className="h-4 w-4" />
-                  Settings
-                </Button>
-              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-3">

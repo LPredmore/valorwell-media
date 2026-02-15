@@ -7,9 +7,10 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-async function getAccessToken(refreshToken: string): Promise<string> {
+async function getAccessToken(): Promise<string> {
   const clientId = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID")!;
   const clientSecret = Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET")!;
+  const refreshToken = Deno.env.get("GOOGLE_OAUTH_REFRESH_TOKEN")!;
 
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -188,34 +189,8 @@ Deno.serve(async (req) => {
 
     console.log(`Publishing content ${contentId} to YouTube...`);
 
-    // 1. Get refresh token: prefer per-user connection, fall back to env
-    let refreshToken = Deno.env.get("GOOGLE_OAUTH_REFRESH_TOKEN") || "";
-
-    const serviceClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-    const { data: ytConn } = await serviceClient
-      .from("youtube_connections")
-      .select("refresh_token")
-      .eq("user_id", content.user_id)
-      .maybeSingle();
-
-    if (ytConn?.refresh_token) {
-      refreshToken = ytConn.refresh_token;
-      console.log("Using per-user YouTube refresh token");
-    } else {
-      console.log("Falling back to global YouTube refresh token");
-    }
-
-    if (!refreshToken) {
-      return new Response(JSON.stringify({ error: "No YouTube connection found. Please connect your YouTube account in Settings." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const accessToken = await getAccessToken(refreshToken);
+    // 1. Get Google access token
+    const accessToken = await getAccessToken();
     console.log("Got Google access token");
 
     // 2. Fetch video from R2
