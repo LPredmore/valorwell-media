@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
 
     const systemPrompt = instructionsByScope["global"] || "You are a social media content generation assistant.";
 
-    const fieldScopes = ["youtube_title", "youtube_desc", "facebook_desc", "linkedin_desc", "ig_tiktok_desc", "hashtags"];
+    const fieldScopes = ["post_title", "youtube_title", "youtube_desc", "facebook_desc", "linkedin_desc", "ig_tiktok_desc", "hashtags"];
     let fieldRules = "";
     for (const scope of fieldScopes) {
       if (instructionsByScope[scope]) {
@@ -110,13 +110,14 @@ Deno.serve(async (req) => {
               parameters: {
                 type: "object",
                 properties: {
+                  post_title: { type: "string", description: "Content title, max 60 characters, creates tension and curiosity with a core keyword" },
                   youtube_title: { type: "string", description: "YouTube video title, 55-75 characters" },
                   youtube_desc: { type: "string", description: "YouTube description, 1800-2500 characters with hashtags" },
                   facebook_desc: { type: "string", description: "Facebook caption, 600-1200 characters with hashtags" },
                   linkedin_desc: { type: "string", description: "LinkedIn post, 900-1600 characters with hashtags" },
                   ig_tiktok_desc: { type: "string", description: "Instagram + TikTok caption, 200-300 characters plus hashtags" },
                 },
-                required: ["youtube_title", "youtube_desc", "facebook_desc", "linkedin_desc", "ig_tiktok_desc"],
+                required: ["post_title", "youtube_title", "youtube_desc", "facebook_desc", "linkedin_desc", "ig_tiktok_desc"],
                 additionalProperties: false,
               },
             },
@@ -160,6 +161,7 @@ Deno.serve(async (req) => {
     const { error: updateError } = await adminClient
       .from("social_content")
       .update({
+        post_title: generated.post_title,
         youtube_title: generated.youtube_title,
         youtube_desc: generated.youtube_desc,
         facebook_desc: generated.facebook_desc,

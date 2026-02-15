@@ -22,6 +22,7 @@ type ContentInstruction = {
 
 const SCOPE_LABELS: Record<string, string> = {
   global: "Global Instructions",
+  post_title: "Post Title",
   youtube_title: "YouTube Title",
   youtube_desc: "YouTube Description",
   facebook_desc: "Facebook Caption",

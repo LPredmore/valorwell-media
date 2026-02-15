@@ -11,6 +11,7 @@ export type SocialContent = {
   facebook_desc: string | null;
   linkedin_desc: string | null;
   ig_tiktok_desc: string | null;
+  post_title: string | null;
   image: string | null;
   video_url: string | null;
   video_storage_path: string | null;
