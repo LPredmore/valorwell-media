@@ -215,6 +215,24 @@ export type Database = {
         }
         Relationships: []
       }
+      playlists: {
+        Row: {
+          created_at: string
+          id: number
+          playlist_title: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          playlist_title?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          playlist_title?: string | null
+        }
+        Relationships: []
+      }
       posted_content: {
         Row: {
           created_at: string
@@ -533,6 +551,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
+      post_status: "incomplete" | "unscheduled" | "scheduled" | "posted"
       video_length: "Short" | "Long"
     }
     CompositeTypes: {
@@ -662,6 +681,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
+      post_status: ["incomplete", "unscheduled", "scheduled", "posted"],
       video_length: ["Short", "Long"],
     },
   },
