@@ -21,7 +21,7 @@ export function UnscheduledTab() {
     // If scheduledAt is basically now (in the past or within 1 minute), post immediately
     const now = new Date();
     if (scheduledAt.getTime() <= now.getTime() + 60000) {
-      postNowMutation.mutate(selectedItem.id, {
+      postNowMutation.mutate({ contentId: selectedItem.id, playlistId }, {
         onSuccess: () => {
           toast({ title: "Post published" });
           setSelectedItem(null);
