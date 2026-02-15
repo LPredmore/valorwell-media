@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +27,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { usePlaylists } from "@/hooks/useSchedule";
+
+// Preferred times in CST (UTC-6)
+const SHORT_TIMES_CST = [
+  { label: "11 AM", cstHour: 11 },
+  { label: "1 PM", cstHour: 13 },
+  { label: "6 PM", cstHour: 18 },
+  { label: "8 PM", cstHour: 20 },
+];
+const LONG_TIMES_CST = [
+  { label: "6 AM", cstHour: 6 },
+  { label: "8 AM", cstHour: 8 },
+];
+
+/** Convert a CST hour to a local time string HH:mm */
+function cstHourToLocalTime(cstHour: number): string {
+  // CST = UTC-6. Create a date in UTC for today at cstHour + 6
+  const now = new Date();
+  const utc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), cstHour + 6, 0, 0);
+  const local = new Date(utc);
+  return `${String(local.getHours()).padStart(2, "0")}:${String(local.getMinutes()).padStart(2, "0")}`;
+}
 
 interface ScheduleDialogProps {
   open: boolean;
@@ -53,12 +76,22 @@ export function ScheduleDialog({
 }: ScheduleDialogProps) {
   const [date, setDate] = useState<Date | undefined>(initialDate);
   const [time, setTime] = useState(initialTime ?? "09:00");
+  const [usePrefTimes, setUsePrefTimes] = useState(true);
+  const [selectedPrefTime, setSelectedPrefTime] = useState<string>("");
   const [playlistId, setPlaylistId] = useState<number | null>(initialPlaylistId ?? null);
   const { data: playlists } = usePlaylists();
 
+  const prefOptions = postLength === "Long" ? LONG_TIMES_CST : SHORT_TIMES_CST;
+
   const handleConfirm = () => {
     if (!date) return;
-    const [hours, minutes] = time.split(":").map(Number);
+
+    // Determine the effective time string
+    const effectiveTime = usePrefTimes && selectedPrefTime
+      ? cstHourToLocalTime(Number(selectedPrefTime))
+      : time;
+
+    const [hours, minutes] = effectiveTime.split(":").map(Number);
     const selectedAt = new Date(date);
     selectedAt.setHours(hours, minutes, 0, 0);
 
@@ -75,6 +108,8 @@ export function ScheduleDialog({
 
     onConfirm(finalTime, playlistId);
   };
+
+  const canConfirm = date && (usePrefTimes ? !!selectedPrefTime : true);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -121,8 +156,38 @@ export function ScheduleDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="font-medium">Time</Label>
-            <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+            <div className="flex items-center justify-between">
+              <Label className="font-medium">Time</Label>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="pref-toggle" className="text-xs text-muted-foreground cursor-pointer">Pref Times</Label>
+                <Switch
+                  id="pref-toggle"
+                  checked={usePrefTimes}
+                  onCheckedChange={setUsePrefTimes}
+                />
+              </div>
+            </div>
+            {usePrefTimes ? (
+              <ToggleGroup
+                type="single"
+                value={selectedPrefTime}
+                onValueChange={(val) => { if (val) setSelectedPrefTime(val); }}
+                className="flex flex-wrap gap-2 justify-start"
+              >
+                {prefOptions.map((opt) => (
+                  <ToggleGroupItem
+                    key={opt.cstHour}
+                    value={String(opt.cstHour)}
+                    variant="outline"
+                    className="px-3 py-1.5 text-sm"
+                  >
+                    {opt.label}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            ) : (
+              <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -150,7 +215,7 @@ export function ScheduleDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleConfirm} disabled={!date || loading}>
+          <Button onClick={handleConfirm} disabled={!canConfirm || loading}>
             {loading ? "Saving..." : "Confirm"}
           </Button>
         </DialogFooter>
