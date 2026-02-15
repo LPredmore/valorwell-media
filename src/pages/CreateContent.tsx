@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { uploadVideoToR2 } from "@/lib/uploadVideo";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ImageIcon, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
@@ -19,8 +19,29 @@ export default function CreateContent() {
   const [topic, setTopic] = useState("");
   const [postLength, setPostLength] = useState<"Short" | "Long" | null>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+
+  // Cleanup object URL on unmount or when imageFile changes
+  useEffect(() => {
+    return () => {
+      if (imagePreview) URL.revokeObjectURL(imagePreview);
+    };
+  }, [imagePreview]);
+
+  const handleImageSelect = (file: File) => {
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
+
+  const handleImageRemove = () => {
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(null);
+    setImagePreview(null);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,12 +67,12 @@ export default function CreateContent() {
     setProgress(10);
 
     // 2. Upload video to R2
-    const ext = videoFile.name.split(".").pop();
-    const storagePath = `content/${contentId}/video.${ext}`;
+    const videoExt = videoFile.name.split(".").pop();
+    const videoStoragePath = `content/${contentId}/video.${videoExt}`;
 
     try {
-      await uploadVideoToR2(storagePath, videoFile, (pct) => {
-        setProgress(10 + pct * 0.5);
+      await uploadVideoToR2(videoStoragePath, videoFile, (pct) => {
+        setProgress(10 + pct * 0.4);
       });
     } catch (uploadError: any) {
       toast({ title: "Video upload failed", description: uploadError?.message, variant: "destructive" });
@@ -59,22 +80,41 @@ export default function CreateContent() {
       return;
     }
 
+    setProgress(55);
+
+    // 3. Upload cover image to R2 (if provided)
+    let imageStoragePath: string | null = null;
+    if (imageFile) {
+      const imgExt = imageFile.name.split(".").pop();
+      imageStoragePath = `content/${contentId}/cover.${imgExt}`;
+      try {
+        await uploadVideoToR2(imageStoragePath, imageFile, (pct) => {
+          setProgress(55 + pct * 0.1);
+        });
+      } catch (uploadError: any) {
+        toast({ title: "Image upload failed", description: uploadError?.message, variant: "destructive" });
+        setUploading(false);
+        return;
+      }
+    }
+
     setProgress(65);
 
-    // 3. Update with video info and set status to generating
+    // 4. Update with video/image info and set status to ready
     await supabase
       .from("social_content")
       .update({
-        video_storage_path: storagePath,
+        video_storage_path: videoStoragePath,
         video_mime_type: videoFile.type,
         video_original_filename: videoFile.name,
         status: "ready",
+        ...(imageStoragePath ? { image: imageStoragePath } : {}),
       } as any)
       .eq("id", contentId);
 
     setProgress(70);
 
-    // 4. Call generate-content edge function
+    // 5. Call generate-content edge function
     const { error: genError } = await supabase.functions.invoke("generate-content", {
       body: { contentId },
     });
@@ -137,6 +177,37 @@ export default function CreateContent() {
               progress={progress}
               currentFilename={videoFile?.name}
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="font-medium">Cover Image <span className="text-muted-foreground font-normal">(Optional)</span></Label>
+            {imagePreview ? (
+              <div className="relative rounded-lg overflow-hidden border border-border bg-muted">
+                <img src={imagePreview} alt="Cover preview" className="w-full h-48 object-cover" />
+                <button
+                  type="button"
+                  onClick={handleImageRemove}
+                  className="absolute top-2 right-2 rounded-full bg-background/80 p-1.5 text-foreground hover:bg-background transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-muted/30 p-8 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted/50">
+                <ImageIcon className="h-8 w-8" />
+                <span>Click to upload a cover image</span>
+                <span className="text-xs">PNG, JPG, or WebP</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleImageSelect(file);
+                  }}
+                />
+              </label>
+            )}
           </div>
 
           <Button type="submit" className="w-full" disabled={uploading || !videoFile || !topic.trim() || !postLength}>
