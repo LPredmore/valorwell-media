@@ -173,36 +173,6 @@ export type Database = {
         }
         Relationships: []
       }
-      image_instructions: {
-        Row: {
-          aspect_ratio: string
-          created_at: string
-          id: number
-          instruction: string
-          is_active: boolean
-          updated_at: string
-          version: number
-        }
-        Insert: {
-          aspect_ratio: string
-          created_at?: string
-          id?: number
-          instruction: string
-          is_active?: boolean
-          updated_at?: string
-          version?: number
-        }
-        Update: {
-          aspect_ratio?: string
-          created_at?: string
-          id?: number
-          instruction?: string
-          is_active?: boolean
-          updated_at?: string
-          version?: number
-        }
-        Relationships: []
-      }
       platform_instructions: {
         Row: {
           component: string

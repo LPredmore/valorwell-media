@@ -61,7 +61,7 @@ export function ImageSection({ storagePath }: Props) {
       ) : (
         <div className="flex items-center justify-center gap-2 rounded-lg bg-muted/50 p-8 text-sm text-muted-foreground">
           <ImageIcon className="h-5 w-5" />
-          <span>No image generated yet</span>
+          <span>No cover image</span>
         </div>
       )}
     </div>
