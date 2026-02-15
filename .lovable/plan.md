@@ -1,87 +1,212 @@
 
 
-# Add AI-Generated Post Title to Content Pipeline
+# Overhaul Status System, Incomplete Tab, Playlist Scheduling, and Auto-Posting
 
 ## Overview
 
-Add `post_title` as a new AI-generated field that fires alongside all other platform copy during content generation. It gets its own editable instruction row in the database (same pattern as `youtube_title`, `facebook_desc`, etc.) and appears in both the Instructions admin page and the Content Detail page.
-
-## Why this approach
-
-The `post_title` column already exists on `social_content` and `posted_content`. The instruction system is built around scope-keyed rows in `content_instructions` -- adding a new scope row is the established pattern. The AI tool call in `generate-content` already uses structured output with required fields. Adding `post_title` as another required property in the same tool call means it generates atomically with everything else -- no extra API call, no separate step, no race condition.
+This plan restructures the content lifecycle around the `post_status` enum (`incomplete`, `unscheduled`, `scheduled`, `posted`), allows topic-only content creation, adds an Incomplete tab with media upload, replaces the platforms selector with a playlist picker, implements time-offset scheduling based on post length, and introduces a cron-driven edge function that posts scheduled content automatically.
 
 ---
 
-## Database
+## Database Changes
 
-### Insert a new instruction row into `content_instructions`
+### 1. Migrate `status` column from text to the `post_status` enum
+
+Both `social_content` and `posted_content` currently use a plain `text` column. The enum already exists. The migration will:
 
 ```sql
-INSERT INTO content_instructions (scope, instruction, is_active)
-VALUES (
-  'post_title',
-  'Maximum 60 characters. The title must create tension and curiosity -- the reader should feel this is vitally important and they will miss out if they skip it. Include at least one core keyword for the topic and target demographic. Avoid clickbait cliches like "SHOCKING" or "YOU WON''T BELIEVE." The tone should be urgent but credible.',
-  true
+-- Map old text statuses to enum values before converting
+UPDATE social_content SET status = 'incomplete' WHERE status IN ('new', 'uploading', 'ready', 'generating', 'error');
+UPDATE social_content SET status = 'unscheduled' WHERE status = 'complete';
+
+ALTER TABLE social_content
+  ALTER COLUMN status TYPE post_status USING status::post_status,
+  ALTER COLUMN status SET DEFAULT 'incomplete';
+
+UPDATE posted_content SET status = 'posted' WHERE true;
+
+ALTER TABLE posted_content
+  ALTER COLUMN status TYPE post_status USING status::post_status,
+  ALTER COLUMN status SET DEFAULT 'posted';
+```
+
+### 2. Add `playlist_id` column to both tables
+
+```sql
+ALTER TABLE social_content ADD COLUMN playlist_id bigint REFERENCES playlists(id);
+ALTER TABLE posted_content ADD COLUMN playlist_id bigint REFERENCES playlists(id);
+```
+
+### 3. Add RLS to playlists table
+
+The playlists table currently has no RLS. We need at least a SELECT policy for authenticated users:
+
+```sql
+ALTER TABLE playlists ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated select" ON playlists FOR SELECT USING (true);
+```
+
+### 4. Enable pg_cron and pg_net, create the hourly cron job
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+CREATE EXTENSION IF NOT EXISTS pg_net;
+```
+
+Then use the insert tool (not migration) to schedule:
+```sql
+SELECT cron.schedule(
+  'post-scheduled-content',
+  '0 * * * *',
+  $$
+  SELECT net.http_post(
+    url:='https://asjhkidpuhqodryczuth.supabase.co/functions/v1/post-scheduled-content',
+    headers:='{"Content-Type": "application/json", "Authorization": "Bearer <anon_key>"}'::jsonb,
+    body:='{}'::jsonb
+  ) as request_id;
+  $$
 );
 ```
 
-No schema changes needed -- the `post_title` column is already on both `social_content` and `posted_content`.
+---
+
+## Edge Function: `post-scheduled-content`
+
+A new edge function invoked hourly by cron. Logic:
+
+1. Query `social_content` where `status = 'scheduled'` and `scheduled_at <= now()`
+2. For each row:
+   - INSERT a copy into `posted_content` with `status = 'posted'` and `posted_at = now()`
+   - UPDATE the `social_content` row status to `'posted'` and set `posted_at = now()`
+3. Uses the service role key (no user auth needed since it's a cron trigger)
+
+Add to `supabase/config.toml`:
+```toml
+[functions.post-scheduled-content]
+verify_jwt = false
+```
 
 ---
 
-## Edge Function: `generate-content`
+## Frontend Changes
 
-### Add `post_title` to the field scopes array (line 81)
+### CreateContent.tsx -- Allow topic-only submission
 
-Add `"post_title"` to the `fieldScopes` array so its instruction gets included in the prompt when active.
+- Remove the requirement for `videoFile` in the submit guard (`!videoFile` check removed)
+- New flow:
+  - If neither image nor video provided: insert with `status = 'incomplete'`, skip generate-content, navigate to content detail
+  - If both image and video provided: insert with `status = 'uploading'`, upload both, call generate-content (which sets status to `unscheduled` instead of `complete`)
+  - If only one of image/video: insert with `status = 'incomplete'`, upload whichever is provided, skip generate-content
+- The button text changes contextually: "Create" when incomplete, "Create & Generate" when both media are present
 
-### Add `post_title` to the tool call schema (line 112)
+### generate-content edge function
 
-Add a new property to the `save_content` function parameters:
+- Change the final status from `"complete"` to `"unscheduled"` (line 170)
+
+### StatusBadge.tsx
+
+Update styles to reflect new statuses:
+```
+incomplete: "bg-muted text-muted-foreground"
+unscheduled: "bg-success text-success-foreground"
+scheduled: "bg-info text-info-foreground"
+posted: "bg-primary text-primary-foreground"
+```
+Remove old statuses (new, uploading, ready, generating, complete, error).
+
+### platforms.ts
+
+Update `CONTENT_STATUSES` to match the enum: `["incomplete", "unscheduled", "scheduled", "posted"]`
+
+### Schedule.tsx -- Add Incomplete tab
+
+Add a fourth tab "Incomplete" as the first tab (default):
 
 ```
-post_title: { type: "string", description: "Content title, max 60 characters, creates tension and curiosity with a core keyword" }
+<TabsTrigger value="incomplete">Incomplete</TabsTrigger>
 ```
 
-Add `"post_title"` to the `required` array.
+### New component: `IncompleteTab.tsx`
 
-### Save `post_title` in the DB update (line 162)
+- Query `social_content` where `status = 'incomplete'`
+- Table with columns: Topic, Image (checkmark/dash), Video (checkmark/dash), Action
+- Action button opens an edit dialog/inline section allowing the user to upload an image and/or video
+- After uploading, if the row now has BOTH `image` and `video_storage_path`:
+  - Call generate-content (which sets status to `unscheduled`)
+- If still missing one, keep status as `incomplete`
 
-Add `post_title: generated.post_title` to the update object.
+### ScheduleDialog.tsx -- Replace platforms with playlist picker
+
+- Remove the `PLATFORMS` array, `platforms` state, `togglePlatform` function, and platforms UI section
+- Add playlist fetching: `useQuery` to get all rows from `playlists` table
+- Add a `Select` dropdown for playlist selection
+- Change the `onConfirm` signature from `(scheduledAt: Date, platforms: string[])` to `(scheduledAt: Date, playlistId: number | null)`
+- Add the time-offset logic:
+  - Accept `postLength` as a prop (passed from the parent which knows the content's `post_length`)
+  - When confirming, compute `actualScheduledAt`:
+    - Short: subtract 2 hours from selected time
+    - Long: subtract 6 hours from selected time
+    - If result is in the past, use `new Date()` (post now)
+  - If `actualScheduledAt` is now (in the past), the mutation should:
+    - Copy the row to `posted_content` with `status = 'posted'`
+    - Update `social_content` status to `'posted'`
+  - If future, set `social_content` status to `'scheduled'` and `scheduled_at` to the computed time
+- Remove `initialPlatforms` prop, add `initialPlaylistId` prop
+- Confirm button enabled when date is selected (playlist is optional)
+
+### useSchedule.ts -- Update hooks
+
+- `useUnscheduledContent`: change filter from `status = 'complete'` to `status = 'unscheduled'`
+- `useScheduleContent` mutation: update signature to accept `playlistId` instead of `platforms`, update the DB call accordingly
+- `useUpdateSchedule` mutation: same changes
+- `usePostedContent`: query from `posted_content` table instead of `social_content`
+- Add `useIncompleteContent` hook: query `social_content` where `status = 'incomplete'`
+- Add `usePostNow` mutation: inserts into `posted_content` and updates `social_content` status to `'posted'`
+
+### UnscheduledTab.tsx
+
+- Update to pass `postLength` (from the content item) to `ScheduleDialog`
+- Remove platforms from `handleConfirm` signature, use `playlistId`
+
+### ScheduledTab.tsx
+
+- Same updates: remove platform references, use playlist
+- Pass `postLength` to `ScheduleDialog`
+
+### PastTab.tsx
+
+- Change query to use `posted_content` table (via updated `usePostedContent` hook)
+
+### ContentDetail.tsx
+
+- Update status checks from `"complete"` to `"unscheduled"` where relevant
 
 ---
 
-## Frontend
+## Files Changed
 
-### `src/lib/platforms.ts`
-
-Add `post_title: "Post Title"` to `CONTENT_FIELDS` -- this makes it appear automatically in the ContentDetail generated fields loop.
-
-### `src/pages/ContentDetail.tsx`
-
-Add a character target for `post_title` in the `CHAR_TARGETS` map: `post_title: "≤60"`.
-
-### `src/pages/Instructions.tsx`
-
-Add `post_title: "Post Title"` to the `SCOPE_LABELS` map. No other changes needed -- the Instructions page already dynamically renders all rows from the `content_instructions` query.
-
-### `src/hooks/useContents.ts`
-
-Add `post_title: string | null` to the `SocialContent` type.
-
----
-
-## Files changed
-
-| File | Change |
+| File | Action |
 |------|--------|
-| `content_instructions` table | Insert new row with scope `post_title` |
-| `supabase/functions/generate-content/index.ts` | Add `post_title` to fieldScopes, tool schema, and DB update |
-| `src/lib/platforms.ts` | Add `post_title` to `CONTENT_FIELDS` |
-| `src/pages/ContentDetail.tsx` | Add `post_title` char target |
-| `src/pages/Instructions.tsx` | Add `post_title` to `SCOPE_LABELS` |
-| `src/hooks/useContents.ts` | Add `post_title` to type |
+| Migration SQL | Enum conversion, add playlist_id columns, playlists RLS |
+| Insert SQL (not migration) | pg_cron job setup |
+| `supabase/functions/post-scheduled-content/index.ts` | New edge function |
+| `supabase/config.toml` | Add post-scheduled-content entry |
+| `supabase/functions/generate-content/index.ts` | Change final status to `unscheduled` |
+| `src/pages/CreateContent.tsx` | Allow topic-only, conditional flow |
+| `src/pages/Schedule.tsx` | Add Incomplete tab |
+| `src/components/schedule/IncompleteTab.tsx` | New component |
+| `src/components/schedule/ScheduleDialog.tsx` | Replace platforms with playlist, add time offset |
+| `src/components/schedule/UnscheduledTab.tsx` | Update for new dialog signature |
+| `src/components/schedule/ScheduledTab.tsx` | Update for new dialog signature |
+| `src/components/schedule/PastTab.tsx` | Query from posted_content |
+| `src/hooks/useSchedule.ts` | Update hooks, add incomplete/postNow |
+| `src/lib/platforms.ts` | Update CONTENT_STATUSES |
+| `src/components/content/StatusBadge.tsx` | Update status styles |
+| `src/pages/ContentDetail.tsx` | Update status references |
+| `src/hooks/useContents.ts` | Add playlist_id to type |
 
-## Edge function deployment
+## Edge Function Deployments
 
-Redeploy: `generate-content`
+- Deploy: `post-scheduled-content` (new)
+- Redeploy: `generate-content`
+
