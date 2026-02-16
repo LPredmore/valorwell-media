@@ -1,43 +1,33 @@
 
+# Update Scheduling Validation to Require Cover Image
 
-# Add YouTube Comment Instruction
+Currently, the scheduling process only validates for video, YouTube title, YouTube description, and post length. This plan adds a mandatory check for the cover image to ensure all scheduled content is complete.
 
-## Summary
+## Proposed Changes
 
-Add a new `youtube_comment` scope to the `content_instructions` table and surface it in the Instructions page UI. This is a two-part change: one database insert and one small UI update.
+### Frontend Modifications
 
-## Changes
-
-### 1. Database: Insert new row into `content_instructions`
-
-Insert a row with:
-- `scope`: `youtube_comment`
-- `instruction`: the provided comment instruction text
-- `is_active`: `true`
-
-### 2. `src/pages/Instructions.tsx` -- Add label for new scope
-
-Add `youtube_comment: "YouTube Comment"` to the `SCOPE_LABELS` map so the Instructions page displays it with a readable name alongside the other field instructions.
-
-### 3. `supabase/functions/generate-content/index.ts` -- Include youtube_comment in generation
-
-Add `"youtube_comment"` to the `fieldScopes` array so the generate-content edge function pulls the instruction and passes it to the AI. Add `youtube_comment` to the tool's `parameters.properties` so the AI returns a generated comment. Include `youtube_comment` in the DB update after generation.
-
-This means content generation will automatically produce a first comment alongside all the other fields, stored in `social_content.youtube_comment` (column already exists on the table).
+#### `src/components/schedule/UnscheduledTab.tsx`
+- Update the `validateForScheduling` helper function to include a check for the `image` field.
+- If the `image` field is null or an empty string (after trimming), "Cover Image" will be added to the list of missing fields.
+- This will automatically trigger the existing error toast in `handleScheduleClick` if the image is missing, blocking the scheduling dialog from opening.
 
 ## Technical Detail
 
-```text
-fieldScopes array update:
-  ["post_title", "youtube_title", "youtube_desc", "facebook_desc",
-   "linkedin_desc", "ig_tiktok_desc", "hashtags", "youtube_comment"]
-
-Tool parameter addition:
-  youtube_comment: { type: "string", description: "YouTube first comment, under 300 chars, no hashtags" }
-
-DB update addition:
-  youtube_comment: generated.youtube_comment
+```typescript
+// Proposed update to validateForScheduling in src/components/schedule/UnscheduledTab.tsx
+function validateForScheduling(item: SocialContent): string[] {
+  const missing: string[] = [];
+  if (!item.video_storage_path) missing.push("Video");
+  if (!item.image?.trim()) missing.push("Cover Image"); // New validation rule
+  if (!item.youtube_title?.trim()) missing.push("YouTube Title");
+  if (!item.youtube_desc?.trim()) missing.push("YouTube Description");
+  if (item.post_length !== "Short" && item.post_length !== "Long") missing.push("Post Length (Short or Long)");
+  return missing;
+}
 ```
 
-No schema migration needed -- `social_content.youtube_comment` column already exists.
-
+## Impact
+- **Scheduling Flow**: Users will no longer be able to schedule content that doesn't have a cover image uploaded.
+- **Consistency**: This ensures that all content sent to the YouTube upload service has both video and image assets, preventing downstream failures in the Fly.io service.
+- **User Feedback**: The error toast will clearly list "Cover Image" as a missing requirement if the user tries to schedule incomplete content.
