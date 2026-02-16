@@ -22,7 +22,7 @@ export function PastTab() {
       <TableBody>
         {items.map((item) => (
           <TableRow key={item.id}>
-            <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.topic}</TableCell>
+            <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.youtube_title || item.topic}</TableCell>
             <TableCell className="text-muted-foreground">
               {item.posted_at
                 ? format(new Date(item.posted_at), "MMM d, yyyy h:mm a")

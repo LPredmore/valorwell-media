@@ -89,7 +89,7 @@ export function IncompleteTab() {
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.id}>
-              <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.topic}</TableCell>
+              <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.youtube_title || item.topic}</TableCell>
               <TableCell className="text-center hidden sm:table-cell">
                 {item.image ? <Check className="h-4 w-4 mx-auto text-success" /> : <Minus className="h-4 w-4 mx-auto text-muted-foreground" />}
               </TableCell>
@@ -110,7 +110,7 @@ export function IncompleteTab() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Upload Media</DialogTitle>
-            <DialogDescription className="truncate">Upload the missing image and/or video for "{editItem?.topic}"</DialogDescription>
+            <DialogDescription className="truncate max-w-full overflow-hidden">Upload media for "{editItem?.topic}"</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">

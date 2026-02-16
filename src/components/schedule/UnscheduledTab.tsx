@@ -89,7 +89,7 @@ export function UnscheduledTab() {
           {items.map((item) => (
             <TableRow key={item.id}>
               <TableCell className="hidden sm:table-cell"><ScheduleThumbnail imagePath={item.image} /></TableCell>
-              <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.topic}</TableCell>
+              <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.youtube_title || item.topic}</TableCell>
               <TableCell className="text-muted-foreground hidden sm:table-cell">{format(new Date(item.created_at), "MMM d, yyyy")}</TableCell>
               <TableCell className="text-right">
                 <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleScheduleClick(item)}>
