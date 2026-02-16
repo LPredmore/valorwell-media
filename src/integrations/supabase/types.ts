@@ -358,13 +358,19 @@ export type Database = {
           status: Database["public"]["Enums"]["post_status"]
           topic: string
           updated_at: string
+          upload_at: string | null
           user_id: string
           video_mime_type: string | null
           video_original_filename: string | null
+          video_size_bytes: number | null
           video_storage_path: string | null
           video_url: string | null
           youtube_desc: string | null
+          youtube_error_detail: string | null
+          youtube_status: string | null
           youtube_title: string | null
+          youtube_uploaded_at: string | null
+          youtube_video_id: string | null
         }
         Insert: {
           created_at?: string
@@ -383,13 +389,19 @@ export type Database = {
           status?: Database["public"]["Enums"]["post_status"]
           topic: string
           updated_at?: string
+          upload_at?: string | null
           user_id: string
           video_mime_type?: string | null
           video_original_filename?: string | null
+          video_size_bytes?: number | null
           video_storage_path?: string | null
           video_url?: string | null
           youtube_desc?: string | null
+          youtube_error_detail?: string | null
+          youtube_status?: string | null
           youtube_title?: string | null
+          youtube_uploaded_at?: string | null
+          youtube_video_id?: string | null
         }
         Update: {
           created_at?: string
@@ -408,13 +420,19 @@ export type Database = {
           status?: Database["public"]["Enums"]["post_status"]
           topic?: string
           updated_at?: string
+          upload_at?: string | null
           user_id?: string
           video_mime_type?: string | null
           video_original_filename?: string | null
+          video_size_bytes?: number | null
           video_storage_path?: string | null
           video_url?: string | null
           youtube_desc?: string | null
+          youtube_error_detail?: string | null
+          youtube_status?: string | null
           youtube_title?: string | null
+          youtube_uploaded_at?: string | null
+          youtube_video_id?: string | null
         }
         Relationships: [
           {

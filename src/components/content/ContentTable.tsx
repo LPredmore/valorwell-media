@@ -1,5 +1,6 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "./StatusBadge";
 import { Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -16,6 +17,17 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+
+function YtBadge({ status }: { status: string | null }) {
+  if (!status) return null;
+  const colors: Record<string, string> = {
+    queued: "bg-amber-500/15 text-amber-700 border-amber-500/30",
+    uploading: "bg-blue-500/15 text-blue-700 border-blue-500/30",
+    scheduled: "bg-green-500/15 text-green-700 border-green-500/30",
+    failed: "bg-destructive/15 text-destructive border-destructive/30",
+  };
+  return <Badge variant="outline" className={`text-xs ${colors[status] ?? ""}`}>{status}</Badge>;
+}
 
 interface Props {
   items: SocialContent[];
@@ -42,6 +54,7 @@ export function ContentTable({ items, onDelete, isDeleting }: Props) {
           <TableRow>
             <TableHead className="font-semibold">Topic</TableHead>
             <TableHead className="font-semibold">Status</TableHead>
+            <TableHead className="font-semibold w-24">YouTube</TableHead>
             <TableHead className="font-semibold">Created</TableHead>
             <TableHead className="w-12" />
           </TableRow>
@@ -56,6 +69,9 @@ export function ContentTable({ items, onDelete, isDeleting }: Props) {
               <TableCell className="font-medium">{item.topic}</TableCell>
               <TableCell>
                 <StatusBadge status={item.status} />
+              </TableCell>
+              <TableCell>
+                <YtBadge status={item.youtube_status} />
               </TableCell>
               <TableCell className="text-muted-foreground">
                 {format(new Date(item.created_at), "MMM d, yyyy")}

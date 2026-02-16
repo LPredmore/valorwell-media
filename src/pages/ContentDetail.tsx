@@ -4,19 +4,20 @@ import { AppLayout } from "@/components/AppLayout";
 import { useContent } from "@/hooks/useContent";
 import { useDeleteContent } from "@/hooks/useContents";
 import { useAutosave } from "@/hooks/useAutosave";
-import { usePublishYouTube } from "@/hooks/usePublishYouTube";
+import { useRetryYouTubeUpload } from "@/hooks/useSchedule";
 import { StatusBadge } from "@/components/content/StatusBadge";
 import { VideoSection } from "@/components/content/VideoSection";
 import { ImageSection } from "@/components/content/ImageSection";
 import { ContentFieldCard } from "@/components/content/ContentFieldCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { uploadVideoToR2 } from "@/lib/uploadVideo";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-import { ArrowLeft, Trash2, Loader2, RefreshCw, Upload } from "lucide-react";
+import { ArrowLeft, Trash2, Loader2, RefreshCw, RotateCcw, ExternalLink } from "lucide-react";
 import { CONTENT_FIELDS } from "@/lib/platforms";
 import {
   AlertDialog,
@@ -39,13 +40,26 @@ const CHAR_TARGETS: Record<string, string> = {
   ig_tiktok_desc: "200–300",
 };
 
+function YouTubeStatusBadge({ status }: { status: string | null }) {
+  if (!status) return null;
+  const variants: Record<string, string> = {
+    queued: "bg-amber-500/15 text-amber-700 border-amber-500/30",
+    uploading: "bg-blue-500/15 text-blue-700 border-blue-500/30",
+    scheduled: "bg-green-500/15 text-green-700 border-green-500/30",
+    failed: "bg-destructive/15 text-destructive border-destructive/30",
+  };
+  return (
+    <Badge variant="outline" className={variants[status] ?? ""}>{status}</Badge>
+  );
+}
+
 export default function ContentDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: content, isLoading, error } = useContent(id);
   const deleteContent = useDeleteContent();
-  const publishMutation = usePublishYouTube();
+  const retryMutation = useRetryYouTubeUpload();
   const [topic, setTopic] = useState("");
   const [topicInit, setTopicInit] = useState(false);
   const [videoUploading, setVideoUploading] = useState(false);
@@ -125,6 +139,19 @@ export default function ContentDetail() {
     deleteContent.mutate(id, { onSuccess: () => navigate("/content") });
   };
 
+  const handleRetry = () => {
+    if (!id) return;
+    retryMutation.mutate(id, {
+      onSuccess: () => {
+        toast({ title: "Upload re-queued" });
+        queryClient.invalidateQueries({ queryKey: ["content", id] });
+      },
+      onError: (err: any) => {
+        toast({ title: "Retry failed", description: err.message, variant: "destructive" });
+      },
+    });
+  };
+
   if (isLoading) {
     return (
       <AppLayout>
@@ -178,32 +205,6 @@ export default function ContentDetail() {
               Created {format(new Date(content.created_at), "MMM d, yyyy")}
             </span>
             <div className="flex-1" />
-            {(content.status === "unscheduled" || content.status === "scheduled") && content.video_storage_path && (
-              <Button
-                variant="default"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => {
-                  publishMutation.mutate(content.id, {
-                    onSuccess: (data) => {
-                      toast({ title: "Posted to YouTube", description: `Video: ${data.url}` });
-                      queryClient.invalidateQueries({ queryKey: ["content", id] });
-                    },
-                    onError: (err: any) => {
-                      toast({ title: "YouTube upload failed", description: err.message, variant: "destructive" });
-                    },
-                  });
-                }}
-                disabled={publishMutation.isPending}
-              >
-                {publishMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Upload className="h-4 w-4" />
-                )}
-                Post to YouTube
-              </Button>
-            )}
             <Button
               variant="outline"
               size="sm"
@@ -247,6 +248,72 @@ export default function ContentDetail() {
             </div>
           )}
         </div>
+
+        {/* YouTube Status Panel */}
+        {content.youtube_status && (
+          <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">YouTube Upload</h3>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-muted-foreground">Status</span>
+                <div className="mt-1"><YouTubeStatusBadge status={content.youtube_status} /></div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Upload At</span>
+                <div className="mt-1 font-medium">
+                  {content.upload_at ? format(new Date(content.upload_at), "MMM d, yyyy h:mm a") : "—"}
+                </div>
+              </div>
+              {content.youtube_video_id && (
+                <div>
+                  <span className="text-muted-foreground">YouTube Video</span>
+                  <div className="mt-1">
+                    <a
+                      href={`https://youtu.be/${content.youtube_video_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-primary hover:underline font-medium"
+                    >
+                      {content.youtube_video_id}
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                </div>
+              )}
+              {content.youtube_uploaded_at && (
+                <div>
+                  <span className="text-muted-foreground">Uploaded At</span>
+                  <div className="mt-1 font-medium">
+                    {format(new Date(content.youtube_uploaded_at), "MMM d, yyyy h:mm a")}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {content.youtube_status === "failed" && content.youtube_error_detail && (
+              <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+                {content.youtube_error_detail}
+              </div>
+            )}
+
+            {content.youtube_status === "failed" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={handleRetry}
+                disabled={retryMutation.isPending}
+              >
+                {retryMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-4 w-4" />
+                )}
+                Retry Upload
+              </Button>
+            )}
+          </div>
+        )}
 
         {/* Video */}
         <VideoSection
