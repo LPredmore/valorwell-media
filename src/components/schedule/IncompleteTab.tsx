@@ -47,19 +47,17 @@ export function IncompleteTab() {
 
     await supabase.from("social_content").update(updateData).eq("id", editItem.id);
 
-    // Re-fetch to check if both media are now present
+    // Re-fetch to check if both media and generated text are now present
     const { data: updated } = await supabase
       .from("social_content")
       .select("*")
       .eq("id", editItem.id)
       .single();
 
-    if (updated && (updated as any).image && (updated as any).video_storage_path) {
-      // Both media present — trigger generation
-      await supabase.functions.invoke("generate-content", {
-        body: { contentId: editItem.id },
-      });
-      toast({ title: "Media uploaded, generating content…" });
+    if (updated && (updated as any).image && (updated as any).video_storage_path && (updated as any).youtube_title) {
+      // All requirements met — promote to unscheduled
+      await supabase.from("social_content").update({ status: "unscheduled" } as any).eq("id", editItem.id);
+      toast({ title: "Media complete — content is now ready!" });
       setEditItem(null);
     } else {
       toast({ title: `${type === "video" ? "Video" : "Image"} uploaded` });

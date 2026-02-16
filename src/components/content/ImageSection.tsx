@@ -1,17 +1,22 @@
 import { useState, useEffect } from "react";
-import { ImageIcon, Loader2 } from "lucide-react";
+import { ImageIcon, Loader2, Upload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { ImageLightbox } from "./ImageLightbox";
+import { uploadVideoToR2 } from "@/lib/uploadVideo";
+import { Button } from "@/components/ui/button";
 
 interface Props {
   storagePath: string | null;
+  contentId?: string;
+  onImageUploaded?: (storagePath: string) => void;
 }
 
-export function ImageSection({ storagePath }: Props) {
+export function ImageSection({ storagePath, contentId, onImageUploaded }: Props) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (!storagePath) {
@@ -40,6 +45,24 @@ export function ImageSection({ storagePath }: Props) {
     return () => { cancelled = true; };
   }, [storagePath]);
 
+  const handleImageUpload = async (file: File) => {
+    if (!contentId) return;
+    setUploading(true);
+
+    const ext = file.name.split(".").pop();
+    const newPath = `content/${contentId}/cover.${ext}`;
+
+    try {
+      await uploadVideoToR2(newPath, file, () => {});
+      await supabase.from("social_content").update({ image: newPath } as any).eq("id", contentId);
+      onImageUploaded?.(newPath);
+    } catch (err: any) {
+      console.error("Image upload failed:", err);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Cover Image</h3>
@@ -57,12 +80,56 @@ export function ImageSection({ storagePath }: Props) {
             />
           </AspectRatio>
           <ImageLightbox imageUrl={imageUrl} open={lightboxOpen} onOpenChange={setLightboxOpen} />
+          {contentId && (
+            <label>
+              <Button variant="outline" size="sm" className="gap-1.5" asChild disabled={uploading}>
+                <span>
+                  {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  Replace Image
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={uploading}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleImageUpload(file);
+                    }}
+                  />
+                </span>
+              </Button>
+            </label>
+          )}
         </>
       ) : (
-        <div className="flex items-center justify-center gap-2 rounded-lg bg-muted/50 p-8 text-sm text-muted-foreground">
-          <ImageIcon className="h-5 w-5" />
-          <span>No cover image</span>
-        </div>
+        contentId ? (
+          <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-muted/30 p-8 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted/50">
+            {uploading ? (
+              <Loader2 className="h-6 w-6 animate-spin" />
+            ) : (
+              <>
+                <ImageIcon className="h-8 w-8" />
+                <span>Click to upload a cover image</span>
+                <span className="text-xs">PNG, JPG, or WebP</span>
+              </>
+            )}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              disabled={uploading}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImageUpload(file);
+              }}
+            />
+          </label>
+        ) : (
+          <div className="flex items-center justify-center gap-2 rounded-lg bg-muted/50 p-8 text-sm text-muted-foreground">
+            <ImageIcon className="h-5 w-5" />
+            <span>No cover image</span>
+          </div>
+        )
       )}
     </div>
   );

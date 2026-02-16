@@ -158,7 +158,17 @@ Deno.serve(async (req) => {
 
     const generated = JSON.parse(toolCall.function.arguments);
 
-    // Save text fields and set status to complete
+    // Re-fetch the row to see current media state (may have been uploaded concurrently)
+    const { data: current } = await adminClient
+      .from("social_content")
+      .select("image, video_storage_path")
+      .eq("id", contentId)
+      .single();
+
+    const hasAllMedia = !!current?.image && !!current?.video_storage_path;
+    const newStatus = hasAllMedia ? "unscheduled" : "incomplete";
+
+    // Save text fields and set status based on media presence
     const { error: updateError } = await adminClient
       .from("social_content")
       .update({
@@ -169,7 +179,7 @@ Deno.serve(async (req) => {
         linkedin_desc: generated.linkedin_desc,
         ig_tiktok_desc: generated.ig_tiktok_desc,
         youtube_comment: generated.youtube_comment,
-        status: "unscheduled",
+        status: newStatus,
         error: null,
       })
       .eq("id", contentId);
