@@ -87,6 +87,21 @@ export default function ContentDetail() {
     triggerTopicSave(value);
   };
 
+  const promoteStatusIfComplete = async () => {
+    if (!id) return;
+    const { data: updated } = await supabase
+      .from("social_content")
+      .select("image, video_storage_path, youtube_title, status")
+      .eq("id", id)
+      .single();
+
+    if (updated && (updated as any).image && (updated as any).video_storage_path
+        && (updated as any).youtube_title && (updated as any).status === "incomplete") {
+      await supabase.from("social_content").update({ status: "unscheduled" } as any).eq("id", id);
+    }
+    queryClient.invalidateQueries({ queryKey: ["content", id] });
+  };
+
   const handleVideoReplace = async (file: File) => {
     if (!id) return;
     setVideoUploading(true);
@@ -114,9 +129,13 @@ export default function ContentDetail() {
       } as any)
       .eq("id", id);
 
-    queryClient.invalidateQueries({ queryKey: ["content", id] });
     setVideoProgress(100);
     setVideoUploading(false);
+    await promoteStatusIfComplete();
+  };
+
+  const handleImageUploaded = async (_storagePath: string) => {
+    await promoteStatusIfComplete();
   };
 
   const handleRegenerate = async () => {
@@ -324,7 +343,7 @@ export default function ContentDetail() {
         />
 
         {/* Cover Image */}
-        <ImageSection storagePath={content.image} />
+        <ImageSection storagePath={content.image} contentId={content.id} onImageUploaded={handleImageUploaded} />
 
         {/* Generated Content Fields */}
         <div className="space-y-4">

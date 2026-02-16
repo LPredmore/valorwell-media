@@ -219,7 +219,7 @@ export default function CreateContent() {
           </div>
 
           <Button type="submit" className="w-full" disabled={uploading || !topic.trim() || !postLength}>
-            {uploading ? "Creating..." : hasBothMedia ? "Create & Generate" : "Create"}
+            {uploading ? "Creating..." : "Create"}
           </Button>
         </form>
       </div>
