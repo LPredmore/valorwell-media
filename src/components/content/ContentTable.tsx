@@ -2,7 +2,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "./StatusBadge";
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import type { SocialContent } from "@/hooks/useContents";
@@ -77,6 +77,15 @@ export function ContentTable({ items, onDelete, isDeleting }: Props) {
                 {format(new Date(item.created_at), "MMM d, yyyy")}
               </TableCell>
               <TableCell>
+                <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-primary"
+                  onClick={(e) => { e.stopPropagation(); navigate(`/content/${item.id}`); }}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
@@ -107,6 +116,7 @@ export function ContentTable({ items, onDelete, isDeleting }: Props) {
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
+                </div>
               </TableCell>
             </TableRow>
           ))}

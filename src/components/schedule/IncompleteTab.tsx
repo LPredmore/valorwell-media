@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Minus, ImageIcon, Film, Loader2 } from "lucide-react";
+import { Check, Minus, ImageIcon, Film, Loader2, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useIncompleteContent } from "@/hooks/useSchedule";
@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { uploadVideoToR2 } from "@/lib/uploadVideo";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
+import { useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +20,7 @@ import type { SocialContent } from "@/hooks/useContents";
 export function IncompleteTab() {
   const { data: items, isLoading } = useIncompleteContent();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [editItem, setEditItem] = useState<SocialContent | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -97,9 +99,14 @@ export function IncompleteTab() {
                 {item.video_storage_path ? <Check className="h-4 w-4 mx-auto text-success" /> : <Minus className="h-4 w-4 mx-auto text-muted-foreground" />}
               </TableCell>
               <TableCell className="text-right">
-                <Button size="sm" variant="outline" onClick={() => setEditItem(item)}>
-                  Upload Media
-                </Button>
+                <div className="flex items-center justify-end gap-1">
+                  <Button size="sm" variant="ghost" onClick={() => navigate(`/content/${item.id}`)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setEditItem(item)}>
+                    Upload Media
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           ))}
