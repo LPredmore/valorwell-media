@@ -110,7 +110,7 @@ export function IncompleteTab() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Upload Media</DialogTitle>
-            <DialogDescription>Upload the missing image and/or video for "{editItem?.topic}"</DialogDescription>
+            <DialogDescription className="truncate">Upload the missing image and/or video for "{editItem?.topic}"</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
