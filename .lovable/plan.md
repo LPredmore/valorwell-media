@@ -1,33 +1,64 @@
 
-# Update Scheduling Validation to Require Cover Image
+# Mobile-Friendly Schedule Page
 
-Currently, the scheduling process only validates for video, YouTube title, YouTube description, and post length. This plan adds a mandatory check for the cover image to ensure all scheduled content is complete.
+## Overview
+Make the `/schedule` page and the app header more usable on mobile devices, and truncate the Topic column to a single line across all schedule tabs.
 
-## Proposed Changes
+## Changes
 
-### Frontend Modifications
+### 1. AppLayout Header (src/components/AppLayout.tsx)
+- Make the navigation responsive for small screens:
+  - Hide nav button labels on mobile, show only icons
+  - Hide the user email on mobile (keep just the sign-out button)
+  - Reduce header padding on small screens
+  - Use `gap-4` instead of `gap-8` on mobile between logo and nav
 
-#### `src/components/schedule/UnscheduledTab.tsx`
-- Update the `validateForScheduling` helper function to include a check for the `image` field.
-- If the `image` field is null or an empty string (after trimming), "Cover Image" will be added to the list of missing fields.
-- This will automatically trigger the existing error toast in `handleScheduleClick` if the image is missing, blocking the scheduling dialog from opening.
+### 2. Topic Column -- Single Line Truncation (all 4 tab components)
+Add `truncate max-w-[150px] sm:max-w-[250px]` to every Topic `TableCell` so the text clips with an ellipsis after one line.
 
-## Technical Detail
+**Files affected:**
+- `src/components/schedule/IncompleteTab.tsx` (line 92)
+- `src/components/schedule/UnscheduledTab.tsx` (line 92)
+- `src/components/schedule/ScheduledTab.tsx` (line 91)
+- `src/components/schedule/PastTab.tsx` (line 25)
+- `src/components/content/ContentTable.tsx` (line 69)
 
-```typescript
-// Proposed update to validateForScheduling in src/components/schedule/UnscheduledTab.tsx
-function validateForScheduling(item: SocialContent): string[] {
-  const missing: string[] = [];
-  if (!item.video_storage_path) missing.push("Video");
-  if (!item.image?.trim()) missing.push("Cover Image"); // New validation rule
-  if (!item.youtube_title?.trim()) missing.push("YouTube Title");
-  if (!item.youtube_desc?.trim()) missing.push("YouTube Description");
-  if (item.post_length !== "Short" && item.post_length !== "Long") missing.push("Post Length (Short or Long)");
-  return missing;
-}
+### 3. Schedule Tables -- Hide Less-Critical Columns on Mobile
+Use `hidden sm:table-cell` on columns that are secondary on small screens:
+- **IncompleteTab**: Hide "Image" and "Video" check columns on mobile (the Upload Media button is enough)
+- **UnscheduledTab**: Hide "Image" thumbnail and "Created On" columns on mobile
+- **ScheduledTab**: Hide "Image" thumbnail and "YouTube" status columns on mobile
+- **PastTab**: Keep both columns (only 2 columns, both useful)
+
+### 4. Schedule Page Tab Triggers (src/pages/Schedule.tsx)
+- Make the `TabsList` scrollable on mobile so the 4 tab triggers don't overflow. Add `w-full` and allow horizontal scroll if needed.
+
+## Technical Details
+
+### Topic truncation CSS pattern (applied identically in all files):
+```tsx
+<TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">
+  {item.topic}
+</TableCell>
 ```
 
-## Impact
-- **Scheduling Flow**: Users will no longer be able to schedule content that doesn't have a cover image uploaded.
-- **Consistency**: This ensures that all content sent to the YouTube upload service has both video and image assets, preventing downstream failures in the Fly.io service.
-- **User Feedback**: The error toast will clearly list "Cover Image" as a missing requirement if the user tries to schedule incomplete content.
+### Responsive column hiding pattern:
+```tsx
+// In TableHead
+<TableHead className="w-14 hidden sm:table-cell">Image</TableHead>
+// In TableCell
+<TableCell className="hidden sm:table-cell">...</TableCell>
+```
+
+### AppLayout nav -- icon-only on mobile:
+```tsx
+<Button size="sm" className="gap-2">
+  <FileText className="h-4 w-4" />
+  <span className="hidden sm:inline">Content</span>
+</Button>
+```
+
+### User email hidden on mobile:
+```tsx
+<span className="text-sm text-muted-foreground hidden sm:inline">{user?.email}</span>
+```
