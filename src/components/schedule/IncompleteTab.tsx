@@ -81,19 +81,19 @@ export function IncompleteTab() {
         <TableHeader>
           <TableRow>
             <TableHead>Topic</TableHead>
-            <TableHead className="w-20 text-center">Image</TableHead>
-            <TableHead className="w-20 text-center">Video</TableHead>
+            <TableHead className="w-20 text-center hidden sm:table-cell">Image</TableHead>
+            <TableHead className="w-20 text-center hidden sm:table-cell">Video</TableHead>
             <TableHead className="w-28 text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.id}>
-              <TableCell className="font-medium">{item.topic}</TableCell>
-              <TableCell className="text-center">
+              <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.topic}</TableCell>
+              <TableCell className="text-center hidden sm:table-cell">
                 {item.image ? <Check className="h-4 w-4 mx-auto text-success" /> : <Minus className="h-4 w-4 mx-auto text-muted-foreground" />}
               </TableCell>
-              <TableCell className="text-center">
+              <TableCell className="text-center hidden sm:table-cell">
                 {item.video_storage_path ? <Check className="h-4 w-4 mx-auto text-success" /> : <Minus className="h-4 w-4 mx-auto text-muted-foreground" />}
               </TableCell>
               <TableCell className="text-right">
