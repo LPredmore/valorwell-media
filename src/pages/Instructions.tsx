@@ -29,6 +29,7 @@ const SCOPE_LABELS: Record<string, string> = {
   linkedin_desc: "LinkedIn Post",
   ig_tiktok_desc: "Instagram + TikTok Caption",
   hashtags: "Hashtag Rules",
+  youtube_comment: "YouTube Comment",
 };
 
 function ContentInstructionRow({ row }: { row: ContentInstruction }) {

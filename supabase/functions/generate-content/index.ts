@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
 
     const systemPrompt = instructionsByScope["global"] || "You are a social media content generation assistant.";
 
-    const fieldScopes = ["post_title", "youtube_title", "youtube_desc", "facebook_desc", "linkedin_desc", "ig_tiktok_desc", "hashtags"];
+    const fieldScopes = ["post_title", "youtube_title", "youtube_desc", "facebook_desc", "linkedin_desc", "ig_tiktok_desc", "hashtags", "youtube_comment"];
     let fieldRules = "";
     for (const scope of fieldScopes) {
       if (instructionsByScope[scope]) {
@@ -116,8 +116,9 @@ Deno.serve(async (req) => {
                   facebook_desc: { type: "string", description: "Facebook caption, 600-1200 characters with hashtags" },
                   linkedin_desc: { type: "string", description: "LinkedIn post, 900-1600 characters with hashtags" },
                   ig_tiktok_desc: { type: "string", description: "Instagram + TikTok caption, 200-300 characters plus hashtags" },
+                  youtube_comment: { type: "string", description: "YouTube first comment, under 300 chars, no hashtags" },
                 },
-                required: ["post_title", "youtube_title", "youtube_desc", "facebook_desc", "linkedin_desc", "ig_tiktok_desc"],
+                required: ["post_title", "youtube_title", "youtube_desc", "facebook_desc", "linkedin_desc", "ig_tiktok_desc", "youtube_comment"],
                 additionalProperties: false,
               },
             },
@@ -167,6 +168,7 @@ Deno.serve(async (req) => {
         facebook_desc: generated.facebook_desc,
         linkedin_desc: generated.linkedin_desc,
         ig_tiktok_desc: generated.ig_tiktok_desc,
+        youtube_comment: generated.youtube_comment,
         status: "unscheduled",
         error: null,
       })
