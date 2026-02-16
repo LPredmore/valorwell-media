@@ -1,64 +1,45 @@
 
-# Upload Media Dialog Fix, Content Generation on Topic-Only, and YouTube Title Display
 
-## Overview
-Three changes: (1) fix the Upload Media dialog so the topic text stays within bounds, (2) trigger AI content generation when a topic-only post is created (no media required), and (3) show `youtube_title` in the Topic column across all schedule tabs when available, falling back to `topic`.
+# Make "Add Video" More Discoverable
 
-## Changes
+## Problem
+After creating a post with just a topic and image, there's no obvious way to add a video. The video uploader exists on the content detail page (`/content/:id`), but there's no visible "Edit" or "Add Video" button on the content list or schedule pages to guide users there.
 
-### 1. Fix Upload Media Dialog Overflow (IncompleteTab.tsx)
-- Add `overflow-hidden` to the `DialogDescription` so it clips properly within the dialog instead of trailing off-screen.
-- Use `min-w-0` on the `DialogHeader` to allow flex children to shrink.
+## Solution
+Add a visible "Edit" button to the content list table rows so it's clear you can click through to add missing media. Also, on the Schedule "Incomplete" tab, surface a clearer call-to-action.
 
-### 2. Trigger Generation on Topic-Only Creation (CreateContent.tsx)
-- Currently, `generate-content` is only called when both video and image are uploaded at creation time.
-- Change the logic so that `generate-content` is always invoked after the content row is created, regardless of whether media files are attached.
-- The edge function already handles topic-only content -- it reads the topic, generates text fields, and sets status to `unscheduled`.
-- This means a topic-only post will go straight from `incomplete` to `unscheduled` with all text fields populated. Media can be uploaded later from the Incomplete tab (or it moves to Unscheduled immediately since text is generated).
+### 1. Content Table -- Add Edit Button (src/components/content/ContentTable.tsx)
+- Add a small "Edit" or pencil icon button in each row (next to the delete button) that navigates to `/content/:id`.
+- While the row itself is already clickable, an explicit button makes the action discoverable, especially on mobile where "click row to edit" isn't intuitive.
 
-**Wait -- re-reading the current flow**: The status starts as `incomplete` and the edge function sets it to `unscheduled`. If we generate immediately, the post will be `unscheduled` even without media. That aligns with the user's intent: text content gets generated right away, and media can be added later before scheduling (the scheduling validation already blocks posts without video/image).
+### 2. Content Detail Page -- Already Complete
+- The `/content/:id` page already shows the `VideoSection` component with a drag-and-drop uploader.
+- No changes needed here -- once users know to click into a post, they can add video.
 
-### 3. Show youtube_title in Topic Column (all schedule tabs)
-- In `IncompleteTab`, `UnscheduledTab`, `ScheduledTab`, and `PastTab`, display `item.youtube_title || item.topic` instead of just `item.topic`.
-- This shows the AI-generated YouTube title once content has been generated, falling back to the original topic for incomplete items.
+### 3. Schedule Incomplete Tab -- Show "Edit" alongside "Upload Media"
+- In the Incomplete tab, add a secondary action (e.g., a link/button) on each row that navigates to the full content detail page at `/content/:id`, so users can add video (or image) from the detail view as an alternative to the dialog.
 
 ## Technical Details
 
-### IncompleteTab.tsx -- Dialog fix
+### ContentTable.tsx -- Add edit button
 ```tsx
-<DialogDescription className="truncate">
-  Upload media for "{editItem?.topic}"
-</DialogDescription>
-```
-Shorten the text and keep `truncate`. Also add `overflow-hidden` to `DialogHeader`.
-
-### IncompleteTab.tsx -- Topic column display
-```tsx
-<TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">
-  {item.youtube_title || item.topic}
+<TableCell className="flex items-center gap-1">
+  <Button
+    variant="ghost"
+    size="icon"
+    className="text-muted-foreground hover:text-primary"
+    onClick={(e) => { e.stopPropagation(); navigate(`/content/${item.id}`); }}
+  >
+    <Pencil className="h-4 w-4" />
+  </Button>
+  {/* existing delete button */}
 </TableCell>
 ```
-Same pattern applied to `UnscheduledTab`, `ScheduledTab`, and `PastTab`.
 
-### CreateContent.tsx -- Always trigger generation
-Remove the conditional `if (videoStoragePath && imageStoragePath)` guard around the `generate-content` call, so it always fires after the content row and any media uploads are complete.
+### IncompleteTab.tsx -- Add "Edit" link
+Add a small edit/pencil button in each row that links to `/content/:id`, giving users a way to go to the full editor where the video uploader lives.
 
-```tsx
-// Always call generate-content (works with topic-only)
-const { error: genError } = await supabase.functions.invoke("generate-content", {
-  body: { contentId },
-});
-if (genError) {
-  toast({ title: "Generation failed", description: genError.message, variant: "destructive" });
-}
-```
+### Files to edit:
+- `src/components/content/ContentTable.tsx` -- add Edit button column
+- `src/components/schedule/IncompleteTab.tsx` -- add Edit link per row
 
-### IncompleteTab.tsx -- Also trigger generation after both media uploaded
-The existing logic in `handleMediaUpload` already calls `generate-content` when both media are present. However, since we now generate text on creation, this second call would re-generate. We should keep it as-is -- it acts as a "regenerate" when media is finally complete, which is fine.
-
-### Summary of files to edit:
-- `src/pages/CreateContent.tsx` -- remove media guard on generation call
-- `src/components/schedule/IncompleteTab.tsx` -- fix dialog text, show youtube_title
-- `src/components/schedule/UnscheduledTab.tsx` -- show youtube_title
-- `src/components/schedule/ScheduledTab.tsx` -- show youtube_title
-- `src/components/schedule/PastTab.tsx` -- show youtube_title
