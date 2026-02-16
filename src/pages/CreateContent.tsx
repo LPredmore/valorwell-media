@@ -123,14 +123,12 @@ export default function CreateContent() {
 
     setProgress(70);
 
-    // 5. If both media present, call generate-content (will set status to unscheduled)
-    if (videoStoragePath && imageStoragePath) {
-      const { error: genError } = await supabase.functions.invoke("generate-content", {
-        body: { contentId },
-      });
-      if (genError) {
-        toast({ title: "Generation failed", description: genError.message, variant: "destructive" });
-      }
+    // 5. Always call generate-content (works with topic-only, sets status to unscheduled)
+    const { error: genError } = await supabase.functions.invoke("generate-content", {
+      body: { contentId },
+    });
+    if (genError) {
+      toast({ title: "Generation failed", description: genError.message, variant: "destructive" });
     }
 
     setProgress(100);
