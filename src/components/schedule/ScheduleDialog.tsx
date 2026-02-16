@@ -95,18 +95,7 @@ export function ScheduleDialog({
     const selectedAt = new Date(date);
     selectedAt.setHours(hours, minutes, 0, 0);
 
-    // Apply time offset based on post length
-    let offsetHours = 0;
-    if (postLength === "Short") offsetHours = 2;
-    else if (postLength === "Long") offsetHours = 6;
-
-    const actualScheduledAt = new Date(selectedAt.getTime() - offsetHours * 60 * 60 * 1000);
-
-    // If the adjusted time is in the past, use now
-    const now = new Date();
-    const finalTime = actualScheduledAt <= now ? now : actualScheduledAt;
-
-    onConfirm(finalTime, playlistId);
+    onConfirm(selectedAt, playlistId);
   };
 
   const canConfirm = date && (usePrefTimes ? !!selectedPrefTime : true);
@@ -120,7 +109,7 @@ export function ScheduleDialog({
             Choose a date and time.
             {postLength && (
               <span className="block text-xs mt-1">
-                {postLength === "Short" ? "Short content schedules 2h early." : "Long content schedules 6h early."}
+                {postLength === "Short" ? "Upload begins 2h before broadcast." : "Upload begins 6h before broadcast."}
               </span>
             )}
           </DialogDescription>

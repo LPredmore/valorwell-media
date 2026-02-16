@@ -23,6 +23,12 @@ export type SocialContent = {
   scheduled_platforms: string[] | null;
   playlist_id: number | null;
   post_length: string | null;
+  youtube_status: string | null;
+  upload_at: string | null;
+  youtube_video_id: string | null;
+  youtube_error_detail: string | null;
+  youtube_uploaded_at: string | null;
+  video_size_bytes: number | null;
   created_at: string;
   updated_at: string;
 };

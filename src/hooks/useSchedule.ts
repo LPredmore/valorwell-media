@@ -130,9 +130,8 @@ export function usePostNow() {
       contentId: string;
       playlistId: number | null;
     }) => {
-      // Save playlist_id and mark as scheduled with scheduled_at = now
       const now = new Date().toISOString();
-      const { error: updateError } = await supabase
+      const { error } = await supabase
         .from("social_content")
         .update({
           playlist_id: playlistId,
@@ -140,22 +139,38 @@ export function usePostNow() {
           scheduled_at: now,
         } as any)
         .eq("id", contentId);
-      if (updateError) throw updateError;
-
-      // Invoke the edge function to do the actual posting
-      const { data, error: fnError } = await supabase.functions.invoke(
-        "post-scheduled-content",
-        { body: { contentId } }
-      );
-      if (fnError) throw fnError;
-
-      const result = typeof data === "string" ? JSON.parse(data) : data;
-      if (result?.error) throw new Error(result.error);
-      if (result?.posted === 0) throw new Error("Edge function did not post the content");
+      if (error) throw error;
+      // Supabase trigger will set upload_at = now() and youtube_status = 'queued'
+      // Fly.io will pick it up on its next poll
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["schedule"] });
       queryClient.invalidateQueries({ queryKey: ["contents"] });
+    },
+  });
+}
+
+export function useRetryYouTubeUpload() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("social_content")
+        .update({
+          youtube_status: "queued",
+          upload_at: new Date().toISOString(),
+          youtube_error_detail: null,
+          youtube_video_id: null,
+          youtube_uploaded_at: null,
+        } as any)
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["schedule"] });
+      queryClient.invalidateQueries({ queryKey: ["contents"] });
+      queryClient.invalidateQueries({ queryKey: ["content"] });
     },
   });
 }

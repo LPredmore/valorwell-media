@@ -9,21 +9,42 @@ import { ScheduleDialog } from "./ScheduleDialog";
 import { toast } from "@/hooks/use-toast";
 import type { SocialContent } from "@/hooks/useContents";
 
+function validateForScheduling(item: SocialContent): string[] {
+  const missing: string[] = [];
+  if (!item.video_storage_path) missing.push("Video");
+  if (!item.youtube_title?.trim()) missing.push("YouTube Title");
+  if (!item.youtube_desc?.trim()) missing.push("YouTube Description");
+  if (item.post_length !== "Short" && item.post_length !== "Long") missing.push("Post Length (Short or Long)");
+  return missing;
+}
+
 export function UnscheduledTab() {
   const { data: items, isLoading } = useUnscheduledContent();
   const scheduleMutation = useScheduleContent();
   const postNowMutation = usePostNow();
   const [selectedItem, setSelectedItem] = useState<SocialContent | null>(null);
 
+  const handleScheduleClick = (item: SocialContent) => {
+    const missing = validateForScheduling(item);
+    if (missing.length > 0) {
+      toast({
+        title: "Cannot schedule — missing fields",
+        description: missing.join(", "),
+        variant: "destructive",
+      });
+      return;
+    }
+    setSelectedItem(item);
+  };
+
   const handleConfirm = (scheduledAt: Date, playlistId: number | null) => {
     if (!selectedItem) return;
 
-    // If scheduledAt is basically now (in the past or within 1 minute), post immediately
     const now = new Date();
     if (scheduledAt.getTime() <= now.getTime() + 60000) {
       postNowMutation.mutate({ contentId: selectedItem.id, playlistId }, {
         onSuccess: () => {
-          toast({ title: "Post published" });
+          toast({ title: "Post queued for immediate upload" });
           setSelectedItem(null);
         },
         onError: (err: any) => {
@@ -70,7 +91,7 @@ export function UnscheduledTab() {
               <TableCell className="font-medium">{item.topic}</TableCell>
               <TableCell className="text-muted-foreground">{format(new Date(item.created_at), "MMM d, yyyy")}</TableCell>
               <TableCell className="text-right">
-                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setSelectedItem(item)}>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleScheduleClick(item)}>
                   <CalendarPlus className="h-3.5 w-3.5" />
                   Schedule
                 </Button>
