@@ -1,64 +1,64 @@
 
-# Mobile-Friendly Schedule Page
+# Upload Media Dialog Fix, Content Generation on Topic-Only, and YouTube Title Display
 
 ## Overview
-Make the `/schedule` page and the app header more usable on mobile devices, and truncate the Topic column to a single line across all schedule tabs.
+Three changes: (1) fix the Upload Media dialog so the topic text stays within bounds, (2) trigger AI content generation when a topic-only post is created (no media required), and (3) show `youtube_title` in the Topic column across all schedule tabs when available, falling back to `topic`.
 
 ## Changes
 
-### 1. AppLayout Header (src/components/AppLayout.tsx)
-- Make the navigation responsive for small screens:
-  - Hide nav button labels on mobile, show only icons
-  - Hide the user email on mobile (keep just the sign-out button)
-  - Reduce header padding on small screens
-  - Use `gap-4` instead of `gap-8` on mobile between logo and nav
+### 1. Fix Upload Media Dialog Overflow (IncompleteTab.tsx)
+- Add `overflow-hidden` to the `DialogDescription` so it clips properly within the dialog instead of trailing off-screen.
+- Use `min-w-0` on the `DialogHeader` to allow flex children to shrink.
 
-### 2. Topic Column -- Single Line Truncation (all 4 tab components)
-Add `truncate max-w-[150px] sm:max-w-[250px]` to every Topic `TableCell` so the text clips with an ellipsis after one line.
+### 2. Trigger Generation on Topic-Only Creation (CreateContent.tsx)
+- Currently, `generate-content` is only called when both video and image are uploaded at creation time.
+- Change the logic so that `generate-content` is always invoked after the content row is created, regardless of whether media files are attached.
+- The edge function already handles topic-only content -- it reads the topic, generates text fields, and sets status to `unscheduled`.
+- This means a topic-only post will go straight from `incomplete` to `unscheduled` with all text fields populated. Media can be uploaded later from the Incomplete tab (or it moves to Unscheduled immediately since text is generated).
 
-**Files affected:**
-- `src/components/schedule/IncompleteTab.tsx` (line 92)
-- `src/components/schedule/UnscheduledTab.tsx` (line 92)
-- `src/components/schedule/ScheduledTab.tsx` (line 91)
-- `src/components/schedule/PastTab.tsx` (line 25)
-- `src/components/content/ContentTable.tsx` (line 69)
+**Wait -- re-reading the current flow**: The status starts as `incomplete` and the edge function sets it to `unscheduled`. If we generate immediately, the post will be `unscheduled` even without media. That aligns with the user's intent: text content gets generated right away, and media can be added later before scheduling (the scheduling validation already blocks posts without video/image).
 
-### 3. Schedule Tables -- Hide Less-Critical Columns on Mobile
-Use `hidden sm:table-cell` on columns that are secondary on small screens:
-- **IncompleteTab**: Hide "Image" and "Video" check columns on mobile (the Upload Media button is enough)
-- **UnscheduledTab**: Hide "Image" thumbnail and "Created On" columns on mobile
-- **ScheduledTab**: Hide "Image" thumbnail and "YouTube" status columns on mobile
-- **PastTab**: Keep both columns (only 2 columns, both useful)
-
-### 4. Schedule Page Tab Triggers (src/pages/Schedule.tsx)
-- Make the `TabsList` scrollable on mobile so the 4 tab triggers don't overflow. Add `w-full` and allow horizontal scroll if needed.
+### 3. Show youtube_title in Topic Column (all schedule tabs)
+- In `IncompleteTab`, `UnscheduledTab`, `ScheduledTab`, and `PastTab`, display `item.youtube_title || item.topic` instead of just `item.topic`.
+- This shows the AI-generated YouTube title once content has been generated, falling back to the original topic for incomplete items.
 
 ## Technical Details
 
-### Topic truncation CSS pattern (applied identically in all files):
+### IncompleteTab.tsx -- Dialog fix
+```tsx
+<DialogDescription className="truncate">
+  Upload media for "{editItem?.topic}"
+</DialogDescription>
+```
+Shorten the text and keep `truncate`. Also add `overflow-hidden` to `DialogHeader`.
+
+### IncompleteTab.tsx -- Topic column display
 ```tsx
 <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">
-  {item.topic}
+  {item.youtube_title || item.topic}
 </TableCell>
 ```
+Same pattern applied to `UnscheduledTab`, `ScheduledTab`, and `PastTab`.
 
-### Responsive column hiding pattern:
+### CreateContent.tsx -- Always trigger generation
+Remove the conditional `if (videoStoragePath && imageStoragePath)` guard around the `generate-content` call, so it always fires after the content row and any media uploads are complete.
+
 ```tsx
-// In TableHead
-<TableHead className="w-14 hidden sm:table-cell">Image</TableHead>
-// In TableCell
-<TableCell className="hidden sm:table-cell">...</TableCell>
+// Always call generate-content (works with topic-only)
+const { error: genError } = await supabase.functions.invoke("generate-content", {
+  body: { contentId },
+});
+if (genError) {
+  toast({ title: "Generation failed", description: genError.message, variant: "destructive" });
+}
 ```
 
-### AppLayout nav -- icon-only on mobile:
-```tsx
-<Button size="sm" className="gap-2">
-  <FileText className="h-4 w-4" />
-  <span className="hidden sm:inline">Content</span>
-</Button>
-```
+### IncompleteTab.tsx -- Also trigger generation after both media uploaded
+The existing logic in `handleMediaUpload` already calls `generate-content` when both media are present. However, since we now generate text on creation, this second call would re-generate. We should keep it as-is -- it acts as a "regenerate" when media is finally complete, which is fine.
 
-### User email hidden on mobile:
-```tsx
-<span className="text-sm text-muted-foreground hidden sm:inline">{user?.email}</span>
-```
+### Summary of files to edit:
+- `src/pages/CreateContent.tsx` -- remove media guard on generation call
+- `src/components/schedule/IncompleteTab.tsx` -- fix dialog text, show youtube_title
+- `src/components/schedule/UnscheduledTab.tsx` -- show youtube_title
+- `src/components/schedule/ScheduledTab.tsx` -- show youtube_title
+- `src/components/schedule/PastTab.tsx` -- show youtube_title
