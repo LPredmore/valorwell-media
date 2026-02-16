@@ -365,6 +365,11 @@ export type Database = {
           video_size_bytes: number | null
           video_storage_path: string | null
           video_url: string | null
+          youtube_comment: string | null
+          youtube_comment_error_detail: string | null
+          youtube_comment_id: string | null
+          youtube_comment_posted_at: string | null
+          youtube_comment_status: string | null
           youtube_desc: string | null
           youtube_error_detail: string | null
           youtube_status: string | null
@@ -396,6 +401,11 @@ export type Database = {
           video_size_bytes?: number | null
           video_storage_path?: string | null
           video_url?: string | null
+          youtube_comment?: string | null
+          youtube_comment_error_detail?: string | null
+          youtube_comment_id?: string | null
+          youtube_comment_posted_at?: string | null
+          youtube_comment_status?: string | null
           youtube_desc?: string | null
           youtube_error_detail?: string | null
           youtube_status?: string | null
@@ -427,6 +437,11 @@ export type Database = {
           video_size_bytes?: number | null
           video_storage_path?: string | null
           video_url?: string | null
+          youtube_comment?: string | null
+          youtube_comment_error_detail?: string | null
+          youtube_comment_id?: string | null
+          youtube_comment_posted_at?: string | null
+          youtube_comment_status?: string | null
           youtube_desc?: string | null
           youtube_error_detail?: string | null
           youtube_status?: string | null
@@ -579,6 +594,24 @@ export type Database = {
         }
         Relationships: []
       }
+      youtube_cron_http_log: {
+        Row: {
+          created_at: string
+          id: number
+          request_id: number
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          request_id: number
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          request_id?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -590,6 +623,11 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      kick_youtube_run_due: { Args: never; Returns: undefined }
+      reset_stuck_youtube_uploads: {
+        Args: { minutes_stuck?: number }
+        Returns: number
       }
     }
     Enums: {
