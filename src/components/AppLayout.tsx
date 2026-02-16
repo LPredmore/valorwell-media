@@ -13,7 +13,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 border-b border-border bg-card/80 backdrop-blur-sm">
         <div className="container flex h-16 items-center justify-between">
-          <div className="flex items-center gap-8">
+          <div className="flex items-center gap-4 sm:gap-8">
             <Link to="/content" className="text-xl font-extrabold tracking-tight text-foreground">
               Content<span className="text-primary">Hub</span>
             </Link>
@@ -25,7 +25,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   className="gap-2"
                 >
                   <FileText className="h-4 w-4" />
-                  Content
+                  <span className="hidden sm:inline">Content</span>
                 </Button>
               </Link>
               <Link to="/schedule">
@@ -35,7 +35,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   className="gap-2"
                 >
                   <CalendarDays className="h-4 w-4" />
-                  Schedule
+                  <span className="hidden sm:inline">Schedule</span>
                 </Button>
               </Link>
               {isAdmin && (
@@ -46,7 +46,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     className="gap-2"
                   >
                     <Settings className="h-4 w-4" />
-                    Instructions
+                    <span className="hidden sm:inline">Instructions</span>
                   </Button>
                 </Link>
               )}
@@ -57,13 +57,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   className="gap-2"
                 >
                   <Cog className="h-4 w-4" />
-                  Settings
+                  <span className="hidden sm:inline">Settings</span>
                 </Button>
               </Link>
             </nav>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground">{user?.email}</span>
+            <span className="text-sm text-muted-foreground hidden sm:inline">{user?.email}</span>
             <Button variant="ghost" size="icon" onClick={signOut} title="Sign out">
               <LogOut className="h-4 w-4" />
             </Button>

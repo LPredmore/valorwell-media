@@ -77,24 +77,24 @@ export function ScheduledTab() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-14">Image</TableHead>
+              <TableHead className="w-14 hidden sm:table-cell">Image</TableHead>
               <TableHead>Topic</TableHead>
               <TableHead className="w-44">Scheduled Date</TableHead>
-              <TableHead className="w-24">YouTube</TableHead>
+              <TableHead className="w-24 hidden sm:table-cell">YouTube</TableHead>
               <TableHead className="w-16 text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {items.map((item) => (
               <TableRow key={item.id}>
-                <TableCell><ScheduleThumbnail imagePath={item.image} /></TableCell>
-                <TableCell className="font-medium">{item.topic}</TableCell>
+                <TableCell className="hidden sm:table-cell"><ScheduleThumbnail imagePath={item.image} /></TableCell>
+                <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.topic}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {item.scheduled_at
                     ? format(new Date(item.scheduled_at), "MMM d, yyyy h:mm a")
                     : "—"}
                 </TableCell>
-                <TableCell><YtBadge status={item.youtube_status} /></TableCell>
+                <TableCell className="hidden sm:table-cell"><YtBadge status={item.youtube_status} /></TableCell>
                 <TableCell className="text-right">
                   <Button size="sm" variant="ghost" onClick={() => setEditItem(item)}>
                     <Pencil className="h-3.5 w-3.5" />

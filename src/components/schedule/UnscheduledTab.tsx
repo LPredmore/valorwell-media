@@ -79,18 +79,18 @@ export function UnscheduledTab() {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-14">Image</TableHead>
+            <TableHead className="w-14 hidden sm:table-cell">Image</TableHead>
             <TableHead>Topic</TableHead>
-            <TableHead className="w-40">Created On</TableHead>
+            <TableHead className="w-40 hidden sm:table-cell">Created On</TableHead>
             <TableHead className="w-28 text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.id}>
-              <TableCell><ScheduleThumbnail imagePath={item.image} /></TableCell>
-              <TableCell className="font-medium">{item.topic}</TableCell>
-              <TableCell className="text-muted-foreground">{format(new Date(item.created_at), "MMM d, yyyy")}</TableCell>
+              <TableCell className="hidden sm:table-cell"><ScheduleThumbnail imagePath={item.image} /></TableCell>
+              <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.topic}</TableCell>
+              <TableCell className="text-muted-foreground hidden sm:table-cell">{format(new Date(item.created_at), "MMM d, yyyy")}</TableCell>
               <TableCell className="text-right">
                 <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleScheduleClick(item)}>
                   <CalendarPlus className="h-3.5 w-3.5" />

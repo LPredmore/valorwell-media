@@ -12,7 +12,7 @@ export default function Schedule() {
         <h1 className="text-3xl font-extrabold tracking-tight">Schedule</h1>
 
         <Tabs defaultValue="incomplete">
-          <TabsList>
+          <TabsList className="w-full sm:w-auto">
             <TabsTrigger value="incomplete">Incomplete</TabsTrigger>
             <TabsTrigger value="unscheduled">Unscheduled</TabsTrigger>
             <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
