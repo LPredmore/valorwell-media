@@ -1,179 +1,113 @@
 
-# Add Thorough Diagnostic Logging to Video Upload Pipeline
 
-## Why This Plan Exists
+# Multipart Chunked Upload for Large Videos
 
-The video upload has failed multiple times and we have zero diagnostic data. The current code catches errors generically and shows a toast with no details. No console logs, no network details, no file metadata. This plan adds comprehensive logging at every step so the next failure gives us a clear answer.
+## Decision: S3-compatible multipart upload with presigned part URLs
 
-## What Gets Logged (and Where)
+The right approach is S3 multipart upload, not increasing the timeout. Here's why:
 
-### 1. `src/lib/uploadVideo.ts` -- The core upload function
+- A single HTTP PUT for a 900MB file is inherently fragile regardless of timeout length. Any momentary network interruption kills the entire transfer and you start over.
+- S3 multipart upload splits the file into independent chunks. Each chunk is its own HTTP request. If one fails, only that chunk retries -- not the whole file.
+- R2 natively supports the S3 multipart API. This isn't a workaround; it's the intended way to upload large files.
+- The existing architecture (presigned URLs, browser-direct-to-R2) stays the same. Chunks go browser-to-R2, not through the edge function.
 
-Add `console.log` and `console.error` at every decision point:
+## Architecture
 
-- **Before calling the edge function:** Log file name, file size (bytes), file type, and the storagePath being requested
-- **After the edge function responds:** Log whether it succeeded or failed, and if failed, log the full error object and response data
-- **Before the XHR PUT:** Log the presigned URL (first 100 chars for security), content type header being set
-- **XHR progress:** Already tracked via callback, no change needed
-- **XHR onload (success):** Log status code and confirmation
-- **XHR onload (failure):** Log status code, statusText, and responseText (the R2 error body, which is XML and will tell us exactly what went wrong -- e.g., "SignatureDoesNotMatch", "AccessDenied", "EntityTooLarge")
-- **XHR onerror:** Log everything available -- the event itself, readyState, status, any responseText. This is the "Network error during upload" path that keeps firing, and right now it logs nothing
-- **XHR ontimeout:** Add a timeout handler (currently missing entirely) with logging
-- **XHR onabort:** Add an abort handler with logging
-
-### 2. `src/pages/ContentDetail.tsx` -- handleVideoReplace
-
-- **Before upload:** Log content ID, file name, file size, computed storagePath
-- **After upload success:** Log confirmation before DB update
-- **On catch:** Log the full error object (not just message) to console.error
-
-### 3. `src/pages/CreateContent.tsx` -- handleSubmit video upload section
-
-- **Before upload:** Log content ID, file name, file size
-- **On catch:** Log the full error object to console.error
-
-### 4. `src/components/content/ImageSection.tsx` -- handleImageUpload
-
-- Same pattern: log before attempt, log full error on catch (currently only does `console.error("Image upload failed:", err)` which is okay but could include more context)
-
-## Technical Details
-
-### uploadVideo.ts -- Exact changes
-
-```typescript
-export async function uploadVideoToR2(
-  storagePath: string,
-  file: File,
-  onProgress?: (pct: number) => void,
-): Promise<void> {
-  console.log("[R2 Upload] Starting upload", {
-    storagePath,
-    fileName: file.name,
-    fileSize: file.size,
-    fileSizeHuman: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-    fileType: file.type,
-  });
-
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) {
-    console.error("[R2 Upload] No auth session found");
-    throw new Error("Not authenticated");
-  }
-
-  console.log("[R2 Upload] Requesting presigned URL from edge function...");
-  const { data, error } = await supabase.functions.invoke("r2-upload-url", {
-    body: { storagePath, contentType: file.type },
-  });
-
-  if (error || !data?.uploadUrl) {
-    console.error("[R2 Upload] Edge function failed", {
-      error,
-      data,
-      errorMessage: error?.message,
-    });
-    throw new Error(error?.message ?? data?.error ?? "Failed to get upload URL");
-  }
-
-  const uploadUrl: string = data.uploadUrl;
-  console.log("[R2 Upload] Got presigned URL", {
-    urlPrefix: uploadUrl.substring(0, 100) + "...",
-    urlLength: uploadUrl.length,
-  });
-
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", uploadUrl);
-    xhr.setRequestHeader("Content-Type", file.type);
-    xhr.timeout = 600000; // 10 minute timeout for large videos
-
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        onProgress?.((e.loaded / e.total) * 100);
-      }
-    };
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        console.log("[R2 Upload] Upload succeeded", { status: xhr.status });
-        resolve();
-      } else {
-        console.error("[R2 Upload] Upload failed with HTTP error", {
-          status: xhr.status,
-          statusText: xhr.statusText,
-          responseText: xhr.responseText,
-        });
-        reject(new Error(
-          `Upload failed: ${xhr.status} ${xhr.statusText} - ${xhr.responseText}`
-        ));
-      }
-    };
-
-    xhr.onerror = () => {
-      console.error("[R2 Upload] XHR network error", {
-        readyState: xhr.readyState,
-        status: xhr.status,
-        statusText: xhr.statusText,
-        responseText: xhr.responseText,
-        responseURL: xhr.responseURL,
-      });
-      reject(new Error(
-        `Network error during upload (readyState=${xhr.readyState}, status=${xhr.status})`
-      ));
-    };
-
-    xhr.ontimeout = () => {
-      console.error("[R2 Upload] XHR timed out", {
-        timeout: xhr.timeout,
-        fileSize: file.size,
-      });
-      reject(new Error(`Upload timed out after ${xhr.timeout / 1000}s`));
-    };
-
-    xhr.onabort = () => {
-      console.error("[R2 Upload] XHR was aborted");
-      reject(new Error("Upload was aborted"));
-    };
-
-    console.log("[R2 Upload] Starting XHR PUT...");
-    xhr.send(file);
-  });
-}
+```text
+Browser                        Edge Function                   Cloudflare R2
+  |                                 |                               |
+  |-- POST {action:"start"} ------->|                               |
+  |                                 |-- CreateMultipartUpload ------>|
+  |                                 |<-- uploadId ------------------|
+  |                                 |-- Sign presigned PUT URLs ---->|
+  |<-- {uploadId, partUrls[]} ------|                               |
+  |                                 |                               |
+  |-- PUT chunk 1 (50MB) directly --------------------------------->|
+  |<-- ETag 1 ------------------------------------------------------|
+  |-- PUT chunk 2 (50MB) directly --------------------------------->|
+  |<-- ETag 2 ------------------------------------------------------|
+  |   ... repeat for all chunks ...                                 |
+  |                                 |                               |
+  |-- POST {action:"complete"} ---->|                               |
+  |   {uploadId, parts:[{ETag,Num}]}|-- CompleteMultipartUpload --->|
+  |                                 |<-- OK (file assembled) -------|
+  |<-- {success: true} -------------|                               |
 ```
 
-### ContentDetail.tsx -- handleVideoReplace changes
+After `CompleteMultipartUpload`, R2 assembles all parts into a single object at the same key (`content/{id}/video.mp4`). The YouTube uploader, `r2-read-url`, and everything downstream sees a normal file. Nothing changes for them.
 
-Add logging before the upload call and in the catch block:
+## What gets built
 
-```typescript
-console.log("[ContentDetail] Starting video replace", {
-  contentId: id,
-  fileName: file.name,
-  fileSize: file.size,
-  fileSizeHuman: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-  storagePath,
-});
-// ... existing uploadVideoToR2 call ...
-// In catch:
-console.error("[ContentDetail] Video upload failed", uploadError);
+### 1. New edge function: `supabase/functions/r2-multipart-upload/index.ts`
+
+Handles three actions via a single endpoint:
+
+**`start`** -- Receives `storagePath` and `contentType`. Calls R2's `CreateMultipartUpload` via `aws4fetch`, then generates presigned PUT URLs for each part (caller provides `fileSize` and the function computes part count). Returns `uploadId` and array of presigned URLs with part numbers.
+
+**`complete`** -- Receives `storagePath`, `uploadId`, and array of `{partNumber, etag}`. Calls R2's `CompleteMultipartUpload` with the XML body listing all parts. R2 assembles the file.
+
+**`abort`** -- Receives `storagePath` and `uploadId`. Calls R2's `AbortMultipartUpload` to clean up partial uploads. Called on permanent failure or user cancellation.
+
+Uses the same `aws4fetch` library and same R2 credentials (`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) already configured as secrets.
+
+### 2. Updated client: `src/lib/uploadVideo.ts`
+
+The `uploadVideoToR2` function gets a size check:
+
+- **Files under 100 MB**: Use the existing single PUT path (unchanged). Small files don't need multipart complexity.
+- **Files 100 MB and above**: Use the new multipart path.
+
+**Multipart upload flow in the client:**
+
+1. Slice the file into 50 MB chunks (last chunk is whatever remains).
+2. Call the edge function with `action: "start"`, passing `storagePath`, `contentType`, and `fileSize`.
+3. Receive `uploadId` and an array of presigned PUT URLs.
+4. Upload each chunk sequentially via `fetch()` PUT to its presigned URL. Each chunk gets a **10-minute timeout** via `AbortController` -- a 50 MB chunk at even 100 KB/s finishes in ~8.5 minutes, so 10 minutes is generous. On failure, retry that chunk up to 3 times with exponential backoff.
+5. Collect the `ETag` response header from each successful chunk upload.
+6. After all chunks succeed, call the edge function with `action: "complete"`, passing the `uploadId` and all `{partNumber, etag}` pairs.
+7. If a chunk fails permanently (after 3 retries), call the edge function with `action: "abort"` to clean up, then throw an error.
+
+**Progress tracking**: Progress = (completed chunks * chunk size + current chunk bytes sent) / total file size. This gives smooth, accurate progress even for multi-GB files.
+
+**Logging**: All the diagnostic logging from the previous plan carries over. Each chunk logs its part number, size, attempt number, and any error details.
+
+### 3. Config: `supabase/config.toml`
+
+Add the new function entry:
+
+```toml
+[functions.r2-multipart-upload]
+verify_jwt = false
 ```
 
-### CreateContent.tsx -- handleSubmit video section
+### 4. No changes to these files
 
-Same pattern: log before, log errors with full object.
+- `src/pages/ContentDetail.tsx` -- already calls `uploadVideoToR2`, which handles routing internally
+- `src/pages/CreateContent.tsx` -- same, calls `uploadVideoToR2`
+- `src/components/content/ImageSection.tsx` -- images are small, always uses single PUT
+- `supabase/functions/r2-upload-url/index.ts` -- kept for small files
+- `supabase/functions/r2-read-url/index.ts` -- unchanged, reads the assembled file
+- Database schema -- unchanged
+- YouTube upload pipeline -- unchanged, it reads the final assembled object
 
-### ImageSection.tsx -- handleImageUpload
+## Why 50 MB chunks and 10-minute per-chunk timeout
 
-Add file metadata logging before the upload attempt.
+- **50 MB chunks**: S3 multipart requires minimum 5 MB per part (except the last). 50 MB balances between too many HTTP requests (overhead) and too large (fragile). A 5 GB file = 100 parts, well within S3's 10,000 part limit.
+- **10-minute per-chunk timeout**: A 50 MB chunk at 100 KB/s (very slow connection) takes ~8.3 minutes. 10 minutes covers this with margin. This is not a global timeout -- it's per chunk. A 5 GB upload could theoretically run for 100 chunks x 10 minutes = 16+ hours on an extremely slow connection and still succeed.
 
-## Files to Edit
+## Why sequential uploads (not parallel)
 
-| File | Change |
+Parallel chunk uploads would be faster but add complexity around browser connection limits, memory pressure (multiple 50 MB buffers), and harder progress tracking. Sequential is simpler, more reliable, and for a single user uploading one video at a time, the bottleneck is bandwidth, not concurrency.
+
+## Files to create/edit
+
+| File | Action |
 |------|--------|
-| `src/lib/uploadVideo.ts` | Add comprehensive logging at every step; add timeout/abort handlers |
-| `src/pages/ContentDetail.tsx` | Add logging around handleVideoReplace |
-| `src/pages/CreateContent.tsx` | Add logging around video upload in handleSubmit |
-| `src/components/content/ImageSection.tsx` | Add file metadata logging |
+| `supabase/functions/r2-multipart-upload/index.ts` | Create new edge function |
+| `src/lib/uploadVideo.ts` | Add multipart path, keep single PUT for small files |
+| `supabase/config.toml` | Add `r2-multipart-upload` entry |
 
-## What Happens Next
+## R2 CORS requirement
 
-After this is deployed, the next time the video upload fails, the browser console will contain a complete trace showing exactly which step failed and why. No more guessing. The logs will be automatically available when you send a message, so we'll be able to diagnose it immediately.
+R2 must expose the `ETag` header in CORS responses so the browser can read it after each chunk upload. The R2 bucket's CORS config needs `ExposeHeaders: ["ETag"]`. If this isn't already configured, chunk uploads will succeed but the client won't be able to read the ETag, and the complete step will fail. I'll note this after implementation so you can verify it in the Cloudflare dashboard.
+
