@@ -24,3 +24,6 @@ verify_jwt = false
 
 [functions.post-scheduled-content]
 verify_jwt = false
+
+[functions.r2-multipart-upload]
+verify_jwt = false
