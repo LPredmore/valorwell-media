@@ -52,12 +52,22 @@ export function ImageSection({ storagePath, contentId, onImageUploaded }: Props)
     const ext = file.name.split(".").pop();
     const newPath = `content/${contentId}/cover.${ext}`;
 
+    console.log("[ImageSection] Starting image upload", {
+      contentId,
+      fileName: file.name,
+      fileSize: file.size,
+      fileSizeHuman: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+      fileType: file.type,
+      storagePath: newPath,
+    });
+
     try {
       await uploadVideoToR2(newPath, file, () => {});
+      console.log("[ImageSection] Image upload succeeded, updating DB...");
       await supabase.from("social_content").update({ image: newPath } as any).eq("id", contentId);
       onImageUploaded?.(newPath);
     } catch (err: any) {
-      console.error("Image upload failed:", err);
+      console.error("[ImageSection] Image upload failed", err);
     } finally {
       setUploading(false);
     }

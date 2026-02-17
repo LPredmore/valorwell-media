@@ -110,11 +110,21 @@ export default function ContentDetail() {
     const ext = file.name.split(".").pop();
     const storagePath = `content/${id}/video.${ext}`;
 
+    console.log("[ContentDetail] Starting video replace", {
+      contentId: id,
+      fileName: file.name,
+      fileSize: file.size,
+      fileSizeHuman: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+      storagePath,
+    });
+
     try {
       await uploadVideoToR2(storagePath, file, (pct) => {
         setVideoProgress(20 + pct * 0.5);
       });
+      console.log("[ContentDetail] Video upload succeeded, updating DB...");
     } catch (uploadError: any) {
+      console.error("[ContentDetail] Video upload failed", uploadError);
       toast({ title: "Upload failed", description: uploadError?.message, variant: "destructive" });
       setVideoUploading(false);
       return;
