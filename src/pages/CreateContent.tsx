@@ -75,11 +75,20 @@ export default function CreateContent() {
       const videoExt = videoFile.name.split(".").pop();
       videoStoragePath = `content/${contentId}/video.${videoExt}`;
 
+      console.log("[CreateContent] Starting video upload", {
+        contentId,
+        fileName: videoFile.name,
+        fileSize: videoFile.size,
+        fileSizeHuman: `${(videoFile.size / 1024 / 1024).toFixed(1)} MB`,
+        storagePath: videoStoragePath,
+      });
+
       try {
         await uploadVideoToR2(videoStoragePath, videoFile, (pct) => {
           setProgress(10 + pct * 0.4);
         });
       } catch (uploadError: any) {
+        console.error("[CreateContent] Video upload failed", uploadError);
         toast({ title: "Video upload failed", description: uploadError?.message, variant: "destructive" });
         setUploading(false);
         return;
