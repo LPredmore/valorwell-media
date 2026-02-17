@@ -1,128 +1,179 @@
 
+# Add Thorough Diagnostic Logging to Video Upload Pipeline
 
-# Unified Content Lifecycle Fix
+## Why This Plan Exists
 
-## The Core Problem
+The video upload has failed multiple times and we have zero diagnostic data. The current code catches errors generically and shows a toast with no details. No console logs, no network details, no file metadata. This plan adds comprehensive logging at every step so the next failure gives us a clear answer.
 
-There are three interrelated issues that all stem from the same root cause: **the system conflates "text is generated" with "content is ready."**
+## What Gets Logged (and Where)
 
-1. **Status logic is wrong.** The `generate-content` edge function unconditionally sets `status: 'unscheduled'` after generating text. This means a topic-only post (no image, no video) jumps straight to `unscheduled`, bypassing the Incomplete tab entirely. The user loses their entry point for adding media.
+### 1. `src/lib/uploadVideo.ts` -- The core upload function
 
-2. **Video upload fails on the detail page.** When the user navigates to `/content/:id` to add a video, the `handleVideoReplace` function uploads successfully to R2 and updates the DB, but it never recalculates the content's status. The post stays `unscheduled` regardless. Meanwhile, the `IncompleteTab` upload dialog has its own separate logic that checks for both media and re-triggers generation -- two competing workflows for the same operation.
+Add `console.log` and `console.error` at every decision point:
 
-3. **No single source of truth for "completeness."** Completeness checks are scattered: the `IncompleteTab` checks `image && video_storage_path`, the `UnscheduledTab.validateForScheduling` checks five fields, the DB trigger `enforce_youtube_schedule_requirements` checks four fields, and the edge function ignores media entirely. None of them agree.
+- **Before calling the edge function:** Log file name, file size (bytes), file type, and the storagePath being requested
+- **After the edge function responds:** Log whether it succeeded or failed, and if failed, log the full error object and response data
+- **Before the XHR PUT:** Log the presigned URL (first 100 chars for security), content type header being set
+- **XHR progress:** Already tracked via callback, no change needed
+- **XHR onload (success):** Log status code and confirmation
+- **XHR onload (failure):** Log status code, statusText, and responseText (the R2 error body, which is XML and will tell us exactly what went wrong -- e.g., "SignatureDoesNotMatch", "AccessDenied", "EntityTooLarge")
+- **XHR onerror:** Log everything available -- the event itself, readyState, status, any responseText. This is the "Network error during upload" path that keeps firing, and right now it logs nothing
+- **XHR ontimeout:** Add a timeout handler (currently missing entirely) with logging
+- **XHR onabort:** Add an abort handler with logging
 
-## The Right Architecture
+### 2. `src/pages/ContentDetail.tsx` -- handleVideoReplace
 
-**Decision: Move status computation into the `generate-content` edge function, which is the only place that has full context.**
+- **Before upload:** Log content ID, file name, file size, computed storagePath
+- **After upload success:** Log confirmation before DB update
+- **On catch:** Log the full error object (not just message) to console.error
 
-The edge function already reads the full content row and writes back all text fields. It should also be the one to decide the status based on what's actually present. This is better than:
+### 3. `src/pages/CreateContent.tsx` -- handleSubmit video upload section
 
-- Client-side status computation (fragile, duplicated across 3+ components)
-- A DB trigger (triggers can't easily inspect "did text generation succeed?")
-- A separate "recompute-status" function (unnecessary indirection)
+- **Before upload:** Log content ID, file name, file size
+- **On catch:** Log the full error object to console.error
 
-### Status rules (single source of truth, in the edge function):
+### 4. `src/components/content/ImageSection.tsx` -- handleImageUpload
 
-```text
-After text generation succeeds:
-  IF image AND video_storage_path are both present -> 'unscheduled'
-  ELSE -> 'incomplete'
-```
+- Same pattern: log before attempt, log full error on catch (currently only does `console.error("Image upload failed:", err)` which is okay but could include more context)
 
-This means:
-- Topic-only creation: generates text, stays `incomplete` (user sees it in Incomplete tab, can add media)
-- Topic + image: generates text, stays `incomplete` (still needs video)
-- Topic + image + video: generates text, becomes `unscheduled` (ready to schedule)
-- Adding media later from ContentDetail page: after uploading, call `generate-content` again (or a lighter status-recompute), which re-evaluates and promotes to `unscheduled` if complete
+## Technical Details
 
-### Why not a separate status-recompute endpoint?
-
-Regeneration is cheap (it's already a button on the detail page) and guarantees text fields are always fresh. A separate endpoint adds complexity for no real benefit. However, for the specific case of "user just uploaded a video, don't want to wait for AI," I'll add a simple status recompute directly in the client after media upload -- just a single DB update that checks the row and sets status accordingly. This avoids a round-trip to OpenRouter when only media changed.
-
-## Implementation Plan
-
-### 1. Edge Function: `generate-content` -- status-aware completion (line ~160)
-
-Change the final update from hardcoded `status: "unscheduled"` to:
+### uploadVideo.ts -- Exact changes
 
 ```typescript
-// Re-fetch the row to see current media state (may have been uploaded concurrently)
-const { data: current } = await adminClient
-  .from("social_content")
-  .select("image, video_storage_path")
-  .eq("id", contentId)
-  .single();
+export async function uploadVideoToR2(
+  storagePath: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<void> {
+  console.log("[R2 Upload] Starting upload", {
+    storagePath,
+    fileName: file.name,
+    fileSize: file.size,
+    fileSizeHuman: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+    fileType: file.type,
+  });
 
-const hasAllMedia = !!current?.image && !!current?.video_storage_path;
-const newStatus = hasAllMedia ? "unscheduled" : "incomplete";
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    console.error("[R2 Upload] No auth session found");
+    throw new Error("Not authenticated");
+  }
 
-await adminClient.from("social_content").update({
-  post_title: generated.post_title,
-  youtube_title: generated.youtube_title,
-  // ... other text fields ...
-  status: newStatus,
-  error: null,
-}).eq("id", contentId);
-```
+  console.log("[R2 Upload] Requesting presigned URL from edge function...");
+  const { data, error } = await supabase.functions.invoke("r2-upload-url", {
+    body: { storagePath, contentType: file.type },
+  });
 
-### 2. ContentDetail page -- promote status after media upload
+  if (error || !data?.uploadUrl) {
+    console.error("[R2 Upload] Edge function failed", {
+      error,
+      data,
+      errorMessage: error?.message,
+    });
+    throw new Error(error?.message ?? data?.error ?? "Failed to get upload URL");
+  }
 
-In `ContentDetail.tsx`, after `handleVideoReplace` successfully uploads and updates the DB row, add a status recomputation:
+  const uploadUrl: string = data.uploadUrl;
+  console.log("[R2 Upload] Got presigned URL", {
+    urlPrefix: uploadUrl.substring(0, 100) + "...",
+    urlLength: uploadUrl.length,
+  });
 
-```typescript
-// After updating video fields in DB, check if content is now complete
-const { data: updated } = await supabase
-  .from("social_content")
-  .select("image, video_storage_path, youtube_title, status")
-  .eq("id", id)
-  .single();
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl);
+    xhr.setRequestHeader("Content-Type", file.type);
+    xhr.timeout = 600000; // 10 minute timeout for large videos
 
-if (updated && updated.image && updated.video_storage_path 
-    && updated.youtube_title && updated.status === "incomplete") {
-  await supabase
-    .from("social_content")
-    .update({ status: "unscheduled" })
-    .eq("id", id);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        onProgress?.((e.loaded / e.total) * 100);
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        console.log("[R2 Upload] Upload succeeded", { status: xhr.status });
+        resolve();
+      } else {
+        console.error("[R2 Upload] Upload failed with HTTP error", {
+          status: xhr.status,
+          statusText: xhr.statusText,
+          responseText: xhr.responseText,
+        });
+        reject(new Error(
+          `Upload failed: ${xhr.status} ${xhr.statusText} - ${xhr.responseText}`
+        ));
+      }
+    };
+
+    xhr.onerror = () => {
+      console.error("[R2 Upload] XHR network error", {
+        readyState: xhr.readyState,
+        status: xhr.status,
+        statusText: xhr.statusText,
+        responseText: xhr.responseText,
+        responseURL: xhr.responseURL,
+      });
+      reject(new Error(
+        `Network error during upload (readyState=${xhr.readyState}, status=${xhr.status})`
+      ));
+    };
+
+    xhr.ontimeout = () => {
+      console.error("[R2 Upload] XHR timed out", {
+        timeout: xhr.timeout,
+        fileSize: file.size,
+      });
+      reject(new Error(`Upload timed out after ${xhr.timeout / 1000}s`));
+    };
+
+    xhr.onabort = () => {
+      console.error("[R2 Upload] XHR was aborted");
+      reject(new Error("Upload was aborted"));
+    };
+
+    console.log("[R2 Upload] Starting XHR PUT...");
+    xhr.send(file);
+  });
 }
 ```
 
-This is a simple, deterministic check -- no AI call needed.
+### ContentDetail.tsx -- handleVideoReplace changes
 
-### 3. ContentDetail page -- add image upload capability
+Add logging before the upload call and in the catch block:
 
-The detail page currently shows `ImageSection` as read-only (no upload/replace). Add an image uploader to `ImageSection` (or next to it) so users can add/replace the cover image from the detail page, not just from the creation form or the Incomplete dialog.
+```typescript
+console.log("[ContentDetail] Starting video replace", {
+  contentId: id,
+  fileName: file.name,
+  fileSize: file.size,
+  fileSizeHuman: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+  storagePath,
+});
+// ... existing uploadVideoToR2 call ...
+// In catch:
+console.error("[ContentDetail] Video upload failed", uploadError);
+```
 
-After image upload, apply the same status recomputation as step 2.
+### CreateContent.tsx -- handleSubmit video section
 
-### 4. IncompleteTab -- simplify the upload dialog logic
+Same pattern: log before, log errors with full object.
 
-The current `handleMediaUpload` in `IncompleteTab` re-triggers `generate-content` when both media are present. This is unnecessary and slow -- it re-runs AI generation just because a video was added. Replace it with the same deterministic status promotion used in step 2. The dialog stays useful for quick media uploads, but stops triggering redundant AI calls.
+### ImageSection.tsx -- handleImageUpload
 
-### 5. CreateContent page -- no changes needed
-
-The current flow is already correct after step 1:
-- Insert row with `status: 'incomplete'`
-- Upload media (if any)
-- Call `generate-content`
-- Edge function sets status based on media presence
-
-The button label logic (`hasBothMedia ? "Create & Generate" : "Create"`) is misleading since generation always happens. Change it to just "Create" always.
+Add file metadata logging before the upload attempt.
 
 ## Files to Edit
 
 | File | Change |
 |------|--------|
-| `supabase/functions/generate-content/index.ts` | Re-fetch media state before setting status; use `incomplete` or `unscheduled` based on image + video presence |
-| `src/pages/ContentDetail.tsx` | Add status recomputation after video upload; add image upload/replace capability |
-| `src/components/content/ImageSection.tsx` | Accept an `onReplace` callback prop for uploading/replacing the cover image |
-| `src/components/schedule/IncompleteTab.tsx` | Replace `generate-content` call with deterministic status promotion after media upload |
-| `src/pages/CreateContent.tsx` | Fix button label (always "Create") |
+| `src/lib/uploadVideo.ts` | Add comprehensive logging at every step; add timeout/abort handlers |
+| `src/pages/ContentDetail.tsx` | Add logging around handleVideoReplace |
+| `src/pages/CreateContent.tsx` | Add logging around video upload in handleSubmit |
+| `src/components/content/ImageSection.tsx` | Add file metadata logging |
 
-## What This Achieves
+## What Happens Next
 
-- **One definition of "complete"**: image + video + generated text = `unscheduled`. Missing any media = `incomplete`.
-- **No redundant AI calls**: Media uploads don't trigger regeneration. Only the "Regenerate" button and initial creation call the AI.
-- **Users can always add media**: From the detail page (video and image), from the Incomplete tab dialog, or at creation time. All paths converge on the same status logic.
-- **Scheduling validation stays as-is**: The `UnscheduledTab.validateForScheduling` and the DB trigger `enforce_youtube_schedule_requirements` remain as safety nets, catching edge cases before a post can be scheduled.
-
+After this is deployed, the next time the video upload fails, the browser console will contain a complete trace showing exactly which step failed and why. No more guessing. The logs will be automatically available when you send a message, so we'll be able to diagnose it immediately.
