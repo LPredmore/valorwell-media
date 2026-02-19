@@ -1,139 +1,113 @@
 
-# Orphaned Multipart Upload Cleanup
 
-## What the problem actually is
+# Multipart Chunked Upload for Large Videos
 
-When a user starts a large video upload and closes the browser (or the upload fails after the `abort` call itself fails), the incomplete parts remain in R2. They accumulate storage charges and clutter, and there is currently no mechanism to clean them up.
+## Decision: S3-compatible multipart upload with presigned part URLs
 
-There are two surfaces to this problem:
+The right approach is S3 multipart upload, not increasing the timeout. Here's why:
 
-1. **In-session failures**: The `abort` action in the edge function handles these — if chunks fail after 3 retries, the client calls `abort`, which issues `AbortMultipartUpload` to R2. This path is already implemented and works when the browser is still open.
+- A single HTTP PUT for a 900MB file is inherently fragile regardless of timeout length. Any momentary network interruption kills the entire transfer and you start over.
+- S3 multipart upload splits the file into independent chunks. Each chunk is its own HTTP request. If one fails, only that chunk retries -- not the whole file.
+- R2 natively supports the S3 multipart API. This isn't a workaround; it's the intended way to upload large files.
+- The existing architecture (presigned URLs, browser-direct-to-R2) stays the same. Chunks go browser-to-R2, not through the edge function.
 
-2. **Browser-closed / crash scenarios**: If the tab closes after `start` but before `complete` or `abort`, no cleanup call ever fires. The partial upload sits in R2 indefinitely.
+## Architecture
 
----
-
-## Decision: R2 Lifecycle Policy via S3 API (not a database tracking table)
-
-The alternative approach would be to build a database table (`upload_sessions`) to track in-progress `uploadId` values, then run a Supabase cron job that periodically calls `abort` on stale sessions. That approach has serious problems:
-
-- It requires a new table, a migration, RLS policies, and a scheduled edge function.
-- The cron must call R2 for every stale entry, one by one.
-- The database can get out of sync with R2 state.
-- You are re-implementing something R2 already does natively.
-
-The correct approach is the **S3 `PutBucketLifecycleConfiguration` API applied to the R2 bucket**. This is a single XML document sent once to R2 that instructs it to automatically abort any incomplete multipart upload after N days. R2's own documentation confirms it supports this API and notes that buckets have a default 7-day rule already, but the default is not guaranteed to be active on all buckets — explicitly setting it is definitive.
-
-This is the right decision because:
-
-- Zero runtime code. R2 enforces the rule internally at the storage layer.
-- No database schema changes.
-- No cron job to maintain.
-- Idempotent: applying it again changes nothing.
-- It is the industry-standard solution (AWS, GCS, and R2 all recommend this pattern).
-
----
-
-## What the Cloudflare docs confirm
-
-From R2's own lifecycle documentation:
-
-> "Buckets have a default lifecycle rule to expire multipart uploads seven days after initiation."
-
-And the S3 API example for R2:
-
-```
-{ ID: "Abort Incomplete Multipart Uploads",
-  Status: "Enabled",
-  AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 } }
+```text
+Browser                        Edge Function                   Cloudflare R2
+  |                                 |                               |
+  |-- POST {action:"start"} ------->|                               |
+  |                                 |-- CreateMultipartUpload ------>|
+  |                                 |<-- uploadId ------------------|
+  |                                 |-- Sign presigned PUT URLs ---->|
+  |<-- {uploadId, partUrls[]} ------|                               |
+  |                                 |                               |
+  |-- PUT chunk 1 (50MB) directly --------------------------------->|
+  |<-- ETag 1 ------------------------------------------------------|
+  |-- PUT chunk 2 (50MB) directly --------------------------------->|
+  |<-- ETag 2 ------------------------------------------------------|
+  |   ... repeat for all chunks ...                                 |
+  |                                 |                               |
+  |-- POST {action:"complete"} ---->|                               |
+  |   {uploadId, parts:[{ETag,Num}]}|-- CompleteMultipartUpload --->|
+  |                                 |<-- OK (file assembled) -------|
+  |<-- {success: true} -------------|                               |
 ```
 
-The default may already protect the bucket, but relying on an implicit default is not a defined contract. Explicitly setting it via the API makes the rule visible, auditable, and under your control.
-
----
+After `CompleteMultipartUpload`, R2 assembles all parts into a single object at the same key (`content/{id}/video.mp4`). The YouTube uploader, `r2-read-url`, and everything downstream sees a normal file. Nothing changes for them.
 
 ## What gets built
 
-### 1. New edge function: `supabase/functions/r2-set-lifecycle/index.ts`
+### 1. New edge function: `supabase/functions/r2-multipart-upload/index.ts`
 
-This is a **one-shot admin utility** function, not a user-facing endpoint. It calls the S3 `PutBucketLifecycleConfiguration` API against the R2 bucket using the existing R2 credentials and sets two rules:
+Handles three actions via a single endpoint:
 
-**Rule 1 — Abort incomplete multipart uploads after 7 days**
-Covers all keys (`Filter: {}`). Any `CreateMultipartUpload` that never receives a `CompleteMultipartUpload` within 7 days is automatically aborted and all parts deleted.
+**`start`** -- Receives `storagePath` and `contentType`. Calls R2's `CreateMultipartUpload` via `aws4fetch`, then generates presigned PUT URLs for each part (caller provides `fileSize` and the function computes part count). Returns `uploadId` and array of presigned URLs with part numbers.
 
-**Rule 2 — Abort incomplete multipart uploads under `content/` after 3 days**
-A more aggressive rule scoped to `content/` prefix, since that is where all video uploads land. 3 days is more than enough — a failed upload that is never retried within 3 days will never be retried. This prevents the global 7-day rule from being the only safeguard.
+**`complete`** -- Receives `storagePath`, `uploadId`, and array of `{partNumber, etag}`. Calls R2's `CompleteMultipartUpload` with the XML body listing all parts. R2 assembles the file.
 
-The function verifies the `Authorization` header matches an admin token before executing, so it cannot be triggered accidentally.
+**`abort`** -- Receives `storagePath` and `uploadId`. Calls R2's `AbortMultipartUpload` to clean up partial uploads. Called on permanent failure or user cancellation.
 
-The XML payload for `PutBucketLifecycleConfiguration` sent to R2:
+Uses the same `aws4fetch` library and same R2 credentials (`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) already configured as secrets.
 
-```xml
-<LifecycleConfiguration>
-  <Rule>
-    <ID>abort-incomplete-global</ID>
-    <Filter></Filter>
-    <Status>Enabled</Status>
-    <AbortIncompleteMultipartUpload>
-      <DaysAfterInitiation>7</DaysAfterInitiation>
-    </AbortIncompleteMultipartUpload>
-  </Rule>
-  <Rule>
-    <ID>abort-incomplete-content-prefix</ID>
-    <Filter>
-      <Prefix>content/</Prefix>
-    </Filter>
-    <Status>Enabled</Status>
-    <AbortIncompleteMultipartUpload>
-      <DaysAfterInitiation>3</DaysAfterInitiation>
-    </AbortIncompleteMultipartUpload>
-  </Rule>
-</LifecycleConfiguration>
+### 2. Updated client: `src/lib/uploadVideo.ts`
+
+The `uploadVideoToR2` function gets a size check:
+
+- **Files under 100 MB**: Use the existing single PUT path (unchanged). Small files don't need multipart complexity.
+- **Files 100 MB and above**: Use the new multipart path.
+
+**Multipart upload flow in the client:**
+
+1. Slice the file into 50 MB chunks (last chunk is whatever remains).
+2. Call the edge function with `action: "start"`, passing `storagePath`, `contentType`, and `fileSize`.
+3. Receive `uploadId` and an array of presigned PUT URLs.
+4. Upload each chunk sequentially via `fetch()` PUT to its presigned URL. Each chunk gets a **10-minute timeout** via `AbortController` -- a 50 MB chunk at even 100 KB/s finishes in ~8.5 minutes, so 10 minutes is generous. On failure, retry that chunk up to 3 times with exponential backoff.
+5. Collect the `ETag` response header from each successful chunk upload.
+6. After all chunks succeed, call the edge function with `action: "complete"`, passing the `uploadId` and all `{partNumber, etag}` pairs.
+7. If a chunk fails permanently (after 3 retries), call the edge function with `action: "abort"` to clean up, then throw an error.
+
+**Progress tracking**: Progress = (completed chunks * chunk size + current chunk bytes sent) / total file size. This gives smooth, accurate progress even for multi-GB files.
+
+**Logging**: All the diagnostic logging from the previous plan carries over. Each chunk logs its part number, size, attempt number, and any error details.
+
+### 3. Config: `supabase/config.toml`
+
+Add the new function entry:
+
+```toml
+[functions.r2-multipart-upload]
+verify_jwt = false
 ```
 
-This is deployed once and invoked once via `curl` or the browser — it configures the bucket and never needs to run again unless the rules need changing.
+### 4. No changes to these files
 
-### 2. No client-side changes
+- `src/pages/ContentDetail.tsx` -- already calls `uploadVideoToR2`, which handles routing internally
+- `src/pages/CreateContent.tsx` -- same, calls `uploadVideoToR2`
+- `src/components/content/ImageSection.tsx` -- images are small, always uses single PUT
+- `supabase/functions/r2-upload-url/index.ts` -- kept for small files
+- `supabase/functions/r2-read-url/index.ts` -- unchanged, reads the assembled file
+- Database schema -- unchanged
+- YouTube upload pipeline -- unchanged, it reads the final assembled object
 
-The existing abort-on-failure path in `uploadVideo.ts` is already correct and covers in-session failures. The lifecycle policy covers the browser-closed / crash scenario. Together they are complete. No changes to the upload logic.
+## Why 50 MB chunks and 10-minute per-chunk timeout
 
-### 3. No database changes
+- **50 MB chunks**: S3 multipart requires minimum 5 MB per part (except the last). 50 MB balances between too many HTTP requests (overhead) and too large (fragile). A 5 GB file = 100 parts, well within S3's 10,000 part limit.
+- **10-minute per-chunk timeout**: A 50 MB chunk at 100 KB/s (very slow connection) takes ~8.3 minutes. 10 minutes covers this with margin. This is not a global timeout -- it's per chunk. A 5 GB upload could theoretically run for 100 chunks x 10 minutes = 16+ hours on an extremely slow connection and still succeed.
 
-No migration, no table, no cron. The lifecycle rule lives in R2 itself.
+## Why sequential uploads (not parallel)
 
----
+Parallel chunk uploads would be faster but add complexity around browser connection limits, memory pressure (multiple 50 MB buffers), and harder progress tracking. Sequential is simpler, more reliable, and for a single user uploading one video at a time, the bottleneck is bandwidth, not concurrency.
 
 ## Files to create/edit
 
 | File | Action |
 |------|--------|
-| `supabase/functions/r2-set-lifecycle/index.ts` | Create one-shot admin utility edge function |
-| `supabase/config.toml` | Add `r2-set-lifecycle` entry with `verify_jwt = false` |
+| `supabase/functions/r2-multipart-upload/index.ts` | Create new edge function |
+| `src/lib/uploadVideo.ts` | Add multipart path, keep single PUT for small files |
+| `supabase/config.toml` | Add `r2-multipart-upload` entry |
 
-After deploying, you invoke it once:
+## R2 CORS requirement
 
-```
-curl -X POST https://<project>.supabase.co/functions/v1/r2-set-lifecycle \
-  -H "Authorization: Bearer <admin-token>"
-```
+R2 must expose the `ETag` header in CORS responses so the browser can read it after each chunk upload. The R2 bucket's CORS config needs `ExposeHeaders: ["ETag"]`. If this isn't already configured, chunk uploads will succeed but the client won't be able to read the ETag, and the complete step will fail. I'll note this after implementation so you can verify it in the Cloudflare dashboard.
 
-The function runs, applies the lifecycle configuration to the R2 bucket, logs confirmation, and that is all that is needed.
-
----
-
-## Why not a UI for this
-
-This is infrastructure configuration, not a user workflow. It runs once at deployment time, not repeatedly. Building a UI for it adds surface area for no benefit. A curl command invoked once is the correct interface.
-
----
-
-## Complete risk coverage after this change
-
-| Scenario | Coverage |
-|----------|----------|
-| Upload fails mid-chunk, browser open | `abort` called by client immediately |
-| Browser closed after `start`, before `complete` | R2 lifecycle rule cleans up within 3 days |
-| `abort` call itself fails (network error) | R2 lifecycle rule cleans up within 3 days |
-| Normal successful upload | `complete` called, object assembled, no orphan |
-
-The system is now fully covered at every failure point.
