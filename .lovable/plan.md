@@ -1,113 +1,145 @@
 
 
-# Multipart Chunked Upload for Large Videos
+# Script Generation Pipeline
 
-## Decision: S3-compatible multipart upload with presigned part URLs
+## What exists today
 
-The right approach is S3 multipart upload, not increasing the timeout. Here's why:
+The `generate-content` edge function makes **one** API call to Claude via OpenRouter. It sends the topic plus all active `content_instructions` and gets back social media copy (titles, descriptions, captions, comment) in a single tool-call response. It knows nothing about `post_length` -- it generates the same output whether the user picked "Short" or "Long."
 
-- A single HTTP PUT for a 900MB file is inherently fragile regardless of timeout length. Any momentary network interruption kills the entire transfer and you start over.
-- S3 multipart upload splits the file into independent chunks. Each chunk is its own HTTP request. If one fails, only that chunk retries -- not the whole file.
-- R2 natively supports the S3 multipart API. This isn't a workaround; it's the intended way to upload large files.
-- The existing architecture (presigned URLs, browser-direct-to-R2) stays the same. Chunks go browser-to-R2, not through the edge function.
+The database now has `script_long` and `script_short` columns on `social_content`, but nothing writes to them. The `SocialContent` TypeScript type doesn't include them. The `CONTENT_FIELDS` map in `platforms.ts` doesn't reference them. The Instructions page has no scopes for script rules.
 
-## Architecture
+## The decision: Three sequential AI calls inside one edge function invocation
+
+The `generate-content` function becomes a multi-step pipeline within a single HTTP request. Not three separate edge functions, not a queue system. Here's why:
+
+- **Ordering is strict**: The short script depends on the long script's output. Social copy depends on the scripts existing. Sequential calls within one function are the simplest way to enforce this.
+- **The caller doesn't change**: `CreateContent.tsx` and `ContentDetail.tsx` both call `supabase.functions.invoke("generate-content", { body: { contentId } })` and wait for it to finish. That contract stays identical.
+- **Edge function timeout**: Supabase edge functions have a 150-second wall clock limit. Each Claude call takes 10-30 seconds. Three calls at ~25 seconds each = ~75 seconds. Well within budget.
+- **Intermediate saves**: After each AI call, the result is written to the database immediately. If step 2 fails, the user still has the long script from step 1. The UI can show whatever was saved.
+
+## Pipeline logic by `post_length`
+
+**When `post_length = "Long"`** (3 AI calls):
 
 ```text
-Browser                        Edge Function                   Cloudflare R2
-  |                                 |                               |
-  |-- POST {action:"start"} ------->|                               |
-  |                                 |-- CreateMultipartUpload ------>|
-  |                                 |<-- uploadId ------------------|
-  |                                 |-- Sign presigned PUT URLs ---->|
-  |<-- {uploadId, partUrls[]} ------|                               |
-  |                                 |                               |
-  |-- PUT chunk 1 (50MB) directly --------------------------------->|
-  |<-- ETag 1 ------------------------------------------------------|
-  |-- PUT chunk 2 (50MB) directly --------------------------------->|
-  |<-- ETag 2 ------------------------------------------------------|
-  |   ... repeat for all chunks ...                                 |
-  |                                 |                               |
-  |-- POST {action:"complete"} ---->|                               |
-  |   {uploadId, parts:[{ETag,Num}]}|-- CompleteMultipartUpload --->|
-  |                                 |<-- OK (file assembled) -------|
-  |<-- {success: true} -------------|                               |
+Step 1: Generate long-form script (script_long)
+         -> save to DB immediately
+Step 2: Generate short-form script (script_short) using script_long as input
+         -> save to DB immediately  
+Step 3: Generate social copy (titles, descriptions, captions, comment)
+         using topic + script_long + script_short as context
+         -> save to DB, set final status
 ```
 
-After `CompleteMultipartUpload`, R2 assembles all parts into a single object at the same key (`content/{id}/video.mp4`). The YouTube uploader, `r2-read-url`, and everything downstream sees a normal file. Nothing changes for them.
+**When `post_length = "Short"`** (2 AI calls):
+
+```text
+Step 1: Generate short-form script (script_short) from topic directly
+         -> save to DB immediately
+Step 2: Generate social copy using topic + script_short as context
+         -> save to DB, set final status
+```
+
+**When `post_length` is null** (legacy/unset -- 1 AI call, current behavior):
+
+```text
+Step 1: Generate social copy from topic only (existing behavior unchanged)
+```
+
+This means the social copy generation (the final step) always has the scripts as context, so the titles, descriptions, and captions are derived from what the video actually covers rather than just a topic string. This is a quality improvement, not just a feature addition.
 
 ## What gets built
 
-### 1. New edge function: `supabase/functions/r2-multipart-upload/index.ts`
+### 1. Edge function: `supabase/functions/generate-content/index.ts` (rewrite)
 
-Handles three actions via a single endpoint:
+The function is restructured into a pipeline with helper functions:
 
-**`start`** -- Receives `storagePath` and `contentType`. Calls R2's `CreateMultipartUpload` via `aws4fetch`, then generates presigned PUT URLs for each part (caller provides `fileSize` and the function computes part count). Returns `uploadId` and array of presigned URLs with part numbers.
+- `generateLongScript(topic, instructions)` -- Calls Claude with the topic and the `script_long` instruction scope. Returns the full long-form script text. Uses a tool call to extract structured output (just `{ script_long: string }`).
 
-**`complete`** -- Receives `storagePath`, `uploadId`, and array of `{partNumber, etag}`. Calls R2's `CompleteMultipartUpload` with the XML body listing all parts. R2 assembles the file.
+- `generateShortScript(topic, longScript, instructions)` -- Calls Claude with the topic, the long script (if available), and the `script_short` instruction scope. When `post_length = "Long"`, it receives the long script and is told to extract the most compelling short-form segment. When `post_length = "Short"`, it receives only the topic. Uses a tool call returning `{ script_short: string }`.
 
-**`abort`** -- Receives `storagePath` and `uploadId`. Calls R2's `AbortMultipartUpload` to clean up partial uploads. Called on permanent failure or user cancellation.
+- `generateSocialCopy(topic, scriptLong, scriptShort, instructions)` -- The existing social copy generation, but now with scripts included in the user prompt as context. The tool call schema stays the same (post_title, youtube_title, youtube_desc, etc.).
 
-Uses the same `aws4fetch` library and same R2 credentials (`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) already configured as secrets.
+Each step writes its result to the database via `adminClient` immediately after success. If any step fails, the status is set to `"error"` with the specific step noted, and the function returns -- but previously saved steps are preserved.
 
-### 2. Updated client: `src/lib/uploadVideo.ts`
+### 2. New instruction scopes in `content_instructions` table (data insert)
 
-The `uploadVideoToR2` function gets a size check:
+Two new rows inserted:
 
-- **Files under 100 MB**: Use the existing single PUT path (unchanged). Small files don't need multipart complexity.
-- **Files 100 MB and above**: Use the new multipart path.
+| scope | instruction (initial) |
+|---|---|
+| `script_long` | "Write a long-form video script for YouTube. Include a hook, main content sections, and a call to action." |
+| `script_short` | "Write a short-form video script for Reels/TikTok/Shorts. Under 60 seconds. Hook within the first 3 seconds." |
 
-**Multipart upload flow in the client:**
+These are starting-point instructions. You'll refine them on the Instructions page just like you do for every other scope.
 
-1. Slice the file into 50 MB chunks (last chunk is whatever remains).
-2. Call the edge function with `action: "start"`, passing `storagePath`, `contentType`, and `fileSize`.
-3. Receive `uploadId` and an array of presigned PUT URLs.
-4. Upload each chunk sequentially via `fetch()` PUT to its presigned URL. Each chunk gets a **10-minute timeout** via `AbortController` -- a 50 MB chunk at even 100 KB/s finishes in ~8.5 minutes, so 10 minutes is generous. On failure, retry that chunk up to 3 times with exponential backoff.
-5. Collect the `ETag` response header from each successful chunk upload.
-6. After all chunks succeed, call the edge function with `action: "complete"`, passing the `uploadId` and all `{partNumber, etag}` pairs.
-7. If a chunk fails permanently (after 3 retries), call the edge function with `action: "abort"` to clean up, then throw an error.
+### 3. Instructions page: `src/pages/Instructions.tsx`
 
-**Progress tracking**: Progress = (completed chunks * chunk size + current chunk bytes sent) / total file size. This gives smooth, accurate progress even for multi-GB files.
+Add `script_long` and `script_short` to the `SCOPE_LABELS` map:
 
-**Logging**: All the diagnostic logging from the previous plan carries over. Each chunk logs its part number, size, attempt number, and any error details.
-
-### 3. Config: `supabase/config.toml`
-
-Add the new function entry:
-
-```toml
-[functions.r2-multipart-upload]
-verify_jwt = false
+```text
+script_long: "Long-Form Script"
+script_short: "Short-Form Script"
 ```
 
-### 4. No changes to these files
+The existing `ContentInstructionRow` component and query already render any row from `content_instructions` dynamically. Adding the labels is all that's needed -- the new rows will appear automatically in the "Field Instructions" section.
 
-- `src/pages/ContentDetail.tsx` -- already calls `uploadVideoToR2`, which handles routing internally
-- `src/pages/CreateContent.tsx` -- same, calls `uploadVideoToR2`
-- `src/components/content/ImageSection.tsx` -- images are small, always uses single PUT
-- `supabase/functions/r2-upload-url/index.ts` -- kept for small files
-- `supabase/functions/r2-read-url/index.ts` -- unchanged, reads the assembled file
-- Database schema -- unchanged
-- YouTube upload pipeline -- unchanged, it reads the final assembled object
+### 4. Content detail page: `src/pages/ContentDetail.tsx`
 
-## Why 50 MB chunks and 10-minute per-chunk timeout
+Add a new "Scripts" section above the existing "Generated Content" section. This section renders `ContentFieldCard` for:
 
-- **50 MB chunks**: S3 multipart requires minimum 5 MB per part (except the last). 50 MB balances between too many HTTP requests (overhead) and too large (fragile). A 5 GB file = 100 parts, well within S3's 10,000 part limit.
-- **10-minute per-chunk timeout**: A 50 MB chunk at 100 KB/s (very slow connection) takes ~8.3 minutes. 10 minutes covers this with margin. This is not a global timeout -- it's per chunk. A 5 GB upload could theoretically run for 100 chunks x 10 minutes = 16+ hours on an extremely slow connection and still succeed.
+- `script_long` (only shown when `content.post_length === "Long"`)
+- `script_short` (always shown when either script exists)
 
-## Why sequential uploads (not parallel)
+These use the same `ContentFieldCard` component with autosave, copy button, and character count. No new components needed.
 
-Parallel chunk uploads would be faster but add complexity around browser connection limits, memory pressure (multiple 50 MB buffers), and harder progress tracking. Sequential is simpler, more reliable, and for a single user uploading one video at a time, the bottleneck is bandwidth, not concurrency.
+### 5. TypeScript type: `src/hooks/useContents.ts`
 
-## Files to create/edit
+Add to the `SocialContent` type:
 
-| File | Action |
-|------|--------|
-| `supabase/functions/r2-multipart-upload/index.ts` | Create new edge function |
-| `src/lib/uploadVideo.ts` | Add multipart path, keep single PUT for small files |
-| `supabase/config.toml` | Add `r2-multipart-upload` entry |
+```typescript
+script_long: string | null;
+script_short: string | null;
+```
 
-## R2 CORS requirement
+### 6. Platforms config: `src/lib/platforms.ts`
 
-R2 must expose the `ETag` header in CORS responses so the browser can read it after each chunk upload. The R2 bucket's CORS config needs `ExposeHeaders: ["ETag"]`. If this isn't already configured, chunk uploads will succeed but the client won't be able to read the ETag, and the complete step will fail. I'll note this after implementation so you can verify it in the Cloudflare dashboard.
+The `CONTENT_FIELDS` map is used specifically for the social copy section in `ContentDetail.tsx`. Scripts are a separate section, so they do **not** go in `CONTENT_FIELDS`. Instead, a new `SCRIPT_FIELDS` map is added:
+
+```typescript
+export const SCRIPT_FIELDS = {
+  script_long: "Long-Form Script",
+  script_short: "Short-Form Script",
+} as const;
+```
+
+This keeps the separation clean -- scripts are scripts, social copy is social copy.
+
+### 7. No changes needed
+
+- `CreateContent.tsx` -- already calls `generate-content` with `contentId`, and the edge function reads `post_length` from the DB row
+- `supabase/config.toml` -- `generate-content` entry already exists
+- Database schema -- columns already added by you
+- YouTube upload pipeline -- reads `youtube_title`, `youtube_desc`, not scripts
+- `ContentFieldCard.tsx` -- generic, works for any field
+- RLS policies -- scripts are columns on `social_content`, already covered
+
+## Files changed
+
+| File | Action | What changes |
+|------|--------|-------------|
+| `supabase/functions/generate-content/index.ts` | Rewrite | Multi-step pipeline with post_length branching |
+| `src/pages/Instructions.tsx` | Edit | Add script_long, script_short to SCOPE_LABELS |
+| `src/pages/ContentDetail.tsx` | Edit | Add Scripts section above Generated Content |
+| `src/hooks/useContents.ts` | Edit | Add script_long, script_short to SocialContent type |
+| `src/lib/platforms.ts` | Edit | Add SCRIPT_FIELDS export |
+| `content_instructions` table | Data insert | Two new rows for script_long and script_short scopes |
+
+## Why not separate edge functions per step
+
+Three separate functions (generate-long-script, generate-short-script, generate-social-copy) would require the caller to orchestrate the sequence, handle partial failures across HTTP boundaries, and triple the number of functions to maintain. The pipeline is internal to the generation process -- the caller's concern is "generate everything for this content," not managing individual steps. One function, one invocation, one responsibility.
+
+## Why intermediate DB saves matter
+
+If the long script generates successfully but the short script call fails (rate limit, timeout, whatever), the user still has the long script saved. They can read it, edit it, and hit "Regenerate" to retry. Without intermediate saves, a failure on step 3 would lose the work from steps 1 and 2. This is the correct pattern for multi-step AI pipelines.
 
