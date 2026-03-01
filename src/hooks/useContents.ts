@@ -29,6 +29,8 @@ export type SocialContent = {
   youtube_error_detail: string | null;
   youtube_uploaded_at: string | null;
   video_size_bytes: number | null;
+  script_long: string | null;
+  script_short: string | null;
   created_at: string;
   updated_at: string;
 };
