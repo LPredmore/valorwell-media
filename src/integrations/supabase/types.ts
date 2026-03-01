@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      content_ideas: {
+        Row: {
+          avatar: string | null
+          category: string | null
+          created_at: string
+          id: number
+          length: Database["public"]["Enums"]["video_length"] | null
+          planned_date: string | null
+          topic: string | null
+        }
+        Insert: {
+          avatar?: string | null
+          category?: string | null
+          created_at?: string
+          id?: number
+          length?: Database["public"]["Enums"]["video_length"] | null
+          planned_date?: string | null
+          topic?: string | null
+        }
+        Update: {
+          avatar?: string | null
+          category?: string | null
+          created_at?: string
+          id?: number
+          length?: Database["public"]["Enums"]["video_length"] | null
+          planned_date?: string | null
+          topic?: string | null
+        }
+        Relationships: []
+      }
       content_instructions: {
         Row: {
           created_at: string
@@ -647,7 +677,12 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
-      post_status: "incomplete" | "unscheduled" | "scheduled" | "posted"
+      post_status:
+        | "incomplete"
+        | "unscheduled"
+        | "scheduled"
+        | "posted"
+        | "scripted"
       video_length: "Short" | "Long"
     }
     CompositeTypes: {
@@ -777,7 +812,13 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
-      post_status: ["incomplete", "unscheduled", "scheduled", "posted"],
+      post_status: [
+        "incomplete",
+        "unscheduled",
+        "scheduled",
+        "posted",
+        "scripted",
+      ],
       video_length: ["Short", "Long"],
     },
   },
