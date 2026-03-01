@@ -11,6 +11,7 @@ import ContentDetail from "./pages/ContentDetail";
 import Instructions from "./pages/Instructions";
 import Schedule from "./pages/Schedule";
 import Settings from "./pages/Settings";
+import Ideas from "./pages/Ideas";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
           <Route path="/content/new" element={<AuthGuard><CreateContent /></AuthGuard>} />
           <Route path="/content/:id" element={<AuthGuard><ContentDetail /></AuthGuard>} />
           <Route path="/schedule" element={<AuthGuard><Schedule /></AuthGuard>} />
+          <Route path="/ideas" element={<AuthGuard><Ideas /></AuthGuard>} />
           <Route path="/instructions" element={<AuthGuard><Instructions /></AuthGuard>} />
           <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
           {/* Redirect old routes */}
