@@ -18,7 +18,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ArrowLeft, Trash2, Loader2, RefreshCw, RotateCcw, ExternalLink } from "lucide-react";
-import { CONTENT_FIELDS } from "@/lib/platforms";
+import { CONTENT_FIELDS, SCRIPT_FIELDS } from "@/lib/platforms";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -354,6 +354,27 @@ export default function ContentDetail() {
 
         {/* Cover Image */}
         <ImageSection storagePath={content.image} contentId={content.id} onImageUploaded={handleImageUploaded} />
+
+        {/* Scripts */}
+        {(content.script_long || content.script_short) && (
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Scripts</h3>
+            {content.post_length === "Long" && (
+              <ContentFieldCard
+                contentId={content.id}
+                fieldKey="script_long"
+                label={SCRIPT_FIELDS.script_long}
+                value={(content as any).script_long}
+              />
+            )}
+            <ContentFieldCard
+              contentId={content.id}
+              fieldKey="script_short"
+              label={SCRIPT_FIELDS.script_short}
+              value={(content as any).script_short}
+            />
+          </div>
+        )}
 
         {/* Generated Content Fields */}
         <div className="space-y-4">
