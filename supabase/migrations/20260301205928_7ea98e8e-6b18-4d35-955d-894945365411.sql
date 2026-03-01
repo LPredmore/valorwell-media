@@ -1,0 +1,1 @@
+ALTER TABLE public.content_ideas ENABLE ROW LEVEL SECURITY;

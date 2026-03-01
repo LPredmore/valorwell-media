@@ -2,7 +2,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "react-router-dom";
-import { LogOut, FileText, Settings, CalendarDays, Cog } from "lucide-react";
+import { LogOut, FileText, Settings, CalendarDays, Cog, Lightbulb } from "lucide-react";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const { signOut, user } = useAuth();
@@ -36,6 +36,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 >
                   <CalendarDays className="h-4 w-4" />
                   <span className="hidden sm:inline">Schedule</span>
+                </Button>
+              </Link>
+              <Link to="/ideas">
+                <Button
+                  variant={location.pathname.startsWith("/ideas") ? "secondary" : "ghost"}
+                  size="sm"
+                  className="gap-2"
+                >
+                  <Lightbulb className="h-4 w-4" />
+                  <span className="hidden sm:inline">Ideas</span>
                 </Button>
               </Link>
               {isAdmin && (
