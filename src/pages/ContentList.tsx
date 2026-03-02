@@ -34,7 +34,7 @@ export default function ContentList() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by topic..."
+              placeholder="Search by title..."
               className="pl-9"
             />
           </div>
