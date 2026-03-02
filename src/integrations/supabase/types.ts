@@ -22,6 +22,7 @@ export type Database = {
           id: number
           length: Database["public"]["Enums"]["video_length"] | null
           planned_date: string | null
+          playlist_id: number | null
           topic: string | null
         }
         Insert: {
@@ -31,6 +32,7 @@ export type Database = {
           id?: number
           length?: Database["public"]["Enums"]["video_length"] | null
           planned_date?: string | null
+          playlist_id?: number | null
           topic?: string | null
         }
         Update: {
@@ -40,6 +42,7 @@ export type Database = {
           id?: number
           length?: Database["public"]["Enums"]["video_length"] | null
           planned_date?: string | null
+          playlist_id?: number | null
           topic?: string | null
         }
         Relationships: []

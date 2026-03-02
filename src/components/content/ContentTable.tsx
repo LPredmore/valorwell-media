@@ -52,7 +52,7 @@ export function ContentTable({ items, onDelete, isDeleting }: Props) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="font-semibold">Topic</TableHead>
+            <TableHead className="font-semibold">Title</TableHead>
             <TableHead className="font-semibold">Status</TableHead>
             <TableHead className="font-semibold w-24">YouTube</TableHead>
             <TableHead className="font-semibold">Created</TableHead>
@@ -66,7 +66,7 @@ export function ContentTable({ items, onDelete, isDeleting }: Props) {
               className="cursor-pointer hover:bg-muted/50"
               onClick={() => navigate(`/content/${item.id}`)}
             >
-              <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.topic}</TableCell>
+              <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.youtube_title || item.topic}</TableCell>
               <TableCell>
                 <StatusBadge status={item.status} />
               </TableCell>
