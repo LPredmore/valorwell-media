@@ -350,7 +350,7 @@ export default function Ideas() {
                       onCheckedChange={toggleAll}
                     />
                   </TableHead>
-                  <TableHead>Title</TableHead>
+                  <TableHead>Topic</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Avatar</TableHead>
                   <TableHead>Length</TableHead>
