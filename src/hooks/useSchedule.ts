@@ -14,7 +14,24 @@ export function useIncompleteContent(postLength?: "Long" | "Short") {
       if (postLength) query = query.eq("post_length", postLength);
       const { data, error } = await query;
       if (error) throw error;
-      return data as unknown as SocialContent[];
+
+      const rows = (data as unknown as SocialContent[]) ?? [];
+      const readyToPromoteIds = rows
+        .filter((item) => {
+          const needsImage = item.post_length === "Long";
+          const hasImage = !needsImage || !!item.image;
+          return !!item.video_storage_path && !!item.youtube_title && !!item.youtube_desc && !!item.post_length && hasImage;
+        })
+        .map((item) => item.id);
+
+      if (readyToPromoteIds.length > 0) {
+        await supabase
+          .from("social_content")
+          .update({ status: "unscheduled" } as any)
+          .in("id", readyToPromoteIds);
+      }
+
+      return rows.filter((item) => !readyToPromoteIds.includes(item.id));
     },
   });
 }
