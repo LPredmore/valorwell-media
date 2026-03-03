@@ -893,6 +893,11 @@ export type Database = {
           video_original_filename: string | null
           video_storage_path: string | null
           video_url: string | null
+          youtube_comment: string | null
+          youtube_comment_error_detail: string | null
+          youtube_comment_id: string | null
+          youtube_comment_posted_at: string | null
+          youtube_comment_status: string | null
           youtube_desc: string | null
           youtube_title: string | null
         }
@@ -919,6 +924,11 @@ export type Database = {
           video_original_filename?: string | null
           video_storage_path?: string | null
           video_url?: string | null
+          youtube_comment?: string | null
+          youtube_comment_error_detail?: string | null
+          youtube_comment_id?: string | null
+          youtube_comment_posted_at?: string | null
+          youtube_comment_status?: string | null
           youtube_desc?: string | null
           youtube_title?: string | null
         }
@@ -945,6 +955,11 @@ export type Database = {
           video_original_filename?: string | null
           video_storage_path?: string | null
           video_url?: string | null
+          youtube_comment?: string | null
+          youtube_comment_error_detail?: string | null
+          youtube_comment_id?: string | null
+          youtube_comment_posted_at?: string | null
+          youtube_comment_status?: string | null
           youtube_desc?: string | null
           youtube_title?: string | null
         }

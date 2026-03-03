@@ -334,11 +334,37 @@ export default function ContentDetail() {
                   </div>
                 </div>
               )}
+              {(content as any).youtube_comment_status && (
+                <div>
+                  <span className="text-muted-foreground">Comment Status</span>
+                  <div className="mt-1"><YouTubeStatusBadge status={(content as any).youtube_comment_status} /></div>
+                </div>
+              )}
+              {(content as any).youtube_comment_id && (
+                <div>
+                  <span className="text-muted-foreground">Comment ID</span>
+                  <div className="mt-1 font-medium">{(content as any).youtube_comment_id}</div>
+                </div>
+              )}
+              {(content as any).youtube_comment_posted_at && (
+                <div>
+                  <span className="text-muted-foreground">Comment Posted At</span>
+                  <div className="mt-1 font-medium">
+                    {format(new Date((content as any).youtube_comment_posted_at), "MMM d, yyyy h:mm a")}
+                  </div>
+                </div>
+              )}
             </div>
 
             {content.youtube_status === "failed" && content.youtube_error_detail && (
               <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
                 {content.youtube_error_detail}
+              </div>
+            )}
+
+            {(content as any).youtube_comment_status === "failed" && (content as any).youtube_comment_error_detail && (
+              <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+                <span className="font-medium">Comment Error: </span>{(content as any).youtube_comment_error_detail}
               </div>
             )}
 
@@ -360,6 +386,18 @@ export default function ContentDetail() {
             )}
           </div>
         )}
+
+        {/* YouTube First Comment */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">YouTube First Comment</h3>
+          <ContentFieldCard
+            contentId={content.id}
+            fieldKey="youtube_comment"
+            label="YouTube First Comment"
+            value={(content as any).youtube_comment}
+            charTarget="≤300"
+          />
+        </div>
 
         {/* Video */}
         <VideoSection
