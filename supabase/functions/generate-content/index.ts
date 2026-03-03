@@ -307,7 +307,10 @@ Deno.serve(async (req) => {
         .eq("id", contentId)
         .single();
 
-      const hasAllMedia = !!current?.image && !!current?.video_storage_path;
+      const isShort = content.post_length === "Short";
+      const hasAllMedia = isShort
+        ? !!current?.video_storage_path
+        : !!current?.image && !!current?.video_storage_path;
       const newStatus = hasAllMedia ? "unscheduled" : "incomplete";
 
       const { error: updateError } = await adminClient

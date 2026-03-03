@@ -30,6 +30,13 @@ export default function CreateContent() {
     };
   }, [imagePreview]);
 
+  // Clear image when switching to Short
+  useEffect(() => {
+    if (postLength === "Short") {
+      handleImageRemove();
+    }
+  }, [postLength]);
+
   const handleImageSelect = (file: File) => {
     if (imagePreview) URL.revokeObjectURL(imagePreview);
     setImageFile(file);
@@ -196,36 +203,38 @@ export default function CreateContent() {
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label className="font-medium">Cover Image <span className="text-muted-foreground font-normal">(Optional)</span></Label>
-            {imagePreview ? (
-              <div className="relative rounded-lg overflow-hidden border border-border bg-muted">
-                <img src={imagePreview} alt="Cover preview" className="w-full h-48 object-cover" />
-                <button
-                  type="button"
-                  onClick={handleImageRemove}
-                  className="absolute top-2 right-2 rounded-full bg-background/80 p-1.5 text-foreground hover:bg-background transition-colors"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ) : (
-              <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-muted/30 p-8 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted/50">
-                <ImageIcon className="h-8 w-8" />
-                <span>Click to upload a cover image</span>
-                <span className="text-xs">PNG, JPG, or WebP</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleImageSelect(file);
-                  }}
-                />
-              </label>
-            )}
-          </div>
+          {postLength !== "Short" && (
+            <div className="space-y-1.5">
+              <Label className="font-medium">Cover Image <span className="text-muted-foreground font-normal">(Optional)</span></Label>
+              {imagePreview ? (
+                <div className="relative rounded-lg overflow-hidden border border-border bg-muted">
+                  <img src={imagePreview} alt="Cover preview" className="w-full h-48 object-cover" />
+                  <button
+                    type="button"
+                    onClick={handleImageRemove}
+                    className="absolute top-2 right-2 rounded-full bg-background/80 p-1.5 text-foreground hover:bg-background transition-colors"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-muted/30 p-8 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted/50">
+                  <ImageIcon className="h-8 w-8" />
+                  <span>Click to upload a cover image</span>
+                  <span className="text-xs">PNG, JPG, or WebP</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleImageSelect(file);
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          )}
 
           <Button type="submit" className="w-full" disabled={uploading || !topic.trim() || !postLength}>
             {uploading ? "Creating..." : "Create"}

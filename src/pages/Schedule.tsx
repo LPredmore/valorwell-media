@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { IncompleteTab } from "@/components/schedule/IncompleteTab";
@@ -6,10 +7,19 @@ import { ScheduledTab } from "@/components/schedule/ScheduledTab";
 import { PastTab } from "@/components/schedule/PastTab";
 
 export default function Schedule() {
+  const [lengthFilter, setLengthFilter] = useState<"Long" | "Short">("Long");
+
   return (
     <AppLayout>
       <div className="space-y-6">
         <h1 className="text-3xl font-extrabold tracking-tight">Schedule</h1>
+
+        <Tabs value={lengthFilter} onValueChange={(v) => setLengthFilter(v as "Long" | "Short")}>
+          <TabsList>
+            <TabsTrigger value="Long">Long</TabsTrigger>
+            <TabsTrigger value="Short">Short</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         <Tabs defaultValue="incomplete">
           <TabsList className="w-full sm:w-auto">
@@ -20,16 +30,16 @@ export default function Schedule() {
           </TabsList>
 
           <TabsContent value="incomplete">
-            <IncompleteTab />
+            <IncompleteTab postLength={lengthFilter} />
           </TabsContent>
           <TabsContent value="unscheduled">
-            <UnscheduledTab />
+            <UnscheduledTab postLength={lengthFilter} />
           </TabsContent>
           <TabsContent value="scheduled">
-            <ScheduledTab />
+            <ScheduledTab postLength={lengthFilter} />
           </TabsContent>
           <TabsContent value="past">
-            <PastTab />
+            <PastTab postLength={lengthFilter} />
           </TabsContent>
         </Tabs>
       </div>

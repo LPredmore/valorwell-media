@@ -2,45 +2,51 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { SocialContent } from "./useContents";
 
-export function useIncompleteContent() {
+export function useIncompleteContent(postLength?: "Long" | "Short") {
   return useQuery({
-    queryKey: ["schedule", "incomplete"],
+    queryKey: ["schedule", "incomplete", postLength],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("social_content")
         .select("*")
         .eq("status", "incomplete")
         .order("created_at", { ascending: false });
+      if (postLength) query = query.eq("post_length", postLength);
+      const { data, error } = await query;
       if (error) throw error;
       return data as unknown as SocialContent[];
     },
   });
 }
 
-export function useUnscheduledContent() {
+export function useUnscheduledContent(postLength?: "Long" | "Short") {
   return useQuery({
-    queryKey: ["schedule", "unscheduled"],
+    queryKey: ["schedule", "unscheduled", postLength],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("social_content")
         .select("*")
         .eq("status", "unscheduled")
         .order("created_at", { ascending: false });
+      if (postLength) query = query.eq("post_length", postLength);
+      const { data, error } = await query;
       if (error) throw error;
       return data as unknown as SocialContent[];
     },
   });
 }
 
-export function useScheduledContent() {
+export function useScheduledContent(postLength?: "Long" | "Short") {
   return useQuery({
-    queryKey: ["schedule", "scheduled"],
+    queryKey: ["schedule", "scheduled", postLength],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("social_content")
         .select("*")
         .eq("status", "scheduled")
         .order("scheduled_at" as any, { ascending: true });
+      if (postLength) query = query.eq("post_length", postLength);
+      const { data, error } = await query;
       if (error) throw error;
       return data as unknown as SocialContent[];
     },
