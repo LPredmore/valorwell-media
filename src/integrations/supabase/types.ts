@@ -14,6 +14,503 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_activity_events: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          entity_id: string
+          entity_type: string
+          event_type: string
+          id: string
+          metadata: Json
+          new_value: string | null
+          old_value: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          entity_id: string
+          entity_type: string
+          event_type: string
+          id?: string
+          metadata?: Json
+          new_value?: string | null
+          old_value?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          entity_id?: string
+          entity_type?: string
+          event_type?: string
+          id?: string
+          metadata?: Json
+          new_value?: string | null
+          old_value?: string | null
+        }
+        Relationships: []
+      }
+      app_bulk_send_logs: {
+        Row: {
+          body_html: string
+          created_at: string
+          created_by: string
+          entity_type: string
+          failed_count: number
+          id: string
+          recipient_count: number
+          sent_count: number
+          status: string
+          subject: string
+        }
+        Insert: {
+          body_html: string
+          created_at?: string
+          created_by: string
+          entity_type: string
+          failed_count?: number
+          id?: string
+          recipient_count?: number
+          sent_count?: number
+          status?: string
+          subject: string
+        }
+        Update: {
+          body_html?: string
+          created_at?: string
+          created_by?: string
+          entity_type?: string
+          failed_count?: number
+          id?: string
+          recipient_count?: number
+          sent_count?: number
+          status?: string
+          subject?: string
+        }
+        Relationships: []
+      }
+      app_bulk_send_recipients: {
+        Row: {
+          bulk_send_id: string
+          email: string | null
+          entity_id: string
+          entity_type: string
+          error_message: string | null
+          id: string
+          sent_at: string | null
+          status: string
+        }
+        Insert: {
+          bulk_send_id: string
+          email?: string | null
+          entity_id: string
+          entity_type: string
+          error_message?: string | null
+          id?: string
+          sent_at?: string | null
+          status?: string
+        }
+        Update: {
+          bulk_send_id?: string
+          email?: string | null
+          entity_id?: string
+          entity_type?: string
+          error_message?: string | null
+          id?: string
+          sent_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_bulk_send_recipients_bulk_send_id_fkey"
+            columns: ["bulk_send_id"]
+            isOneToOne: false
+            referencedRelation: "app_bulk_send_logs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      app_bulk_sms_logs: {
+        Row: {
+          body_text: string
+          created_at: string
+          created_by: string
+          entity_type: string
+          failed_count: number
+          id: string
+          recipient_count: number
+          sent_count: number
+          status: string
+        }
+        Insert: {
+          body_text: string
+          created_at?: string
+          created_by: string
+          entity_type: string
+          failed_count?: number
+          id?: string
+          recipient_count?: number
+          sent_count?: number
+          status?: string
+        }
+        Update: {
+          body_text?: string
+          created_at?: string
+          created_by?: string
+          entity_type?: string
+          failed_count?: number
+          id?: string
+          recipient_count?: number
+          sent_count?: number
+          status?: string
+        }
+        Relationships: []
+      }
+      app_bulk_sms_recipients: {
+        Row: {
+          bulk_sms_id: string
+          entity_id: string
+          entity_type: string
+          error_message: string | null
+          id: string
+          phone: string | null
+          sent_at: string | null
+          status: string
+        }
+        Insert: {
+          bulk_sms_id: string
+          entity_id: string
+          entity_type: string
+          error_message?: string | null
+          id?: string
+          phone?: string | null
+          sent_at?: string | null
+          status?: string
+        }
+        Update: {
+          bulk_sms_id?: string
+          entity_id?: string
+          entity_type?: string
+          error_message?: string | null
+          id?: string
+          phone?: string | null
+          sent_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_bulk_sms_recipients_bulk_sms_id_fkey"
+            columns: ["bulk_sms_id"]
+            isOneToOne: false
+            referencedRelation: "app_bulk_sms_logs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      app_campaign_enrollments: {
+        Row: {
+          campaign_id: string
+          cancelled_at: string | null
+          completed_at: string | null
+          current_step_order: number
+          enrolled_at: string
+          entity_id: string
+          entity_type: string
+          id: string
+          status: string
+        }
+        Insert: {
+          campaign_id: string
+          cancelled_at?: string | null
+          completed_at?: string | null
+          current_step_order?: number
+          enrolled_at?: string
+          entity_id: string
+          entity_type: string
+          id?: string
+          status?: string
+        }
+        Update: {
+          campaign_id?: string
+          cancelled_at?: string | null
+          completed_at?: string | null
+          current_step_order?: number
+          enrolled_at?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_campaign_enrollments_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "app_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      app_campaign_step_logs: {
+        Row: {
+          channel: string
+          created_at: string
+          enrollment_id: string
+          error_message: string | null
+          executed_at: string | null
+          id: string
+          scheduled_for: string | null
+          status: string
+          step_id: string
+        }
+        Insert: {
+          channel?: string
+          created_at?: string
+          enrollment_id: string
+          error_message?: string | null
+          executed_at?: string | null
+          id?: string
+          scheduled_for?: string | null
+          status?: string
+          step_id: string
+        }
+        Update: {
+          channel?: string
+          created_at?: string
+          enrollment_id?: string
+          error_message?: string | null
+          executed_at?: string | null
+          id?: string
+          scheduled_for?: string | null
+          status?: string
+          step_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_campaign_step_logs_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "app_campaign_enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "app_campaign_step_logs_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "app_campaign_steps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      app_campaign_steps: {
+        Row: {
+          body_html: string | null
+          body_text: string | null
+          campaign_id: string
+          channel: string
+          created_at: string
+          delay_days: number
+          id: string
+          signature_id: string | null
+          step_order: number
+          subject: string | null
+          updated_at: string
+        }
+        Insert: {
+          body_html?: string | null
+          body_text?: string | null
+          campaign_id: string
+          channel?: string
+          created_at?: string
+          delay_days?: number
+          id?: string
+          signature_id?: string | null
+          step_order?: number
+          subject?: string | null
+          updated_at?: string
+        }
+        Update: {
+          body_html?: string | null
+          body_text?: string | null
+          campaign_id?: string
+          channel?: string
+          created_at?: string
+          delay_days?: number
+          id?: string
+          signature_id?: string | null
+          step_order?: number
+          subject?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_campaign_steps_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "app_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      app_campaigns: {
+        Row: {
+          created_at: string
+          created_by: string
+          description: string | null
+          entity_type: string
+          id: string
+          is_active: boolean
+          name: string
+          on_complete_status: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          description?: string | null
+          entity_type: string
+          id?: string
+          is_active?: boolean
+          name: string
+          on_complete_status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          entity_type?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          on_complete_status?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      app_email_signatures: {
+        Row: {
+          body_html: string
+          created_at: string
+          created_by: string
+          id: string
+          is_default: boolean
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          body_html: string
+          created_at?: string
+          created_by: string
+          id?: string
+          is_default?: boolean
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          body_html?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          is_default?: boolean
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      app_helpscout_settings: {
+        Row: {
+          app_id: string | null
+          app_secret: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          mailbox_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          app_id?: string | null
+          app_secret?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          mailbox_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          app_id?: string | null
+          app_secret?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          mailbox_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      app_kanban_config: {
+        Row: {
+          created_at: string
+          entity_type: string
+          id: string
+          updated_at: string
+          user_id: string
+          visible_statuses: string[]
+        }
+        Insert: {
+          created_at?: string
+          entity_type: string
+          id?: string
+          updated_at?: string
+          user_id: string
+          visible_statuses?: string[]
+        }
+        Update: {
+          created_at?: string
+          entity_type?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+          visible_statuses?: string[]
+        }
+        Relationships: []
+      }
+      app_notes: {
+        Row: {
+          created_at: string
+          created_by: string
+          entity_id: string
+          entity_type: string
+          id: string
+          is_pinned: boolean
+          note_content: string
+          note_type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          entity_id: string
+          entity_type: string
+          id?: string
+          is_pinned?: boolean
+          note_content: string
+          note_type?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          is_pinned?: boolean
+          note_content?: string
+          note_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       content_ideas: {
         Row: {
           avatar: string | null
@@ -77,65 +574,43 @@ export type Database = {
         }
         Relationships: []
       }
-      creator_applications: {
+      current_competitors: {
         Row: {
           accepted_rules: boolean | null
-          additional_info: string | null
-          comfort_level: string | null
+          comp_link: string | null
           created_at: string
           division: string | null
-          email: string
-          first_name: string
-          fundraising_goal: string | null
           id: string
-          last_name: string
-          motivation: string | null
+          influencer_id: string | null
           pref_name: string | null
-          social_profiles: Json | null
-          state: string
-          status: string
-          veteran_connection: string | null
-          willing_to_share: boolean | null
         }
         Insert: {
           accepted_rules?: boolean | null
-          additional_info?: string | null
-          comfort_level?: string | null
+          comp_link?: string | null
           created_at?: string
           division?: string | null
-          email: string
-          first_name: string
-          fundraising_goal?: string | null
           id?: string
-          last_name: string
-          motivation?: string | null
+          influencer_id?: string | null
           pref_name?: string | null
-          social_profiles?: Json | null
-          state: string
-          status?: string
-          veteran_connection?: string | null
-          willing_to_share?: boolean | null
         }
         Update: {
           accepted_rules?: boolean | null
-          additional_info?: string | null
-          comfort_level?: string | null
+          comp_link?: string | null
           created_at?: string
           division?: string | null
-          email?: string
-          first_name?: string
-          fundraising_goal?: string | null
           id?: string
-          last_name?: string
-          motivation?: string | null
+          influencer_id?: string | null
           pref_name?: string | null
-          social_profiles?: Json | null
-          state?: string
-          status?: string
-          veteran_connection?: string | null
-          willing_to_share?: boolean | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "current_competitors_influencer_id_fkey"
+            columns: ["influencer_id"]
+            isOneToOne: false
+            referencedRelation: "influencers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       donation_attribution: {
         Row: {
@@ -212,6 +687,125 @@ export type Database = {
           raw?: Json
           token?: string | null
           transaction_id?: string
+        }
+        Relationships: []
+      }
+      influencer_platforms: {
+        Row: {
+          approved_platform: boolean | null
+          created_at: string
+          follower_count: number | null
+          handle: string | null
+          id: number
+          influencer_id: string
+          platform_name: string | null
+        }
+        Insert: {
+          approved_platform?: boolean | null
+          created_at?: string
+          follower_count?: number | null
+          handle?: string | null
+          id?: number
+          influencer_id: string
+          platform_name?: string | null
+        }
+        Update: {
+          approved_platform?: boolean | null
+          created_at?: string
+          follower_count?: number | null
+          handle?: string | null
+          id?: number
+          influencer_id?: string
+          platform_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "influencer_platforms_influencer_id_fkey"
+            columns: ["influencer_id"]
+            isOneToOne: false
+            referencedRelation: "influencers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      influencers: {
+        Row: {
+          accepted_rules: boolean | null
+          additional_info: string | null
+          avatar_url: string | null
+          comfort_level: string | null
+          created_at: string
+          email: string
+          first_name: string
+          fundraising_goal: string | null
+          highest_follower_count: number | null
+          highest_follower_platform: string | null
+          id: string
+          is_competing: boolean
+          last_name: string
+          motivation: string | null
+          password: string | null
+          past_competitions: Json[] | null
+          personal_mission: string | null
+          pref_name: string | null
+          profile_complete: boolean | null
+          state: string
+          status: string
+          user_id: string | null
+          veteran_connection: string | null
+          willing_to_share: boolean | null
+        }
+        Insert: {
+          accepted_rules?: boolean | null
+          additional_info?: string | null
+          avatar_url?: string | null
+          comfort_level?: string | null
+          created_at?: string
+          email: string
+          first_name: string
+          fundraising_goal?: string | null
+          highest_follower_count?: number | null
+          highest_follower_platform?: string | null
+          id?: string
+          is_competing?: boolean
+          last_name: string
+          motivation?: string | null
+          password?: string | null
+          past_competitions?: Json[] | null
+          personal_mission?: string | null
+          pref_name?: string | null
+          profile_complete?: boolean | null
+          state: string
+          status?: string
+          user_id?: string | null
+          veteran_connection?: string | null
+          willing_to_share?: boolean | null
+        }
+        Update: {
+          accepted_rules?: boolean | null
+          additional_info?: string | null
+          avatar_url?: string | null
+          comfort_level?: string | null
+          created_at?: string
+          email?: string
+          first_name?: string
+          fundraising_goal?: string | null
+          highest_follower_count?: number | null
+          highest_follower_platform?: string | null
+          id?: string
+          is_competing?: boolean
+          last_name?: string
+          motivation?: string | null
+          password?: string | null
+          past_competitions?: Json[] | null
+          personal_mission?: string | null
+          pref_name?: string | null
+          profile_complete?: boolean | null
+          state?: string
+          status?: string
+          user_id?: string | null
+          veteran_connection?: string | null
+          willing_to_share?: boolean | null
         }
         Relationships: []
       }
@@ -364,6 +958,45 @@ export type Database = {
           },
         ]
       }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          password: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id: string
+          password?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          password?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      role_options: {
+        Row: {
+          id: number
+          role: string | null
+        }
+        Insert: {
+          id?: number
+          role?: string | null
+        }
+        Update: {
+          id?: number
+          role?: string | null
+        }
+        Relationships: []
+      }
       site_config: {
         Row: {
           key: string
@@ -379,6 +1012,24 @@ export type Database = {
           key?: string
           updated_at?: string | null
           value?: string
+        }
+        Relationships: []
+      }
+      sm_platforms: {
+        Row: {
+          has_icon: boolean
+          id: number
+          name: string
+        }
+        Insert: {
+          has_icon?: boolean
+          id?: number
+          name: string
+        }
+        Update: {
+          has_icon?: boolean
+          id?: number
+          name?: string
         }
         Relationships: []
       }
@@ -558,6 +1209,7 @@ export type Database = {
           motivation: string
           phone: string
           referral_source: string
+          status: string
           telehealth_experience: boolean
           weekly_hours: string
         }
@@ -572,6 +1224,7 @@ export type Database = {
           motivation: string
           phone: string
           referral_source: string
+          status?: string
           telehealth_experience: boolean
           weekly_hours: string
         }
@@ -586,6 +1239,7 @@ export type Database = {
           motivation?: string
           phone?: string
           referral_source?: string
+          status?: string
           telehealth_experience?: boolean
           weekly_hours?: string
         }
@@ -679,7 +1333,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "admin" | "user"
+      app_role: "admin" | "user" | "influencer"
       post_status:
         | "incomplete"
         | "unscheduled"
@@ -814,7 +1468,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "user"],
+      app_role: ["admin", "user", "influencer"],
       post_status: [
         "incomplete",
         "unscheduled",
