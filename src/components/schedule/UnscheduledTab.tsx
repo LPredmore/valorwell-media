@@ -12,15 +12,15 @@ import type { SocialContent } from "@/hooks/useContents";
 function validateForScheduling(item: SocialContent): string[] {
   const missing: string[] = [];
   if (!item.video_storage_path) missing.push("Video");
-  if (!item.image?.trim()) missing.push("Cover Image");
+  if (item.post_length === "Long" && !item.image?.trim()) missing.push("Cover Image");
   if (!item.youtube_title?.trim()) missing.push("YouTube Title");
   if (!item.youtube_desc?.trim()) missing.push("YouTube Description");
   if (item.post_length !== "Short" && item.post_length !== "Long") missing.push("Post Length (Short or Long)");
   return missing;
 }
 
-export function UnscheduledTab() {
-  const { data: items, isLoading } = useUnscheduledContent();
+export function UnscheduledTab({ postLength }: { postLength?: "Long" | "Short" }) {
+  const { data: items, isLoading } = useUnscheduledContent(postLength);
   const scheduleMutation = useScheduleContent();
   const postNowMutation = usePostNow();
   const [selectedItem, setSelectedItem] = useState<SocialContent | null>(null);

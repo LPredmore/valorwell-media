@@ -23,8 +23,8 @@ function YtBadge({ status }: { status: string | null }) {
   return <Badge variant="outline" className={`text-xs ${colors[status] ?? ""}`}>{status}</Badge>;
 }
 
-export function ScheduledTab() {
-  const { data: items, isLoading } = useScheduledContent();
+export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) {
+  const { data: items, isLoading } = useScheduledContent(postLength);
   const updateMutation = useUpdateSchedule();
   const [view, setView] = useState<"table" | "calendar">("table");
   const [editItem, setEditItem] = useState<SocialContent | null>(null);

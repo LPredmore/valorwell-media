@@ -2,7 +2,7 @@ import { format } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { usePostedContent } from "@/hooks/useSchedule";
 
-export function PastTab() {
+export function PastTab({ postLength }: { postLength?: "Long" | "Short" }) {
   const { data: items, isLoading } = usePostedContent();
 
   if (isLoading) return <div className="py-8 text-center text-muted-foreground">Loading…</div>;

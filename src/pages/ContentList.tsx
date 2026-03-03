@@ -5,6 +5,7 @@ import { useContents, useDeleteContent } from "@/hooks/useContents";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Search } from "lucide-react";
 import { Link } from "react-router-dom";
 import { CONTENT_STATUSES } from "@/lib/platforms";
@@ -12,7 +13,8 @@ import { CONTENT_STATUSES } from "@/lib/platforms";
 export default function ContentList() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const { data: items = [], isLoading } = useContents(search, statusFilter);
+  const [lengthFilter, setLengthFilter] = useState<"Long" | "Short">("Long");
+  const { data: items = [], isLoading } = useContents(search, statusFilter, lengthFilter);
   const deleteContent = useDeleteContent();
 
   return (
@@ -27,6 +29,13 @@ export default function ContentList() {
             </Button>
           </Link>
         </div>
+
+        <Tabs value={lengthFilter} onValueChange={(v) => setLengthFilter(v as "Long" | "Short")}>
+          <TabsList>
+            <TabsTrigger value="Long">Long</TabsTrigger>
+            <TabsTrigger value="Short">Short</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         <div className="flex items-center gap-3">
           <div className="relative flex-1">

@@ -17,8 +17,8 @@ import {
 } from "@/components/ui/dialog";
 import type { SocialContent } from "@/hooks/useContents";
 
-export function IncompleteTab() {
-  const { data: items, isLoading } = useIncompleteContent();
+export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" }) {
+  const { data: items, isLoading } = useIncompleteContent(postLength);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [editItem, setEditItem] = useState<SocialContent | null>(null);
@@ -54,7 +54,9 @@ export function IncompleteTab() {
       .eq("id", editItem.id)
       .single();
 
-    if (updated && (updated as any).image && (updated as any).video_storage_path && (updated as any).youtube_title) {
+    const needsImage = (updated as any)?.post_length === "Long";
+    const hasImage = !needsImage || !!(updated as any)?.image;
+    if (updated && hasImage && (updated as any).video_storage_path && (updated as any).youtube_title) {
       // All requirements met — promote to unscheduled
       await supabase.from("social_content").update({ status: "unscheduled" } as any).eq("id", editItem.id);
       toast({ title: "Media complete — content is now ready!" });
@@ -81,7 +83,7 @@ export function IncompleteTab() {
         <TableHeader>
           <TableRow>
             <TableHead>Topic</TableHead>
-            <TableHead className="w-20 text-center hidden sm:table-cell">Image</TableHead>
+            {postLength !== "Short" && <TableHead className="w-20 text-center hidden sm:table-cell">Image</TableHead>}
             <TableHead className="w-20 text-center hidden sm:table-cell">Video</TableHead>
             <TableHead className="w-28 text-right">Action</TableHead>
           </TableRow>
@@ -90,9 +92,11 @@ export function IncompleteTab() {
           {items.map((item) => (
             <TableRow key={item.id}>
               <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.youtube_title || item.topic}</TableCell>
-              <TableCell className="text-center hidden sm:table-cell">
-                {item.image ? <Check className="h-4 w-4 mx-auto text-success" /> : <Minus className="h-4 w-4 mx-auto text-muted-foreground" />}
-              </TableCell>
+              {postLength !== "Short" && (
+                <TableCell className="text-center hidden sm:table-cell">
+                  {item.image ? <Check className="h-4 w-4 mx-auto text-success" /> : <Minus className="h-4 w-4 mx-auto text-muted-foreground" />}
+                </TableCell>
+              )}
               <TableCell className="text-center hidden sm:table-cell">
                 {item.video_storage_path ? <Check className="h-4 w-4 mx-auto text-success" /> : <Minus className="h-4 w-4 mx-auto text-muted-foreground" />}
               </TableCell>
@@ -119,28 +123,30 @@ export function IncompleteTab() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            {/* Image upload */}
-            <div className="space-y-1.5">
-              <p className="text-sm font-medium flex items-center gap-2">
-                <ImageIcon className="h-4 w-4" /> Cover Image
-                {editItem?.image && <Check className="h-4 w-4 text-success" />}
-              </p>
-              {!editItem?.image && (
-                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground hover:border-primary/50 hover:bg-muted/50 transition-colors">
-                  {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Click to upload image"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    disabled={uploading}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleMediaUpload(file, "image");
-                    }}
-                  />
-                </label>
-              )}
-            </div>
+            {/* Image upload — only for Long videos */}
+            {editItem?.post_length !== "Short" && (
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium flex items-center gap-2">
+                  <ImageIcon className="h-4 w-4" /> Cover Image
+                  {editItem?.image && <Check className="h-4 w-4 text-success" />}
+                </p>
+                {!editItem?.image && (
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground hover:border-primary/50 hover:bg-muted/50 transition-colors">
+                    {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Click to upload image"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={uploading}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleMediaUpload(file, "image");
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+            )}
 
             {/* Video upload */}
             <div className="space-y-1.5">

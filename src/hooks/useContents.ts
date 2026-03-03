@@ -35,9 +35,9 @@ export type SocialContent = {
   updated_at: string;
 };
 
-export function useContents(search?: string, statusFilter?: string) {
+export function useContents(search?: string, statusFilter?: string, lengthFilter?: "Long" | "Short") {
   return useQuery({
-    queryKey: ["contents", search, statusFilter],
+    queryKey: ["contents", search, statusFilter, lengthFilter],
     queryFn: async () => {
       let query = supabase
         .from("social_content")
@@ -49,6 +49,9 @@ export function useContents(search?: string, statusFilter?: string) {
       }
       if (statusFilter && statusFilter !== "all") {
         query = query.eq("status", statusFilter as any);
+      }
+      if (lengthFilter) {
+        query = query.eq("post_length", lengthFilter);
       }
 
       const { data, error } = await query;
