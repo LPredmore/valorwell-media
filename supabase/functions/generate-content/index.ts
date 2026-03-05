@@ -395,6 +395,12 @@ Deno.serve(async (req) => {
       }
 
       console.log("[generate-content] Step 2 complete: social copy saved, status:", newStatus);
+
+      // Fire-and-forget: email the script to info@valorwell.org
+      const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+      if (RESEND_API_KEY && script) {
+        sendScriptEmail(RESEND_API_KEY, postLength, generated.post_title || topic, script);
+      }
     } catch (e) {
       console.error("[generate-content] Step 2 failed:", e);
       await adminClient
