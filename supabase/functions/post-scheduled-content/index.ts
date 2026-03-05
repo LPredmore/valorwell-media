@@ -131,6 +131,7 @@ Deno.serve(async (req) => {
         .from("posted_content")
         .insert({
           ...rest,
+          source_content_id: row.id,
           status: "posted",
           posted_at: now,
           video_url: videoUrl,
