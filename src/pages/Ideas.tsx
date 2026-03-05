@@ -293,11 +293,12 @@ export default function Ideas() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <Label>Length</Label>
-                      <Select value={length} onValueChange={(v) => setLength(v as "Short" | "Long")}>
+                     <Select value={length} onValueChange={(v) => setLength(v as "Short" | "Long" | "Both")}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Short">Short</SelectItem>
+                          <SelectItem value="Both">Both</SelectItem>
                           <SelectItem value="Long">Long</SelectItem>
+                          <SelectItem value="Short">Short</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
