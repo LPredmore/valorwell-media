@@ -91,7 +91,7 @@ export default function ContentDetail() {
     if (!id) return;
     const { data: updated } = await supabase
       .from("social_content")
-      .select("image, video_storage_path, youtube_title, youtube_desc, post_length, status")
+      .select("image, video_storage_path, post_title, post_length, status")
       .eq("id", id)
       .single();
 
