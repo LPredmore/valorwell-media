@@ -72,7 +72,7 @@ export default function Ideas() {
   const [topic, setTopic] = useState("");
   const [avatar, setAvatar] = useState("");
   const [category, setCategory] = useState("");
-  const [length, setLength] = useState<"Short" | "Long">("Long");
+  const [length, setLength] = useState<"Short" | "Long" | "Both">("Both");
   const [plannedDate, setPlannedDate] = useState<Date | undefined>();
 
   const toggleSelect = (id: number) => {
