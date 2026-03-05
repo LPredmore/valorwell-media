@@ -161,12 +161,11 @@ async function generateSocialCopy(
   // Build tool properties based on post length
   const properties: Record<string, unknown> = {
     post_title: { type: "string", description: "Content title, max 60 characters, creates tension and curiosity with a core keyword" },
-    youtube_title: { type: "string", description: "YouTube video title, 55-75 characters" },
     facebook_desc: { type: "string", description: "Facebook caption, 600-1200 characters with hashtags" },
     youtube_comment: { type: "string", description: "YouTube first comment, under 300 chars, no hashtags" },
   };
 
-  const required = ["post_title", "youtube_title", "facebook_desc", "youtube_comment"];
+  const required = ["post_title", "facebook_desc", "youtube_comment"];
 
   if (postLength === "Long") {
     properties.youtube_desc = { type: "string", description: "YouTube description, 1800-2500 characters with hashtags" };
