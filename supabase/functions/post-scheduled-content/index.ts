@@ -125,6 +125,7 @@ Deno.serve(async (req) => {
       // Copy to posted_content — strip social_content-only fields
       const { id: _id, upload_at: _ua, youtube_status: _ys, youtube_video_id: _yv,
               youtube_error_detail: _ye, youtube_uploaded_at: _yu, video_size_bytes: _vs,
+              script: _sc,
               ...rest } = row;
       const { error: insertError } = await supabase
         .from("posted_content")
@@ -134,6 +135,7 @@ Deno.serve(async (req) => {
           posted_at: now,
           video_url: videoUrl,
           image_url: imageUrl,
+          youtube_title: rest.post_title ?? null,
         });
 
       if (insertError) {
