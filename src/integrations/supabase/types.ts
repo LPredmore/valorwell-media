@@ -1059,12 +1059,10 @@ export type Database = {
           linkedin_desc: string | null
           playlist_id: number | null
           post_length: Database["public"]["Enums"]["video_length"] | null
-          post_title: string | null
           posted_at: string | null
           scheduled_at: string | null
           scheduled_platforms: string[] | null
-          script_long: string | null
-          script_short: string | null
+          script: string | null
           status: Database["public"]["Enums"]["post_status"]
           topic: string
           updated_at: string
@@ -1097,12 +1095,10 @@ export type Database = {
           linkedin_desc?: string | null
           playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
-          post_title?: string | null
           posted_at?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
-          script_long?: string | null
-          script_short?: string | null
+          script?: string | null
           status?: Database["public"]["Enums"]["post_status"]
           topic: string
           updated_at?: string
@@ -1135,12 +1131,10 @@ export type Database = {
           linkedin_desc?: string | null
           playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
-          post_title?: string | null
           posted_at?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
-          script_long?: string | null
-          script_short?: string | null
+          script?: string | null
           status?: Database["public"]["Enums"]["post_status"]
           topic?: string
           updated_at?: string
