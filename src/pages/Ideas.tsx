@@ -72,7 +72,7 @@ export default function Ideas() {
   const [topic, setTopic] = useState("");
   const [avatar, setAvatar] = useState("");
   const [category, setCategory] = useState("");
-  const [length, setLength] = useState<"Short" | "Long">("Long");
+  const [length, setLength] = useState<"Short" | "Long" | "Both">("Both");
   const [plannedDate, setPlannedDate] = useState<Date | undefined>();
 
   const toggleSelect = (id: number) => {
@@ -92,7 +92,7 @@ export default function Ideas() {
   };
 
   const resetForm = () => {
-    setTopic(""); setAvatar(""); setCategory(""); setLength("Long"); setPlannedDate(undefined);
+    setTopic(""); setAvatar(""); setCategory(""); setLength("Both"); setPlannedDate(undefined);
   };
 
   const handleAddIdea = async () => {
@@ -141,11 +141,12 @@ export default function Ideas() {
       const t = r[colIdx.topic]?.trim();
       if (!t) continue;
       const len = r[colIdx.length]?.trim();
+      const parsedLen = len === "Short" ? "Short" : len === "Long" ? "Long" : "Both";
       inserts.push({
         topic: t,
         category: r[colIdx.category]?.trim() || null,
         avatar: r[colIdx.avatar]?.trim() || null,
-        length: (len === "Short" ? "Short" : "Long") as "Short" | "Long",
+        length: parsedLen as any,
         planned_date: r[colIdx.planned_date]?.trim() || null,
       });
     }
@@ -167,42 +168,66 @@ export default function Ideas() {
     if (!user || selected.size === 0) return;
     const selectedIdeas = ideas.filter((i) => selected.has(i.id));
     setGenerating(true);
-    setGenProgress({ current: 0, total: selectedIdeas.length });
 
-    for (let idx = 0; idx < selectedIdeas.length; idx++) {
-      const idea = selectedIdeas[idx];
-      setGenProgress({ current: idx + 1, total: selectedIdeas.length });
+    // Calculate total jobs (Both = 2, otherwise 1)
+    const totalJobs = selectedIdeas.reduce((sum, idea) => sum + (idea.length === "Both" ? 2 : 1), 0);
+    let completedJobs = 0;
+    setGenProgress({ current: 0, total: totalJobs });
 
-      // 1. Insert into social_content
-      const { data: content, error: insertErr } = await supabase
-        .from("social_content")
-        .insert({
-          topic: idea.topic || "Untitled",
-          post_length: idea.length,
-          user_id: user.id,
-          status: "incomplete" as const,
-        })
-        .select()
-        .single();
+    const successfulIdeaIds: number[] = [];
 
-      if (insertErr || !content) {
-        toast({ title: `Failed to create content for "${idea.topic?.slice(0, 40)}"`, description: insertErr?.message, variant: "destructive" });
-        continue;
+    for (const idea of selectedIdeas) {
+      const lengths: Array<"Short" | "Long"> = idea.length === "Both" ? ["Long", "Short"] : [(idea.length || "Long") as "Short" | "Long"];
+      let ideaSuccess = true;
+
+      for (const len of lengths) {
+        completedJobs++;
+        setGenProgress({ current: completedJobs, total: totalJobs });
+
+        const { data: content, error: insertErr } = await supabase
+          .from("social_content")
+          .insert({
+            topic: idea.topic || "Untitled",
+            post_length: len,
+            user_id: user.id,
+            status: "incomplete" as const,
+          })
+          .select()
+          .single();
+
+        if (insertErr || !content) {
+          toast({ title: `Failed to create content for "${idea.topic?.slice(0, 40)}"`, description: insertErr?.message, variant: "destructive" });
+          ideaSuccess = false;
+          continue;
+        }
+
+        const { error: genErr } = await supabase.functions.invoke("generate-content", {
+          body: { contentId: content.id },
+        });
+        if (genErr) {
+          toast({ title: `Generation failed for "${idea.topic?.slice(0, 40)}"`, description: genErr.message, variant: "destructive" });
+          ideaSuccess = false;
+        }
       }
 
-      // 2. Call generate-content
-      const { error: genErr } = await supabase.functions.invoke("generate-content", {
-        body: { contentId: content.id },
-      });
-      if (genErr) {
-        toast({ title: `Generation failed for "${idea.topic?.slice(0, 40)}"`, description: genErr.message, variant: "destructive" });
+      if (ideaSuccess) {
+        successfulIdeaIds.push(idea.id);
+      }
+    }
+
+    // Delete successfully generated ideas
+    if (successfulIdeaIds.length > 0) {
+      try {
+        await deleteIdeas.mutateAsync(successfulIdeaIds);
+      } catch {
+        // Non-critical — ideas just won't be cleaned up
       }
     }
 
     setGenerating(false);
     setSelected(new Set());
     toast({
-      title: `Generated ${selectedIdeas.length} content items`,
+      title: `Generated ${completedJobs} content items from ${selectedIdeas.length} ideas`,
       description: "View them in the content list.",
       action: (
         <a href="/content" className="underline font-medium">
@@ -268,11 +293,12 @@ export default function Ideas() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <Label>Length</Label>
-                      <Select value={length} onValueChange={(v) => setLength(v as "Short" | "Long")}>
+                     <Select value={length} onValueChange={(v) => setLength(v as "Short" | "Long" | "Both")}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Short">Short</SelectItem>
+                          <SelectItem value="Both">Both</SelectItem>
                           <SelectItem value="Long">Long</SelectItem>
+                          <SelectItem value="Short">Short</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

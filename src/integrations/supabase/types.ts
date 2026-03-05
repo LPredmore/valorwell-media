@@ -1355,7 +1355,7 @@ export type Database = {
         | "scheduled"
         | "posted"
         | "scripted"
-      video_length: "Short" | "Long"
+      video_length: "Short" | "Long" | "Both"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1491,7 +1491,7 @@ export const Constants = {
         "posted",
         "scripted",
       ],
-      video_length: ["Short", "Long"],
+      video_length: ["Short", "Long", "Both"],
     },
   },
 } as const
