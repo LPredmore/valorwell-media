@@ -333,7 +333,6 @@ Deno.serve(async (req) => {
       // Build update object with only the fields that were generated
       const updateData: Record<string, unknown> = {
         post_title: generated.post_title,
-        youtube_title: generated.youtube_title,
         facebook_desc: generated.facebook_desc,
         youtube_comment: generated.youtube_comment,
         status: newStatus,
