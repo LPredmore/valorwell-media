@@ -44,7 +44,7 @@ export function useContents(search?: string, statusFilter?: string, lengthFilter
         .order("created_at", { ascending: false });
 
       if (search) {
-        query = query.or(`topic.ilike.%${search}%,youtube_title.ilike.%${search}%`);
+        query = query.or(`topic.ilike.%${search}%,post_title.ilike.%${search}%`);
       }
       if (statusFilter && statusFilter !== "all") {
         query = query.eq("status", statusFilter as any);

@@ -3,7 +3,6 @@ export type ContentStatus = (typeof CONTENT_STATUSES)[number];
 
 export const COMMON_FIELDS = {
   post_title: "Post Title",
-  youtube_title: "YouTube Title",
   facebook_desc: "Facebook Caption",
 } as const;
 

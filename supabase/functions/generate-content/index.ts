@@ -366,7 +366,7 @@ Deno.serve(async (req) => {
       console.error("[generate-content] Step 2 failed:", e);
       await adminClient
         .from("social_content")
-        .update({ status: "error", error: `Failed at step 2 (social copy): ${e instanceof Error ? e.message : "Unknown error"}` })
+        .update({ status: "incomplete", error: `Failed at step 2 (social copy): ${e instanceof Error ? e.message : "Unknown error"}` })
         .eq("id", contentId);
       return new Response(JSON.stringify({ error: "Social copy generation failed" }), {
         status: 502,
