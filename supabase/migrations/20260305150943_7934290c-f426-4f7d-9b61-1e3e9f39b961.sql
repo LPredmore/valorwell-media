@@ -1,0 +1,1 @@
+ALTER TYPE public.video_length ADD VALUE IF NOT EXISTS 'Both';
