@@ -98,8 +98,7 @@ export default function ContentDetail() {
     const needsImage = (updated as any)?.post_length === "Long";
     const hasImage = !needsImage || !!(updated as any)?.image;
     const hasCoreFields = !!(updated as any)?.video_storage_path
-      && !!(updated as any)?.youtube_title
-      && !!(updated as any)?.youtube_desc
+      && !!(updated as any)?.post_title
       && !!(updated as any)?.post_length;
 
     if (updated && hasImage && hasCoreFields && (updated as any).status === "incomplete") {
