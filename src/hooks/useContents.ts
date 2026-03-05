@@ -6,7 +6,7 @@ export type SocialContent = {
   user_id: string;
   topic: string;
   status: string;
-  youtube_title: string | null;
+  youtube_comment: string | null;
   youtube_desc: string | null;
   facebook_desc: string | null;
   linkedin_desc: string | null;
