@@ -281,7 +281,7 @@ Deno.serve(async (req) => {
         console.error("[generate-content] Step 1 failed:", e);
         await adminClient
           .from("social_content")
-          .update({ status: "error", error: `Failed at step 1 (long script): ${e instanceof Error ? e.message : "Unknown error"}` })
+          .update({ status: "incomplete", error: `Failed at step 1 (long script): ${e instanceof Error ? e.message : "Unknown error"}` })
           .eq("id", contentId);
         return new Response(JSON.stringify({ error: "Long script generation failed" }), {
           status: 502,
