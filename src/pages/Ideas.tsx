@@ -141,11 +141,12 @@ export default function Ideas() {
       const t = r[colIdx.topic]?.trim();
       if (!t) continue;
       const len = r[colIdx.length]?.trim();
+      const parsedLen = len === "Short" ? "Short" : len === "Long" ? "Long" : "Both";
       inserts.push({
         topic: t,
         category: r[colIdx.category]?.trim() || null,
         avatar: r[colIdx.avatar]?.trim() || null,
-        length: (len === "Short" ? "Short" : "Long") as "Short" | "Long",
+        length: parsedLen as any,
         planned_date: r[colIdx.planned_date]?.trim() || null,
       });
     }
