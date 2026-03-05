@@ -33,7 +33,7 @@ import {
 
 const CHAR_TARGETS: Record<string, string> = {
   post_title: "≤60",
-  youtube_title: "55–75",
+  
   youtube_desc: "1,800–2,500",
   facebook_desc: "600–1,200",
   linkedin_desc: "900–1,600",
