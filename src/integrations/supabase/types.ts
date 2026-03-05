@@ -885,6 +885,7 @@ export type Database = {
           posted_at: string | null
           scheduled_at: string | null
           scheduled_platforms: string[] | null
+          source_content_id: string | null
           status: Database["public"]["Enums"]["post_status"]
           topic: string
           updated_at: string
@@ -900,6 +901,7 @@ export type Database = {
           youtube_comment_status: string | null
           youtube_desc: string | null
           youtube_title: string | null
+          youtube_video_id: string | null
         }
         Insert: {
           created_at?: string
@@ -916,6 +918,7 @@ export type Database = {
           posted_at?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
+          source_content_id?: string | null
           status?: Database["public"]["Enums"]["post_status"]
           topic: string
           updated_at?: string
@@ -931,6 +934,7 @@ export type Database = {
           youtube_comment_status?: string | null
           youtube_desc?: string | null
           youtube_title?: string | null
+          youtube_video_id?: string | null
         }
         Update: {
           created_at?: string
@@ -947,6 +951,7 @@ export type Database = {
           posted_at?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
+          source_content_id?: string | null
           status?: Database["public"]["Enums"]["post_status"]
           topic?: string
           updated_at?: string
@@ -962,6 +967,7 @@ export type Database = {
           youtube_comment_status?: string | null
           youtube_desc?: string | null
           youtube_title?: string | null
+          youtube_video_id?: string | null
         }
         Relationships: [
           {
