@@ -18,7 +18,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ArrowLeft, Trash2, Loader2, RefreshCw, RotateCcw, ExternalLink } from "lucide-react";
-import { CONTENT_FIELDS, SCRIPT_FIELDS } from "@/lib/platforms";
+import { COMMON_FIELDS, LONG_FIELDS, SHORT_FIELDS } from "@/lib/platforms";
 import {
   AlertDialog,
   AlertDialogAction,
