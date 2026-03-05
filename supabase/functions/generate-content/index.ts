@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "deepseek/deepseek-chat-v3-0324";
+const MODEL = "openai/gpt-4.1-mini";
 
 // ── AI call helper ──────────────────────────────────────────────────
 
