@@ -141,7 +141,7 @@ async function generateSocialCopy(
   }
 
   // Build field scopes based on post length
-  const commonScopes = ["post_title", "youtube_title", "facebook_desc", "youtube_comment"];
+  const commonScopes = ["post_title", "facebook_desc", "youtube_comment"];
   const longScopes = ["youtube_desc", "linkedin_desc"];
   const shortScopes = ["ig_tiktok_desc"];
 
