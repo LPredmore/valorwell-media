@@ -127,26 +127,56 @@ async function generateShortScript(
 async function generateSocialCopy(
   apiKey: string,
   topic: string,
-  scriptLong: string | null,
-  scriptShort: string | null,
+  script: string | null,
+  postLength: string,
   instructions: Record<string, string>,
 ): Promise<Record<string, string>> {
   const systemPrompt = instructions["global"] || "You are a social media content generation assistant.";
 
   let userPrompt = `Topic: ${topic}`;
 
-  if (scriptLong) {
-    userPrompt += `\n\n## Long-form script:\n${scriptLong}`;
-  }
-  if (scriptShort) {
-    userPrompt += `\n\n## Short-form script:\n${scriptShort}`;
+  if (script) {
+    const label = postLength === "Long" ? "Long-form script" : "Short-form script";
+    userPrompt += `\n\n## ${label}:\n${script}`;
   }
 
-  const fieldScopes = ["post_title", "youtube_title", "youtube_desc", "facebook_desc", "linkedin_desc", "ig_tiktok_desc", "hashtags", "youtube_comment"];
+  // Build field scopes based on post length
+  const commonScopes = ["post_title", "youtube_title", "facebook_desc", "youtube_comment"];
+  const longScopes = ["youtube_desc", "linkedin_desc"];
+  const shortScopes = ["ig_tiktok_desc"];
+
+  const fieldScopes = [
+    ...commonScopes,
+    ...(postLength === "Long" ? longScopes : []),
+    ...(postLength === "Short" ? shortScopes : []),
+    "hashtags",
+  ];
+
   for (const scope of fieldScopes) {
     if (instructions[scope]) {
       userPrompt += `\n\n## ${scope} rules:\n${instructions[scope]}`;
     }
+  }
+
+  // Build tool properties based on post length
+  const properties: Record<string, unknown> = {
+    post_title: { type: "string", description: "Content title, max 60 characters, creates tension and curiosity with a core keyword" },
+    youtube_title: { type: "string", description: "YouTube video title, 55-75 characters" },
+    facebook_desc: { type: "string", description: "Facebook caption, 600-1200 characters with hashtags" },
+    youtube_comment: { type: "string", description: "YouTube first comment, under 300 chars, no hashtags" },
+  };
+
+  const required = ["post_title", "youtube_title", "facebook_desc", "youtube_comment"];
+
+  if (postLength === "Long") {
+    properties.youtube_desc = { type: "string", description: "YouTube description, 1800-2500 characters with hashtags" };
+    properties.linkedin_desc = { type: "string", description: "LinkedIn post, 900-1600 characters with hashtags" };
+    required.push("youtube_desc", "linkedin_desc");
+  }
+
+  if (postLength === "Short") {
+    properties.ig_tiktok_desc = { type: "string", description: "Instagram + TikTok caption, 200-300 characters plus hashtags" };
+    required.push("ig_tiktok_desc");
   }
 
   return await callAI(
@@ -154,17 +184,9 @@ async function generateSocialCopy(
     systemPrompt,
     userPrompt,
     "save_content",
-    "Save the generated social media content for all platforms.",
-    {
-      post_title: { type: "string", description: "Content title, max 60 characters, creates tension and curiosity with a core keyword" },
-      youtube_title: { type: "string", description: "YouTube video title, 55-75 characters" },
-      youtube_desc: { type: "string", description: "YouTube description, 1800-2500 characters with hashtags" },
-      facebook_desc: { type: "string", description: "Facebook caption, 600-1200 characters with hashtags" },
-      linkedin_desc: { type: "string", description: "LinkedIn post, 900-1600 characters with hashtags" },
-      ig_tiktok_desc: { type: "string", description: "Instagram + TikTok caption, 200-300 characters plus hashtags" },
-      youtube_comment: { type: "string", description: "YouTube first comment, under 300 chars, no hashtags" },
-    },
-    ["post_title", "youtube_title", "youtube_desc", "facebook_desc", "linkedin_desc", "ig_tiktok_desc", "youtube_comment"],
+    `Save the generated social media content for ${postLength === "Long" ? "long-form" : "short-form"} video.`,
+    properties,
+    required,
   );
 }
 
@@ -240,20 +262,19 @@ Deno.serve(async (req) => {
     }
 
     const topic = content.topic;
-    const postLength = content.post_length; // "Long", "Short", or null
+    const postLength = content.post_length; // "Long" or "Short"
 
-    let scriptLong: string | null = null;
-    let scriptShort: string | null = null;
+    let script: string | null = null;
 
-    // ── Step 1: Long script (only for "Long") ──
+    // ── Step 1: Generate script (one per video type) ──
     if (postLength === "Long") {
       try {
         console.log(`[generate-content] Step 1: Generating long script for "${topic}"`);
-        scriptLong = await generateLongScript(OPENROUTER_API_KEY, topic, instructions);
+        script = await generateLongScript(OPENROUTER_API_KEY, topic, instructions);
 
         await adminClient
           .from("social_content")
-          .update({ script_long: scriptLong })
+          .update({ script })
           .eq("id", contentId);
 
         console.log("[generate-content] Step 1 complete: long script saved");
@@ -268,25 +289,22 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-    }
-
-    // ── Step 2: Short script (for both "Long" and "Short") ──
-    if (postLength === "Short") {
+    } else if (postLength === "Short") {
       try {
-        console.log(`[generate-content] Step 2: Generating short script for "${topic}"`);
-        scriptShort = await generateShortScript(OPENROUTER_API_KEY, topic, scriptLong, instructions);
+        console.log(`[generate-content] Step 1: Generating short script for "${topic}"`);
+        script = await generateShortScript(OPENROUTER_API_KEY, topic, null, instructions);
 
         await adminClient
           .from("social_content")
-          .update({ script_short: scriptShort })
+          .update({ script })
           .eq("id", contentId);
 
-        console.log("[generate-content] Step 2 complete: short script saved");
+        console.log("[generate-content] Step 1 complete: short script saved");
       } catch (e) {
-        console.error("[generate-content] Step 2 failed:", e);
+        console.error("[generate-content] Step 1 failed:", e);
         await adminClient
           .from("social_content")
-          .update({ status: "error", error: `Failed at step 2 (short script): ${e instanceof Error ? e.message : "Unknown error"}` })
+          .update({ status: "error", error: `Failed at step 1 (short script): ${e instanceof Error ? e.message : "Unknown error"}` })
           .eq("id", contentId);
         return new Response(JSON.stringify({ error: "Short script generation failed" }), {
           status: 502,
@@ -295,10 +313,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Step 3: Social copy ──
+    // ── Step 2: Social copy (length-specific fields) ──
     try {
-      console.log(`[generate-content] Step 3: Generating social copy for "${topic}"`);
-      const generated = await generateSocialCopy(OPENROUTER_API_KEY, topic, scriptLong, scriptShort, instructions);
+      console.log(`[generate-content] Step 2: Generating social copy for "${topic}" (${postLength})`);
+      const generated = await generateSocialCopy(OPENROUTER_API_KEY, topic, script, postLength, instructions);
 
       // Re-fetch to see current media state
       const { data: current } = await adminClient
@@ -307,25 +325,34 @@ Deno.serve(async (req) => {
         .eq("id", contentId)
         .single();
 
-      const isShort = content.post_length === "Short";
+      const isShort = postLength === "Short";
       const hasAllMedia = isShort
         ? !!current?.video_storage_path
         : !!current?.image && !!current?.video_storage_path;
       const newStatus = hasAllMedia ? "unscheduled" : "incomplete";
 
+      // Build update object with only the fields that were generated
+      const updateData: Record<string, unknown> = {
+        post_title: generated.post_title,
+        youtube_title: generated.youtube_title,
+        facebook_desc: generated.facebook_desc,
+        youtube_comment: generated.youtube_comment,
+        status: newStatus,
+        error: null,
+      };
+
+      if (postLength === "Long") {
+        updateData.youtube_desc = generated.youtube_desc;
+        updateData.linkedin_desc = generated.linkedin_desc;
+      }
+
+      if (postLength === "Short") {
+        updateData.ig_tiktok_desc = generated.ig_tiktok_desc;
+      }
+
       const { error: updateError } = await adminClient
         .from("social_content")
-        .update({
-          post_title: generated.post_title,
-          youtube_title: generated.youtube_title,
-          youtube_desc: generated.youtube_desc,
-          facebook_desc: generated.facebook_desc,
-          linkedin_desc: generated.linkedin_desc,
-          ig_tiktok_desc: generated.ig_tiktok_desc,
-          youtube_comment: generated.youtube_comment,
-          status: newStatus,
-          error: null,
-        })
+        .update(updateData)
         .eq("id", contentId);
 
       if (updateError) {
@@ -336,12 +363,12 @@ Deno.serve(async (req) => {
         });
       }
 
-      console.log("[generate-content] Step 3 complete: social copy saved, status:", newStatus);
+      console.log("[generate-content] Step 2 complete: social copy saved, status:", newStatus);
     } catch (e) {
-      console.error("[generate-content] Step 3 failed:", e);
+      console.error("[generate-content] Step 2 failed:", e);
       await adminClient
         .from("social_content")
-        .update({ status: "error", error: `Failed at step 3 (social copy): ${e instanceof Error ? e.message : "Unknown error"}` })
+        .update({ status: "error", error: `Failed at step 2 (social copy): ${e instanceof Error ? e.message : "Unknown error"}` })
         .eq("id", contentId);
       return new Response(JSON.stringify({ error: "Social copy generation failed" }), {
         status: 502,

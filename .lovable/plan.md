@@ -1,84 +1,89 @@
 
 
-# Plan: Unified Script Column + Length-Specific Field Generation
+# Fix: Shorts Image Requirement + Long Video Image Not Persisting
 
-## What's happening now
+## Two Distinct Issues
 
-The database already has a single `script` column (the old `script_long` and `script_short` columns were dropped). But the entire codebase — the edge function, the frontend, and the TypeScript types — still references the deleted columns. The edge function writes to `script_long` / `script_short` (which silently fails since those columns no longer exist). The social copy step generates ALL platform fields for every video regardless of length.
+### Issue 1: Shorts cannot be scheduled — database trigger requires image for all content
 
-## What needs to change
+The client-side validation in `UnscheduledTab.tsx` (line 15) correctly skips the image check for Shorts: `if (item.post_length === "Long" && !item.image?.trim())`. So the UI lets you proceed. But then the Supabase update to set `scheduled_at` fires the database trigger `enforce_youtube_schedule_requirements`, which unconditionally checks `if coalesce(new.image, '') = '' then raise exception 'Cannot schedule: image is missing'`. It does not check `post_length`. The trigger rejects the update, Supabase returns an error, and the UI shows the failure.
 
-### 1. Edge Function (`supabase/functions/generate-content/index.ts`)
+**Root cause**: The trigger was never updated for Shorts. The client-side fix was correct but irrelevant — the server-side gate is the one blocking it.
 
-**Script saving:** Both `generateLongScript` and `generateShortScript` stay as-is (they produce the right content). The change is in how the result is saved — write to the `script` column instead of `script_long` / `script_short` (lines 256, 281).
+### Issue 2: Long video images are not available after posting
 
-**Length-specific social copy:** Split `generateSocialCopy` into length-aware generation. Rather than requesting all 6 fields every time, the tool call should only request the fields relevant to the post length:
+In `post-scheduled-content/index.ts` (line 83-84), the insert into `posted_content` explicitly sets `video_url: null` and `image_url: null`. The `image` field (the R2 storage path) does flow through via `...rest`, so the R2 path is preserved in `posted_content.image`. However, `image_url` (which would be a signed URL for external platforms like Make.com to download) is deliberately nulled. The previous diagnosis noted that signed URLs should be generated here, but currently they are not.
 
-- **All videos:** `post_title`, `youtube_title`, `facebook_desc`, `youtube_comment`
-- **Long only:** `youtube_desc`, `linkedin_desc`
-- **Short only:** `ig_tiktok_desc`
+This means: the R2 path is archived, but no usable download URL is generated for external consumers at posting time.
 
-This is the right approach because it prevents the AI from wasting tokens generating fields that will never be used, and it keeps the data model clean — a Short video won't have a `youtube_desc` sitting in the database that nobody ever looks at. The function will accept `postLength` as a parameter to `generateSocialCopy` and dynamically build the tool properties and required fields.
+## Technical Decisions
 
-**DB update in Step 3:** Only write the fields that were generated. Build the update object conditionally based on `postLength`.
+### Decision 1: Fix the trigger, not the client code
 
-### 2. Frontend: `src/pages/ContentDetail.tsx`
+The correct fix is to modify the `enforce_youtube_schedule_requirements` database function to skip the image check when `post_length = 'Short'`. This is the single source of truth for scheduling validation. The client-side validation in `UnscheduledTab.tsx` is already correct and needs no change.
 
-- Replace all `script_long` / `script_short` references with the unified `script` column
-- The Scripts section should show a single `ContentFieldCard` for `script` with a label derived from `content.post_length` ("Long-Form Script" or "Short-Form Script")
-- Show generated content fields conditionally based on `post_length`:
-  - Always show: `post_title`, `youtube_title`, `facebook_desc`, `youtube_comment`
-  - Long only: `youtube_desc`, `linkedin_desc`
-  - Short only: `ig_tiktok_desc`
+### Decision 2: Generate signed R2 URLs in the edge function
 
-### 3. Frontend: `src/lib/platforms.ts`
+The `post-scheduled-content` function should generate signed R2 read URLs for both `video_url` and `image_url` (when `image` is present) instead of nulling them out. This is what Make.com needs to download the assets. The memory note on this system explicitly states this is the intended design: "generates 1-hour signed R2 URLs for `video_url` and `image_url` at the moment of migration." The current code contradicts the documented architecture. The edge function already has access to R2 secrets (it runs with service role), and the `r2-read-url` function shows the pattern for generating signed URLs.
 
-- Remove `SCRIPT_FIELDS` entirely (no longer needed as a map — the detail page handles it inline)
-- Split `CONTENT_FIELDS` into three groups:
+## Changes
 
-```ts
-export const COMMON_FIELDS = {
-  post_title: "Post Title",
-  youtube_title: "YouTube Title",
-  facebook_desc: "Facebook Caption",
-} as const;
+### 1. Database migration: update `enforce_youtube_schedule_requirements`
 
-export const LONG_FIELDS = {
-  youtube_desc: "YouTube Description",
-  linkedin_desc: "LinkedIn Post",
-} as const;
+Replace the trigger function to skip the image check when `post_length = 'Short'`:
 
-export const SHORT_FIELDS = {
-  ig_tiktok_desc: "Instagram + TikTok Caption",
-} as const;
+```sql
+CREATE OR REPLACE FUNCTION public.enforce_youtube_schedule_requirements()
+  RETURNS trigger
+  LANGUAGE plpgsql
+AS $$
+begin
+  if new.scheduled_at is not null then
+    -- Image only required for Long-form content
+    if new.post_length IS DISTINCT FROM 'Short' and coalesce(new.image, '') = '' then
+      raise exception 'Cannot schedule: image is missing';
+    end if;
+
+    if coalesce(new.video_storage_path, '') = '' then
+      raise exception 'Cannot schedule: video_storage_path is missing';
+    end if;
+
+    if coalesce(new.youtube_title, '') = '' then
+      raise exception 'Cannot schedule: youtube_title is missing';
+    end if;
+
+    if coalesce(new.youtube_desc, '') = '' then
+      raise exception 'Cannot schedule: youtube_desc is missing';
+    end if;
+
+    if new.post_length is null then
+      raise exception 'Cannot schedule: post_length is missing';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
 ```
 
-This is better than a single flat map with runtime filtering because it makes the length-specific structure explicit and prevents accidental rendering of irrelevant fields.
+Using `IS DISTINCT FROM 'Short'` rather than `= 'Long'` so the image is still required for any future post types and for null `post_length` (which would be caught by the later null check anyway, but defense in depth).
 
-### 4. Frontend: `src/hooks/useContents.ts`
+### 2. Edge function: generate signed R2 URLs instead of nulling them
 
-- Replace `script_long` / `script_short` in the `SocialContent` type with `script: string | null`
+In `supabase/functions/post-scheduled-content/index.ts`, import the S3 client (same pattern as `r2-read-url`), and before inserting into `posted_content`:
 
-### 5. Frontend: `src/pages/Instructions.tsx`
+- If `row.video_storage_path` exists, generate a 1-hour signed URL and set it as `video_url`.
+- If `row.image` exists, generate a 1-hour signed URL and set it as `image_url`.
+- If either is missing, leave it as `null`.
 
-- Update `SCOPE_LABELS`: replace `script_long` / `script_short` with a single `script: "Script"` entry. The instruction scopes in the database still use `script_long` and `script_short` as keys — those rows should remain as-is since they control the AI prompt per length. No DB migration needed for instructions.
+This requires reading R2 secrets (`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) which are already configured in the project secrets. I will read the `r2-read-url` function to replicate the exact signing pattern.
 
-### 6. Database trigger: `enforce_youtube_schedule_requirements`
+### Summary
 
-Currently requires `youtube_desc` to be non-empty for scheduling. For Short videos, `youtube_desc` will be null. The trigger already skips image checks for Shorts — it needs the same treatment for `youtube_desc`: only require it when `post_length != 'Short'`.
+| Location | Change |
+|---|---|
+| DB migration | Update `enforce_youtube_schedule_requirements` to skip image check for Shorts |
+| `post-scheduled-content/index.ts` | Generate signed R2 URLs for `video_url` and `image_url` instead of setting them to `null` |
 
-### 7. `CHAR_TARGETS` in ContentDetail
-
-Remove targets for fields not shown for a given length. The existing `CHAR_TARGETS` map is fine as-is since it's keyed by field name and only applies when the field is rendered.
-
-## Files changed (summary)
-
-| File | Change |
-|------|--------|
-| `supabase/functions/generate-content/index.ts` | Save to `script` column; make social copy length-aware |
-| `src/lib/platforms.ts` | Split fields into COMMON/LONG/SHORT; remove SCRIPT_FIELDS |
-| `src/pages/ContentDetail.tsx` | Use `script`; render fields by length |
-| `src/hooks/useContents.ts` | Update SocialContent type |
-| `src/pages/Instructions.tsx` | Update SCOPE_LABELS |
-| DB migration | Update `enforce_youtube_schedule_requirements` trigger |
+No client-side code changes needed. The UI validation is already correct.
 

@@ -18,7 +18,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ArrowLeft, Trash2, Loader2, RefreshCw, RotateCcw, ExternalLink } from "lucide-react";
-import { CONTENT_FIELDS, SCRIPT_FIELDS } from "@/lib/platforms";
+import { COMMON_FIELDS, LONG_FIELDS, SHORT_FIELDS } from "@/lib/platforms";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -411,23 +411,15 @@ export default function ContentDetail() {
           <ImageSection storagePath={content.image} contentId={content.id} onImageUploaded={handleImageUploaded} />
         )}
 
-        {/* Scripts */}
-        {(content.script_long || content.script_short) && (
+        {/* Script */}
+        {content.script && (
           <div className="space-y-4">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Scripts</h3>
-            {content.post_length === "Long" && (
-              <ContentFieldCard
-                contentId={content.id}
-                fieldKey="script_long"
-                label={SCRIPT_FIELDS.script_long}
-                value={(content as any).script_long}
-              />
-            )}
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Script</h3>
             <ContentFieldCard
               contentId={content.id}
-              fieldKey="script_short"
-              label={SCRIPT_FIELDS.script_short}
-              value={(content as any).script_short}
+              fieldKey="script"
+              label={content.post_length === "Long" ? "Long-Form Script" : "Short-Form Script"}
+              value={content.script}
             />
           </div>
         )}
@@ -435,7 +427,27 @@ export default function ContentDetail() {
         {/* Generated Content Fields */}
         <div className="space-y-4">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Generated Content</h3>
-          {(Object.entries(CONTENT_FIELDS) as [string, string][]).map(([key, label]) => (
+          {(Object.entries(COMMON_FIELDS) as [string, string][]).map(([key, label]) => (
+            <ContentFieldCard
+              key={key}
+              contentId={content.id}
+              fieldKey={key}
+              label={label}
+              value={(content as any)[key]}
+              charTarget={CHAR_TARGETS[key]}
+            />
+          ))}
+          {content.post_length === "Long" && (Object.entries(LONG_FIELDS) as [string, string][]).map(([key, label]) => (
+            <ContentFieldCard
+              key={key}
+              contentId={content.id}
+              fieldKey={key}
+              label={label}
+              value={(content as any)[key]}
+              charTarget={CHAR_TARGETS[key]}
+            />
+          ))}
+          {content.post_length === "Short" && (Object.entries(SHORT_FIELDS) as [string, string][]).map(([key, label]) => (
             <ContentFieldCard
               key={key}
               contentId={content.id}
