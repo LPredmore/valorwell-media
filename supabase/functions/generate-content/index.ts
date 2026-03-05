@@ -271,7 +271,7 @@ Deno.serve(async (req) => {
     }
 
     // ── Step 2: Short script (for both "Long" and "Short") ──
-    if (postLength === "Long" || postLength === "Short") {
+    if (postLength === "Short") {
       try {
         console.log(`[generate-content] Step 2: Generating short script for "${topic}"`);
         scriptShort = await generateShortScript(OPENROUTER_API_KEY, topic, scriptLong, instructions);
