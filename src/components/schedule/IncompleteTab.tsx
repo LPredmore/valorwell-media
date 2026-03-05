@@ -56,7 +56,7 @@ export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" })
 
     const needsImage = (updated as any)?.post_length === "Long";
     const hasImage = !needsImage || !!(updated as any)?.image;
-    const hasCoreFields = !!(updated as any).video_storage_path && !!(updated as any).youtube_title && !!(updated as any).youtube_desc && !!(updated as any).post_length;
+    const hasCoreFields = !!(updated as any).video_storage_path && !!(updated as any).post_title && !!(updated as any).post_length;
     if (updated && hasImage && hasCoreFields) {
       // All requirements met — promote to unscheduled
       await supabase.from("social_content").update({ status: "unscheduled" } as any).eq("id", editItem.id);
