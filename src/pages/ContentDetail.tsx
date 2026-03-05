@@ -87,27 +87,6 @@ export default function ContentDetail() {
     triggerTopicSave(value);
   };
 
-  const promoteStatusIfComplete = useCallback(async () => {
-    if (!id) return;
-    const { data: updated } = await supabase
-      .from("social_content")
-      .select("image, video_storage_path, post_title, post_length, status")
-      .eq("id", id)
-      .single();
-
-    const needsImage = (updated as any)?.post_length === "Long";
-    const hasImage = !needsImage || !!(updated as any)?.image;
-    const hasCoreFields = !!(updated as any)?.video_storage_path
-      && !!(updated as any)?.post_title
-      && !!(updated as any)?.post_length;
-
-    if (updated && hasImage && hasCoreFields && (updated as any).status === "incomplete") {
-      await supabase.from("social_content").update({ status: "unscheduled" } as any).eq("id", id);
-    }
-    queryClient.invalidateQueries({ queryKey: ["content", id] });
-    queryClient.invalidateQueries({ queryKey: ["schedule"] });
-  }, [id, queryClient]);
-
   const handleVideoReplace = async (file: File) => {
     if (!id) return;
     setVideoUploading(true);
