@@ -189,6 +189,39 @@ async function generateSocialCopy(
   );
 }
 
+// ── Email helper ────────────────────────────────────────────────────
+
+async function sendScriptEmail(
+  apiKey: string,
+  postLength: string,
+  postTitle: string,
+  script: string,
+): Promise<void> {
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: "onboarding@resend.dev",
+        to: "info@valorwell.org",
+        subject: `${postLength} - ${postTitle}`,
+        text: script,
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[generate-content] Email send failed:", res.status, errText);
+    } else {
+      console.log("[generate-content] Script email sent successfully");
+    }
+  } catch (e) {
+    console.error("[generate-content] Email send error:", e);
+  }
+}
+
 // ── Main handler ────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
