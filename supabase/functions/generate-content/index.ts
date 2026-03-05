@@ -205,7 +205,7 @@ async function sendScriptEmail(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "onboarding@resend.dev",
+        from: "Valorwell <info@valorwell.org>",
         to: "info@valorwell.org",
         subject: `${postLength} - ${postTitle}`,
         text: script,
