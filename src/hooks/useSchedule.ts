@@ -147,8 +147,11 @@ export function usePostNow() {
         } as any)
         .eq("id", contentId);
       if (error) throw error;
-      // Supabase trigger will set upload_at = now() and youtube_status = 'queued'
-      // Fly.io will pick it up on its next poll
+
+      // Invoke edge function immediately so content posts without waiting for cron
+      await supabase.functions.invoke("post-scheduled-content", {
+        body: { contentId },
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["schedule"] });
