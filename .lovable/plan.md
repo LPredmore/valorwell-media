@@ -1,89 +1,108 @@
 
 
-# Fix: Shorts Image Requirement + Long Video Image Not Persisting
+# Plan: Sync `youtube_video_id` to `posted_content` via Database Trigger
 
-## Two Distinct Issues
+## The Problem
 
-### Issue 1: Shorts cannot be scheduled — database trigger requires image for all content
+Fly.io writes `youtube_video_id` back to `social_content` *after* the row has already been migrated to `posted_content`. The two tables share no linkage after migration, and `posted_content` doesn't even have a `youtube_video_id` column. There is no mechanism to propagate the ID forward.
 
-The client-side validation in `UnscheduledTab.tsx` (line 15) correctly skips the image check for Shorts: `if (item.post_length === "Long" && !item.image?.trim())`. So the UI lets you proceed. But then the Supabase update to set `scheduled_at` fires the database trigger `enforce_youtube_schedule_requirements`, which unconditionally checks `if coalesce(new.image, '') = '' then raise exception 'Cannot schedule: image is missing'`. It does not check `post_length`. The trigger rejects the update, Supabase returns an error, and the UI shows the failure.
+## The Right Approach: A Database Trigger on `social_content`
 
-**Root cause**: The trigger was never updated for Shorts. The client-side fix was correct but irrelevant — the server-side gate is the one blocking it.
+The correct solution is a Postgres trigger, not an Edge Function, webhook, or polling job. Here is why:
 
-### Issue 2: Long video images are not available after posting
+- **Fly.io already writes the `youtube_video_id` back to `social_content`** via a standard UPDATE. That UPDATE is the single, authoritative event we need to react to. A trigger fires synchronously inside that same transaction -- zero latency, zero missed events, no additional infrastructure.
+- **An Edge Function or cron** would introduce polling delay, require HTTP roundtrips, and add a failure mode (function timeout, network error) for something that Postgres can do natively in microseconds.
+- **The `social_content` row still exists** after migration -- its `status` is set to `'posted'` but it is not deleted. So the trigger can read both the new `youtube_video_id` and the row's `id` to find the matching `posted_content` record.
 
-In `post-scheduled-content/index.ts` (line 83-84), the insert into `posted_content` explicitly sets `video_url: null` and `image_url: null`. The `image` field (the R2 storage path) does flow through via `...rest`, so the R2 path is preserved in `posted_content.image`. However, `image_url` (which would be a signed URL for external platforms like Make.com to download) is deliberately nulled. The previous diagnosis noted that signed URLs should be generated here, but currently they are not.
+The only prerequisite is a way to match `social_content` rows to `posted_content` rows. Currently `posted_content` generates its own `id` on insert (via `gen_random_uuid()`). But `post-scheduled-content` spreads `...rest` which does not include `id` (it's explicitly stripped). We need a foreign key or shared identifier. The cleanest option: add a `source_content_id` column to `posted_content` that stores the original `social_content.id`. This is better than trying to match on `topic + user_id + scheduled_at` which is fragile.
 
-This means: the R2 path is archived, but no usable download URL is generated for external consumers at posting time.
+## Changes (3 total)
 
-## Technical Decisions
-
-### Decision 1: Fix the trigger, not the client code
-
-The correct fix is to modify the `enforce_youtube_schedule_requirements` database function to skip the image check when `post_length = 'Short'`. This is the single source of truth for scheduling validation. The client-side validation in `UnscheduledTab.tsx` is already correct and needs no change.
-
-### Decision 2: Generate signed R2 URLs in the edge function
-
-The `post-scheduled-content` function should generate signed R2 read URLs for both `video_url` and `image_url` (when `image` is present) instead of nulling them out. This is what Make.com needs to download the assets. The memory note on this system explicitly states this is the intended design: "generates 1-hour signed R2 URLs for `video_url` and `image_url` at the moment of migration." The current code contradicts the documented architecture. The edge function already has access to R2 secrets (it runs with service role), and the `r2-read-url` function shows the pattern for generating signed URLs.
-
-## Changes
-
-### 1. Database migration: update `enforce_youtube_schedule_requirements`
-
-Replace the trigger function to skip the image check when `post_length = 'Short'`:
+### 1. Database migration: Add two columns to `posted_content`
 
 ```sql
-CREATE OR REPLACE FUNCTION public.enforce_youtube_schedule_requirements()
-  RETURNS trigger
-  LANGUAGE plpgsql
-AS $$
-begin
-  if new.scheduled_at is not null then
-    -- Image only required for Long-form content
-    if new.post_length IS DISTINCT FROM 'Short' and coalesce(new.image, '') = '' then
-      raise exception 'Cannot schedule: image is missing';
-    end if;
-
-    if coalesce(new.video_storage_path, '') = '' then
-      raise exception 'Cannot schedule: video_storage_path is missing';
-    end if;
-
-    if coalesce(new.youtube_title, '') = '' then
-      raise exception 'Cannot schedule: youtube_title is missing';
-    end if;
-
-    if coalesce(new.youtube_desc, '') = '' then
-      raise exception 'Cannot schedule: youtube_desc is missing';
-    end if;
-
-    if new.post_length is null then
-      raise exception 'Cannot schedule: post_length is missing';
-    end if;
-  end if;
-
-  return new;
-end;
-$$;
+ALTER TABLE public.posted_content
+  ADD COLUMN youtube_video_id text,
+  ADD COLUMN source_content_id uuid;
 ```
 
-Using `IS DISTINCT FROM 'Short'` rather than `= 'Long'` so the image is still required for any future post types and for null `post_length` (which would be caught by the later null check anyway, but defense in depth).
+`source_content_id` is the link back to the original `social_content` row. It enables the trigger to find the right `posted_content` row. `youtube_video_id` stores the YouTube ID.
 
-### 2. Edge function: generate signed R2 URLs instead of nulling them
+### 2. Database migration: Create trigger on `social_content`
 
-In `supabase/functions/post-scheduled-content/index.ts`, import the S3 client (same pattern as `r2-read-url`), and before inserting into `posted_content`:
+```sql
+CREATE OR REPLACE FUNCTION public.sync_youtube_video_id_to_posted()
+  RETURNS trigger
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
+BEGIN
+  IF NEW.youtube_video_id IS NOT NULL
+     AND (OLD.youtube_video_id IS DISTINCT FROM NEW.youtube_video_id)
+  THEN
+    UPDATE posted_content
+       SET youtube_video_id = NEW.youtube_video_id
+     WHERE source_content_id = NEW.id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
 
-- If `row.video_storage_path` exists, generate a 1-hour signed URL and set it as `video_url`.
-- If `row.image` exists, generate a 1-hour signed URL and set it as `image_url`.
-- If either is missing, leave it as `null`.
+CREATE TRIGGER trg_sync_youtube_video_id
+  AFTER UPDATE ON public.social_content
+  FOR EACH ROW
+  EXECUTE FUNCTION public.sync_youtube_video_id_to_posted();
+```
 
-This requires reading R2 secrets (`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) which are already configured in the project secrets. I will read the `r2-read-url` function to replicate the exact signing pattern.
+`SECURITY DEFINER` because `posted_content` has no INSERT/UPDATE RLS policies for regular users -- only service-role and this trigger need write access. The trigger only fires when `youtube_video_id` actually changes, so it's a no-op for unrelated updates.
 
-### Summary
+### 3. Edge Function: Populate `source_content_id` during migration
+
+In `post-scheduled-content/index.ts`, add `source_content_id: row.id` to the insert payload. This is the glue that lets the trigger find the right row later.
+
+```js
+const { error: insertError } = await supabase
+  .from("posted_content")
+  .insert({
+    ...rest,
+    source_content_id: row.id,   // <-- new
+    status: "posted",
+    posted_at: now,
+    video_url: videoUrl,
+    image_url: imageUrl,
+    youtube_title: rest.post_title ?? null,
+  });
+```
+
+Also stop stripping `youtube_video_id` from the spread. If Fly.io has already written it before the cron fires (possible for Short videos with a 2-hour buffer), the ID will flow through on initial migration. The trigger handles the late-arrival case.
+
+Change line 126 from:
+```js
+const { id: _id, upload_at: _ua, youtube_status: _ys, youtube_video_id: _yv,
+```
+to:
+```js
+const { id: _id, upload_at: _ua, youtube_status: _ys,
+```
+
+This way `youtube_video_id` stays in `...rest` and gets inserted if present.
+
+## Why This Covers All Timing Scenarios
+
+| Scenario | What happens |
+|---|---|
+| YouTube finishes *before* migration (common for Shorts) | `youtube_video_id` is in the spread, inserted directly into `posted_content` |
+| YouTube finishes *after* migration (common for Long) | Fly.io UPDATEs `social_content`, trigger fires, copies ID to `posted_content` via `source_content_id` |
+| YouTube never finishes (failure) | `youtube_video_id` stays null in both tables -- correct |
+
+## Summary
 
 | Location | Change |
 |---|---|
-| DB migration | Update `enforce_youtube_schedule_requirements` to skip image check for Shorts |
-| `post-scheduled-content/index.ts` | Generate signed R2 URLs for `video_url` and `image_url` instead of setting them to `null` |
+| DB migration | Add `youtube_video_id` and `source_content_id` columns to `posted_content` |
+| DB migration | Create `sync_youtube_video_id_to_posted` trigger function + trigger on `social_content` |
+| `post-scheduled-content/index.ts` | Set `source_content_id: row.id`, stop stripping `youtube_video_id` |
 
-No client-side code changes needed. The UI validation is already correct.
+No client-side changes needed. No Fly.io changes needed. No new Edge Functions or cron jobs.
 
