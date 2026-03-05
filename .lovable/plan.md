@@ -1,91 +1,89 @@
 
 
-## Diagnosis recap
+# Fix: Shorts Image Requirement + Long Video Image Not Persisting
 
-The system has **three separate places** that attempt to promote content from `incomplete` to `unscheduled`:
+## Two Distinct Issues
 
-1. **`generate-content` edge function** (lines 360-364) -- checks media at the end of AI generation. Works if media was uploaded before generation ran, but the typical flow is: create row, upload media, call generate. There's a race between the media DB update and the function's re-fetch.
+### Issue 1: Shorts cannot be scheduled — database trigger requires image for all content
 
-2. **`useIncompleteContent` hook** (useSchedule.ts lines 18-30) -- client-side query that promotes matching rows every time the Incomplete tab is viewed. Only fires when someone opens that tab. Silent failure on errors.
+The client-side validation in `UnscheduledTab.tsx` (line 15) correctly skips the image check for Shorts: `if (item.post_length === "Long" && !item.image?.trim())`. So the UI lets you proceed. But then the Supabase update to set `scheduled_at` fires the database trigger `enforce_youtube_schedule_requirements`, which unconditionally checks `if coalesce(new.image, '') = '' then raise exception 'Cannot schedule: image is missing'`. It does not check `post_length`. The trigger rejects the update, Supabase returns an error, and the UI shows the failure.
 
-3. **`ContentDetail` page** (lines 90-109, 157-165) -- `promoteStatusIfComplete` runs after video/image upload and on content load via useEffect. This is the most reliable path but only fires when viewing a specific content detail page.
+**Root cause**: The trigger was never updated for Shorts. The client-side fix was correct but irrelevant — the server-side gate is the one blocking it.
 
-The core problem: there is **no server-side mechanism** that reacts to field changes on `social_content`. Promotion depends entirely on a client happening to be in the right place at the right time.
+### Issue 2: Long video images are not available after posting
 
-## The right fix: a database trigger
+In `post-scheduled-content/index.ts` (line 83-84), the insert into `posted_content` explicitly sets `video_url: null` and `image_url: null`. The `image` field (the R2 storage path) does flow through via `...rest`, so the R2 path is preserved in `posted_content.image`. However, `image_url` (which would be a signed URL for external platforms like Make.com to download) is deliberately nulled. The previous diagnosis noted that signed URLs should be generated here, but currently they are not.
 
-A `BEFORE UPDATE` trigger on `social_content` is the correct solution. Here's why:
+This means: the R2 path is archived, but no usable download URL is generated for external consumers at posting time.
 
-- **Single source of truth.** Every update to the row -- whether from the edge function, the client, the IncompleteTab dialog, the ContentDetail page, or a future admin tool -- passes through the same gate. No duplication, no race conditions.
-- **Eliminates all client-side promotion code.** The three scattered promotion mechanisms become unnecessary. The trigger handles it atomically within the same transaction as the update that satisfies the requirements.
-- **Consistent with existing patterns.** The project already uses triggers for validation (`enforce_youtube_schedule_requirements`), computed fields (`set_youtube_upload_at_and_queue`), and timestamps (`set_updated_at`). This is the same pattern.
-- **No edge function changes needed.** The generate-content function can stop checking media state and just save its fields. The trigger will promote if the row is now complete.
+## Technical Decisions
 
-## What the trigger checks
+### Decision 1: Fix the trigger, not the client code
 
-When `status = 'incomplete'` and an update provides all required fields, the trigger sets `status = 'unscheduled'`:
+The correct fix is to modify the `enforce_youtube_schedule_requirements` database function to skip the image check when `post_length = 'Short'`. This is the single source of truth for scheduling validation. The client-side validation in `UnscheduledTab.tsx` is already correct and needs no change.
 
-- **Always required:** `video_storage_path`, `post_title`, `post_length`
-- **Required only for Long:** `image`
-- **Short:** no image needed
+### Decision 2: Generate signed R2 URLs in the edge function
 
-This matches the existing validation logic exactly.
+The `post-scheduled-content` function should generate signed R2 read URLs for both `video_url` and `image_url` (when `image` is present) instead of nulling them out. This is what Make.com needs to download the assets. The memory note on this system explicitly states this is the intended design: "generates 1-hour signed R2 URLs for `video_url` and `image_url` at the moment of migration." The current code contradicts the documented architecture. The edge function already has access to R2 secrets (it runs with service role), and the `r2-read-url` function shows the pattern for generating signed URLs.
 
 ## Changes
 
-### 1. Database migration: create trigger function + trigger
+### 1. Database migration: update `enforce_youtube_schedule_requirements`
+
+Replace the trigger function to skip the image check when `post_length = 'Short'`:
 
 ```sql
-CREATE OR REPLACE FUNCTION public.auto_promote_incomplete()
+CREATE OR REPLACE FUNCTION public.enforce_youtube_schedule_requirements()
   RETURNS trigger
   LANGUAGE plpgsql
 AS $$
 begin
-  -- Only act on rows currently incomplete
-  if new.status = 'incomplete' then
-    -- Check core fields
-    if coalesce(new.video_storage_path, '') <> ''
-       and coalesce(new.post_title, '') <> ''
-       and new.post_length is not null
-    then
-      -- Image only required for non-Short
-      if new.post_length::text = 'Short'
-         or coalesce(new.image, '') <> ''
-      then
-        new.status := 'unscheduled';
-      end if;
+  if new.scheduled_at is not null then
+    -- Image only required for Long-form content
+    if new.post_length IS DISTINCT FROM 'Short' and coalesce(new.image, '') = '' then
+      raise exception 'Cannot schedule: image is missing';
+    end if;
+
+    if coalesce(new.video_storage_path, '') = '' then
+      raise exception 'Cannot schedule: video_storage_path is missing';
+    end if;
+
+    if coalesce(new.youtube_title, '') = '' then
+      raise exception 'Cannot schedule: youtube_title is missing';
+    end if;
+
+    if coalesce(new.youtube_desc, '') = '' then
+      raise exception 'Cannot schedule: youtube_desc is missing';
+    end if;
+
+    if new.post_length is null then
+      raise exception 'Cannot schedule: post_length is missing';
     end if;
   end if;
 
   return new;
 end;
 $$;
-
-CREATE TRIGGER trg_auto_promote_incomplete
-  BEFORE INSERT OR UPDATE ON public.social_content
-  FOR EACH ROW
-  EXECUTE FUNCTION public.auto_promote_incomplete();
 ```
 
-The trigger fires on both INSERT and UPDATE so it catches every path.
+Using `IS DISTINCT FROM 'Short'` rather than `= 'Long'` so the image is still required for any future post types and for null `post_length` (which would be caught by the later null check anyway, but defense in depth).
 
-### 2. Remove client-side promotion logic
+### 2. Edge function: generate signed R2 URLs instead of nulling them
 
-- **`useSchedule.ts` / `useIncompleteContent`**: Remove the `readyToPromoteIds` filter-and-update block (lines 18-30). The query just returns incomplete rows.
-- **`ContentDetail.tsx`**: Remove `promoteStatusIfComplete` callback (lines 90-109), the useEffect that calls it (lines 157-165), and the calls from `handleVideoReplace` and `handleImageUploaded`. These are no longer needed.
-- **`IncompleteTab.tsx`**: Remove the post-upload promotion check in `handleMediaUpload` (the block that re-fetches and updates status). After uploading media and saving to DB, the trigger handles the rest.
+In `supabase/functions/post-scheduled-content/index.ts`, import the S3 client (same pattern as `r2-read-url`), and before inserting into `posted_content`:
 
-### 3. Remove media-check logic from generate-content edge function
+- If `row.video_storage_path` exists, generate a 1-hour signed URL and set it as `video_url`.
+- If `row.image` exists, generate a 1-hour signed URL and set it as `image_url`.
+- If either is missing, leave it as `null`.
 
-In `generate-content/index.ts`, lines 353-364: remove the re-fetch of `image`/`video_storage_path` and the `hasAllMedia` conditional. Just set `status: 'incomplete'` unconditionally in the update (or omit status entirely since it's already incomplete). The trigger will promote it if media was already uploaded.
+This requires reading R2 secrets (`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) which are already configured in the project secrets. I will read the `r2-read-url` function to replicate the exact signing pattern.
 
 ### Summary
 
 | Location | Change |
 |---|---|
-| DB migration | Add `auto_promote_incomplete` trigger function + trigger |
-| `useSchedule.ts` | Remove client-side promotion logic from `useIncompleteContent` |
-| `ContentDetail.tsx` | Remove `promoteStatusIfComplete` and related useEffect/callbacks |
-| `IncompleteTab.tsx` | Remove post-upload status promotion in `handleMediaUpload` |
-| `generate-content/index.ts` | Remove media re-fetch and conditional status logic |
+| DB migration | Update `enforce_youtube_schedule_requirements` to skip image check for Shorts |
+| `post-scheduled-content/index.ts` | Generate signed R2 URLs for `video_url` and `image_url` instead of setting them to `null` |
+
+No client-side code changes needed. The UI validation is already correct.
 

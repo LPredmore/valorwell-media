@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { useContent } from "@/hooks/useContent";
@@ -87,27 +87,6 @@ export default function ContentDetail() {
     triggerTopicSave(value);
   };
 
-  const promoteStatusIfComplete = useCallback(async () => {
-    if (!id) return;
-    const { data: updated } = await supabase
-      .from("social_content")
-      .select("image, video_storage_path, post_title, post_length, status")
-      .eq("id", id)
-      .single();
-
-    const needsImage = (updated as any)?.post_length === "Long";
-    const hasImage = !needsImage || !!(updated as any)?.image;
-    const hasCoreFields = !!(updated as any)?.video_storage_path
-      && !!(updated as any)?.post_title
-      && !!(updated as any)?.post_length;
-
-    if (updated && hasImage && hasCoreFields && (updated as any).status === "incomplete") {
-      await supabase.from("social_content").update({ status: "unscheduled" } as any).eq("id", id);
-    }
-    queryClient.invalidateQueries({ queryKey: ["content", id] });
-    queryClient.invalidateQueries({ queryKey: ["schedule"] });
-  }, [id, queryClient]);
-
   const handleVideoReplace = async (file: File) => {
     if (!id) return;
     setVideoUploading(true);
@@ -147,22 +126,14 @@ export default function ContentDetail() {
 
     setVideoProgress(100);
     setVideoUploading(false);
-    await promoteStatusIfComplete();
+    queryClient.invalidateQueries({ queryKey: ["content", id] });
+    queryClient.invalidateQueries({ queryKey: ["schedule"] });
   };
 
   const handleImageUploaded = async (_storagePath: string) => {
-    await promoteStatusIfComplete();
+    queryClient.invalidateQueries({ queryKey: ["content", id] });
+    queryClient.invalidateQueries({ queryKey: ["schedule"] });
   };
-
-  useEffect(() => {
-    if (!content || content.status !== "incomplete") return;
-    const needsImage = content.post_length === "Long";
-    const hasImage = !needsImage || !!content.image;
-    const hasCoreFields = !!content.video_storage_path && !!content.post_title && !!content.post_length;
-    if (hasImage && hasCoreFields) {
-      void promoteStatusIfComplete();
-    }
-  }, [content, promoteStatusIfComplete]);
 
   const handleRegenerate = async () => {
     if (!id) return;

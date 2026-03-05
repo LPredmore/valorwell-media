@@ -15,23 +15,7 @@ export function useIncompleteContent(postLength?: "Long" | "Short") {
       const { data, error } = await query;
       if (error) throw error;
 
-      const rows = (data as unknown as SocialContent[]) ?? [];
-      const readyToPromoteIds = rows
-        .filter((item) => {
-          const needsImage = item.post_length === "Long";
-          const hasImage = !needsImage || !!item.image;
-          return !!item.video_storage_path && !!item.post_title && !!item.post_length && hasImage;
-        })
-        .map((item) => item.id);
-
-      if (readyToPromoteIds.length > 0) {
-        await supabase
-          .from("social_content")
-          .update({ status: "unscheduled" } as any)
-          .in("id", readyToPromoteIds);
-      }
-
-      return rows.filter((item) => !readyToPromoteIds.includes(item.id));
+      return (data as unknown as SocialContent[]) ?? [];
     },
   });
 }
