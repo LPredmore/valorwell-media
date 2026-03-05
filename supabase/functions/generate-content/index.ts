@@ -246,7 +246,7 @@ Deno.serve(async (req) => {
     // Set status to generating
     await adminClient
       .from("social_content")
-      .update({ status: "generating", error: null })
+      .update({ status: "incomplete", error: null })
       .eq("id", contentId);
 
     // Fetch active content instructions
