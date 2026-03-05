@@ -65,7 +65,7 @@ export function ContentFieldCard({ contentId, fieldKey, label, value, charTarget
       <Textarea
         value={text}
         onChange={(e) => handleChange(e.target.value)}
-        rows={fieldKey === "youtube_title" || fieldKey === "ig_tiktok_desc" ? 3 : 8}
+        rows={fieldKey === "post_title" || fieldKey === "ig_tiktok_desc" ? 3 : 8}
         className="resize-y"
       />
     </div>

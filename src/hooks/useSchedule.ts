@@ -20,7 +20,7 @@ export function useIncompleteContent(postLength?: "Long" | "Short") {
         .filter((item) => {
           const needsImage = item.post_length === "Long";
           const hasImage = !needsImage || !!item.image;
-          return !!item.video_storage_path && !!item.youtube_title && !!item.youtube_desc && !!item.post_length && hasImage;
+          return !!item.video_storage_path && !!item.post_title && !!item.post_length && hasImage;
         })
         .map((item) => item.id);
 

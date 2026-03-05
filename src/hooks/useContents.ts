@@ -6,7 +6,7 @@ export type SocialContent = {
   user_id: string;
   topic: string;
   status: string;
-  youtube_title: string | null;
+  youtube_comment: string | null;
   youtube_desc: string | null;
   facebook_desc: string | null;
   linkedin_desc: string | null;
@@ -44,7 +44,7 @@ export function useContents(search?: string, statusFilter?: string, lengthFilter
         .order("created_at", { ascending: false });
 
       if (search) {
-        query = query.or(`topic.ilike.%${search}%,youtube_title.ilike.%${search}%`);
+        query = query.or(`topic.ilike.%${search}%,post_title.ilike.%${search}%`);
       }
       if (statusFilter && statusFilter !== "all") {
         query = query.eq("status", statusFilter as any);

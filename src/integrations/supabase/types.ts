@@ -1059,6 +1059,7 @@ export type Database = {
           linkedin_desc: string | null
           playlist_id: number | null
           post_length: Database["public"]["Enums"]["video_length"] | null
+          post_title: string | null
           posted_at: string | null
           scheduled_at: string | null
           scheduled_platforms: string[] | null
@@ -1081,7 +1082,6 @@ export type Database = {
           youtube_desc: string | null
           youtube_error_detail: string | null
           youtube_status: string | null
-          youtube_title: string | null
           youtube_uploaded_at: string | null
           youtube_video_id: string | null
         }
@@ -1095,6 +1095,7 @@ export type Database = {
           linkedin_desc?: string | null
           playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
+          post_title?: string | null
           posted_at?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
@@ -1117,7 +1118,6 @@ export type Database = {
           youtube_desc?: string | null
           youtube_error_detail?: string | null
           youtube_status?: string | null
-          youtube_title?: string | null
           youtube_uploaded_at?: string | null
           youtube_video_id?: string | null
         }
@@ -1131,6 +1131,7 @@ export type Database = {
           linkedin_desc?: string | null
           playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
+          post_title?: string | null
           posted_at?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
@@ -1153,7 +1154,6 @@ export type Database = {
           youtube_desc?: string | null
           youtube_error_detail?: string | null
           youtube_status?: string | null
-          youtube_title?: string | null
           youtube_uploaded_at?: string | null
           youtube_video_id?: string | null
         }

@@ -33,7 +33,7 @@ import {
 
 const CHAR_TARGETS: Record<string, string> = {
   post_title: "≤60",
-  youtube_title: "55–75",
+  
   youtube_desc: "1,800–2,500",
   facebook_desc: "600–1,200",
   linkedin_desc: "900–1,600",
@@ -91,15 +91,14 @@ export default function ContentDetail() {
     if (!id) return;
     const { data: updated } = await supabase
       .from("social_content")
-      .select("image, video_storage_path, youtube_title, youtube_desc, post_length, status")
+      .select("image, video_storage_path, post_title, post_length, status")
       .eq("id", id)
       .single();
 
     const needsImage = (updated as any)?.post_length === "Long";
     const hasImage = !needsImage || !!(updated as any)?.image;
     const hasCoreFields = !!(updated as any)?.video_storage_path
-      && !!(updated as any)?.youtube_title
-      && !!(updated as any)?.youtube_desc
+      && !!(updated as any)?.post_title
       && !!(updated as any)?.post_length;
 
     if (updated && hasImage && hasCoreFields && (updated as any).status === "incomplete") {
@@ -159,7 +158,7 @@ export default function ContentDetail() {
     if (!content || content.status !== "incomplete") return;
     const needsImage = content.post_length === "Long";
     const hasImage = !needsImage || !!content.image;
-    const hasCoreFields = !!content.video_storage_path && !!content.youtube_title && !!content.youtube_desc && !!content.post_length;
+    const hasCoreFields = !!content.video_storage_path && !!content.post_title && !!content.post_length;
     if (hasImage && hasCoreFields) {
       void promoteStatusIfComplete();
     }

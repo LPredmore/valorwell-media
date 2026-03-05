@@ -141,7 +141,7 @@ async function generateSocialCopy(
   }
 
   // Build field scopes based on post length
-  const commonScopes = ["post_title", "youtube_title", "facebook_desc", "youtube_comment"];
+  const commonScopes = ["post_title", "facebook_desc", "youtube_comment"];
   const longScopes = ["youtube_desc", "linkedin_desc"];
   const shortScopes = ["ig_tiktok_desc"];
 
@@ -161,12 +161,11 @@ async function generateSocialCopy(
   // Build tool properties based on post length
   const properties: Record<string, unknown> = {
     post_title: { type: "string", description: "Content title, max 60 characters, creates tension and curiosity with a core keyword" },
-    youtube_title: { type: "string", description: "YouTube video title, 55-75 characters" },
     facebook_desc: { type: "string", description: "Facebook caption, 600-1200 characters with hashtags" },
     youtube_comment: { type: "string", description: "YouTube first comment, under 300 chars, no hashtags" },
   };
 
-  const required = ["post_title", "youtube_title", "facebook_desc", "youtube_comment"];
+  const required = ["post_title", "facebook_desc", "youtube_comment"];
 
   if (postLength === "Long") {
     properties.youtube_desc = { type: "string", description: "YouTube description, 1800-2500 characters with hashtags" };
@@ -247,7 +246,7 @@ Deno.serve(async (req) => {
     // Set status to generating
     await adminClient
       .from("social_content")
-      .update({ status: "generating", error: null })
+      .update({ status: "incomplete", error: null })
       .eq("id", contentId);
 
     // Fetch active content instructions
@@ -282,7 +281,7 @@ Deno.serve(async (req) => {
         console.error("[generate-content] Step 1 failed:", e);
         await adminClient
           .from("social_content")
-          .update({ status: "error", error: `Failed at step 1 (long script): ${e instanceof Error ? e.message : "Unknown error"}` })
+          .update({ status: "incomplete", error: `Failed at step 1 (long script): ${e instanceof Error ? e.message : "Unknown error"}` })
           .eq("id", contentId);
         return new Response(JSON.stringify({ error: "Long script generation failed" }), {
           status: 502,
@@ -304,7 +303,7 @@ Deno.serve(async (req) => {
         console.error("[generate-content] Step 1 failed:", e);
         await adminClient
           .from("social_content")
-          .update({ status: "error", error: `Failed at step 1 (short script): ${e instanceof Error ? e.message : "Unknown error"}` })
+          .update({ status: "incomplete", error: `Failed at step 1 (short script): ${e instanceof Error ? e.message : "Unknown error"}` })
           .eq("id", contentId);
         return new Response(JSON.stringify({ error: "Short script generation failed" }), {
           status: 502,
@@ -334,7 +333,6 @@ Deno.serve(async (req) => {
       // Build update object with only the fields that were generated
       const updateData: Record<string, unknown> = {
         post_title: generated.post_title,
-        youtube_title: generated.youtube_title,
         facebook_desc: generated.facebook_desc,
         youtube_comment: generated.youtube_comment,
         status: newStatus,
@@ -368,7 +366,7 @@ Deno.serve(async (req) => {
       console.error("[generate-content] Step 2 failed:", e);
       await adminClient
         .from("social_content")
-        .update({ status: "error", error: `Failed at step 2 (social copy): ${e instanceof Error ? e.message : "Unknown error"}` })
+        .update({ status: "incomplete", error: `Failed at step 2 (social copy): ${e instanceof Error ? e.message : "Unknown error"}` })
         .eq("id", contentId);
       return new Response(JSON.stringify({ error: "Social copy generation failed" }), {
         status: 502,

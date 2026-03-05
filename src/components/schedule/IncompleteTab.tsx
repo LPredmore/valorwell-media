@@ -56,7 +56,7 @@ export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" })
 
     const needsImage = (updated as any)?.post_length === "Long";
     const hasImage = !needsImage || !!(updated as any)?.image;
-    const hasCoreFields = !!(updated as any).video_storage_path && !!(updated as any).youtube_title && !!(updated as any).youtube_desc && !!(updated as any).post_length;
+    const hasCoreFields = !!(updated as any).video_storage_path && !!(updated as any).post_title && !!(updated as any).post_length;
     if (updated && hasImage && hasCoreFields) {
       // All requirements met — promote to unscheduled
       await supabase.from("social_content").update({ status: "unscheduled" } as any).eq("id", editItem.id);
@@ -92,7 +92,7 @@ export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" })
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.id}>
-              <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.youtube_title || item.topic}</TableCell>
+              <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.post_title || item.topic}</TableCell>
               {postLength !== "Short" && (
                 <TableCell className="text-center hidden sm:table-cell">
                   {item.image ? <Check className="h-4 w-4 mx-auto text-success" /> : <Minus className="h-4 w-4 mx-auto text-muted-foreground" />}
