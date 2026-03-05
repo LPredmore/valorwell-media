@@ -1,89 +1,69 @@
 
 
-# Fix: Shorts Image Requirement + Long Video Image Not Persisting
+## Plan: Get Scheduled Content to Actually Post
 
-## Two Distinct Issues
+### Lessons from the Fly.io Incident
 
-### Issue 1: Shorts cannot be scheduled — database trigger requires image for all content
+The Fly.io crash was caused by a schema mismatch (`youtube_title` vs `post_title`) that produced a silent failure loop. The same class of bug exists in the `post-scheduled-content` Edge Function: it spreads all remaining columns from `social_content` into `posted_content`, but `social_content` has a `script` column that `posted_content` does not. This will cause a Postgres column-not-found error on every insert attempt -- identical root cause, different location.
 
-The client-side validation in `UnscheduledTab.tsx` (line 15) correctly skips the image check for Shorts: `if (item.post_length === "Long" && !item.image?.trim())`. So the UI lets you proceed. But then the Supabase update to set `scheduled_at` fires the database trigger `enforce_youtube_schedule_requirements`, which unconditionally checks `if coalesce(new.image, '') = '' then raise exception 'Cannot schedule: image is missing'`. It does not check `post_length`. The trigger rejects the update, Supabase returns an error, and the UI shows the failure.
+Additionally, the Edge Function has never been invoked. There is no cron job configured for it, and `usePostNow` does not call it directly. Content sits in `social_content` with `status = 'scheduled'` indefinitely.
 
-**Root cause**: The trigger was never updated for Shorts. The client-side fix was correct but irrelevant — the server-side gate is the one blocking it.
+### Three changes, in dependency order
 
-### Issue 2: Long video images are not available after posting
+#### 1. Fix the schema mismatch in `post-scheduled-content/index.ts`
 
-In `post-scheduled-content/index.ts` (line 83-84), the insert into `posted_content` explicitly sets `video_url: null` and `image_url: null`. The `image` field (the R2 storage path) does flow through via `...rest`, so the R2 path is preserved in `posted_content.image`. However, `image_url` (which would be a signed URL for external platforms like Make.com to download) is deliberately nulled. The previous diagnosis noted that signed URLs should be generated here, but currently they are not.
+Add `script` to the destructured exclusion list alongside the other stripped fields:
 
-This means: the R2 path is archived, but no usable download URL is generated for external consumers at posting time.
-
-## Technical Decisions
-
-### Decision 1: Fix the trigger, not the client code
-
-The correct fix is to modify the `enforce_youtube_schedule_requirements` database function to skip the image check when `post_length = 'Short'`. This is the single source of truth for scheduling validation. The client-side validation in `UnscheduledTab.tsx` is already correct and needs no change.
-
-### Decision 2: Generate signed R2 URLs in the edge function
-
-The `post-scheduled-content` function should generate signed R2 read URLs for both `video_url` and `image_url` (when `image` is present) instead of nulling them out. This is what Make.com needs to download the assets. The memory note on this system explicitly states this is the intended design: "generates 1-hour signed R2 URLs for `video_url` and `image_url` at the moment of migration." The current code contradicts the documented architecture. The edge function already has access to R2 secrets (it runs with service role), and the `r2-read-url` function shows the pattern for generating signed URLs.
-
-## Changes
-
-### 1. Database migration: update `enforce_youtube_schedule_requirements`
-
-Replace the trigger function to skip the image check when `post_length = 'Short'`:
-
-```sql
-CREATE OR REPLACE FUNCTION public.enforce_youtube_schedule_requirements()
-  RETURNS trigger
-  LANGUAGE plpgsql
-AS $$
-begin
-  if new.scheduled_at is not null then
-    -- Image only required for Long-form content
-    if new.post_length IS DISTINCT FROM 'Short' and coalesce(new.image, '') = '' then
-      raise exception 'Cannot schedule: image is missing';
-    end if;
-
-    if coalesce(new.video_storage_path, '') = '' then
-      raise exception 'Cannot schedule: video_storage_path is missing';
-    end if;
-
-    if coalesce(new.youtube_title, '') = '' then
-      raise exception 'Cannot schedule: youtube_title is missing';
-    end if;
-
-    if coalesce(new.youtube_desc, '') = '' then
-      raise exception 'Cannot schedule: youtube_desc is missing';
-    end if;
-
-    if new.post_length is null then
-      raise exception 'Cannot schedule: post_length is missing';
-    end if;
-  end if;
-
-  return new;
-end;
-$$;
+```js
+const { id: _id, upload_at: _ua, youtube_status: _ys, youtube_video_id: _yv,
+        youtube_error_detail: _ye, youtube_uploaded_at: _yu, video_size_bytes: _vs,
+        script: _sc,
+        ...rest } = row;
 ```
 
-Using `IS DISTINCT FROM 'Short'` rather than `= 'Long'` so the image is still required for any future post types and for null `post_length` (which would be caught by the later null check anyway, but defense in depth).
+Without this, every invocation will fail with a Postgres error. This must be fixed before enabling the cron or the function will fail on every run.
 
-### 2. Edge function: generate signed R2 URLs instead of nulling them
+**Also**: map `post_title` to `youtube_title` in the insert. `posted_content` has a `youtube_title` column that downstream consumers (Make.com) may reference, but `social_content` does not have that column -- it uses `post_title`. The spread will populate `post_title` but leave `youtube_title` null. The insert should explicitly set `youtube_title: rest.post_title` so both fields are populated.
 
-In `supabase/functions/post-scheduled-content/index.ts`, import the S3 client (same pattern as `r2-read-url`), and before inserting into `posted_content`:
+#### 2. Create a cron job to invoke the Edge Function
 
-- If `row.video_storage_path` exists, generate a 1-hour signed URL and set it as `video_url`.
-- If `row.image` exists, generate a 1-hour signed URL and set it as `image_url`.
-- If either is missing, leave it as `null`.
+Use `pg_cron` + `pg_net` to call `post-scheduled-content` every minute. This is a data operation (not a migration) because it contains project-specific secrets (anon key).
 
-This requires reading R2 secrets (`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) which are already configured in the project secrets. I will read the `r2-read-url` function to replicate the exact signing pattern.
+```sql
+SELECT cron.schedule(
+  'post-scheduled-content-every-minute',
+  '* * * * *',
+  $$
+  SELECT net.http_post(
+    url := 'https://asjhkidpuhqodryczuth.supabase.co/functions/v1/post-scheduled-content',
+    headers := '{"Content-Type":"application/json","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFzamhraWRwdWhxb2RyeWN6dXRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyNzIzNDYsImV4cCI6MjA4NTg0ODM0Nn0.kb_iP02Fu-NNJtemRnLh7DhwaAybUEMUYQFaFWNxDOA"}'::jsonb,
+    body := '{}'::jsonb
+  ) AS request_id;
+  $$
+);
+```
+
+Every minute, this queries `social_content` for rows where `status = 'scheduled'` and `scheduled_at <= now()`, migrates them to `posted_content` with signed R2 URLs, and marks them as `posted`. This is the same pattern used by `kick_youtube_run_due`.
+
+#### 3. Make "Post Now" invoke the Edge Function immediately
+
+Update `usePostNow` in `src/hooks/useSchedule.ts` to call `supabase.functions.invoke('post-scheduled-content', { body: { contentId } })` after the status update succeeds. This gives the user instant feedback instead of waiting up to 60 seconds for the cron to pick it up.
+
+The Edge Function already supports a `contentId` body parameter (lines 56-70 of the function) -- it fetches that specific row and processes it. No Edge Function changes needed for this.
+
+### Why this is the right approach
+
+**Why not a database trigger instead of a cron?** A trigger on `social_content` UPDATE (when `status` becomes `scheduled`) could invoke `pg_net` to call the function. But that conflates two concerns: scheduling (setting a future time) and posting (migrating data when that time arrives). Content scheduled for tomorrow should not trigger the Edge Function today. The cron correctly checks `scheduled_at <= now()` on every pass.
+
+**Why strip `script` instead of adding it to `posted_content`?** The user explicitly said `script` does not need to be in `posted_content`. Adding unnecessary columns to the archive table creates maintenance burden. Strip it and move on.
+
+**Why map `post_title` to `youtube_title`?** The `posted_content` table has a `youtube_title` column that was likely created before the schema was consolidated to use `post_title`. Downstream consumers (Make.com scenarios) may reference `youtube_title`. Populating both prevents a second "column mismatch" class of bug from surfacing in Make.com workflows.
 
 ### Summary
 
-| Location | Change |
-|---|---|
-| DB migration | Update `enforce_youtube_schedule_requirements` to skip image check for Shorts |
-| `post-scheduled-content/index.ts` | Generate signed R2 URLs for `video_url` and `image_url` instead of setting them to `null` |
-
-No client-side code changes needed. The UI validation is already correct.
+| Change | File | Type |
+|---|---|---|
+| Strip `script`, map `youtube_title` | `supabase/functions/post-scheduled-content/index.ts` | Code edit |
+| Create cron job | Supabase SQL (data operation) | Database insert |
+| Invoke edge function from Post Now | `src/hooks/useSchedule.ts` | Code edit |
 
