@@ -159,7 +159,7 @@ export default function ContentDetail() {
     if (!content || content.status !== "incomplete") return;
     const needsImage = content.post_length === "Long";
     const hasImage = !needsImage || !!content.image;
-    const hasCoreFields = !!content.video_storage_path && !!content.youtube_title && !!content.youtube_desc && !!content.post_length;
+    const hasCoreFields = !!content.video_storage_path && !!content.post_title && !!content.post_length;
     if (hasImage && hasCoreFields) {
       void promoteStatusIfComplete();
     }
