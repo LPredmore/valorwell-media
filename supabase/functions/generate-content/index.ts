@@ -350,25 +350,13 @@ Deno.serve(async (req) => {
       console.log(`[generate-content] Step 2: Generating social copy for "${topic}" (${postLength})`);
       const generated = await generateSocialCopy(OPENROUTER_API_KEY, topic, script, postLength, instructions);
 
-      // Re-fetch to see current media state
-      const { data: current } = await adminClient
-        .from("social_content")
-        .select("image, video_storage_path")
-        .eq("id", contentId)
-        .single();
-
-      const isShort = postLength === "Short";
-      const hasAllMedia = isShort
-        ? !!current?.video_storage_path
-        : !!current?.image && !!current?.video_storage_path;
-      const newStatus = hasAllMedia ? "unscheduled" : "incomplete";
-
       // Build update object with only the fields that were generated
+      // The DB trigger auto_promote_incomplete will set status to 'unscheduled'
+      // if all required fields are present after this update.
       const updateData: Record<string, unknown> = {
         post_title: generated.post_title,
         facebook_desc: generated.facebook_desc,
         youtube_comment: generated.youtube_comment,
-        status: newStatus,
         error: null,
       };
 

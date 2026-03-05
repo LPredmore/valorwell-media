@@ -126,22 +126,14 @@ export default function ContentDetail() {
 
     setVideoProgress(100);
     setVideoUploading(false);
-    await promoteStatusIfComplete();
+    queryClient.invalidateQueries({ queryKey: ["content", id] });
+    queryClient.invalidateQueries({ queryKey: ["schedule"] });
   };
 
   const handleImageUploaded = async (_storagePath: string) => {
-    await promoteStatusIfComplete();
+    queryClient.invalidateQueries({ queryKey: ["content", id] });
+    queryClient.invalidateQueries({ queryKey: ["schedule"] });
   };
-
-  useEffect(() => {
-    if (!content || content.status !== "incomplete") return;
-    const needsImage = content.post_length === "Long";
-    const hasImage = !needsImage || !!content.image;
-    const hasCoreFields = !!content.video_storage_path && !!content.post_title && !!content.post_length;
-    if (hasImage && hasCoreFields) {
-      void promoteStatusIfComplete();
-    }
-  }, [content, promoteStatusIfComplete]);
 
   const handleRegenerate = async () => {
     if (!id) return;

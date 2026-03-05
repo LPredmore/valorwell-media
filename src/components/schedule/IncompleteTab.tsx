@@ -47,28 +47,9 @@ export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" })
 
     await supabase.from("social_content").update(updateData).eq("id", editItem.id);
 
-    // Re-fetch to check if both media and generated text are now present
-    const { data: updated } = await supabase
-      .from("social_content")
-      .select("*")
-      .eq("id", editItem.id)
-      .single();
-
-    const needsImage = (updated as any)?.post_length === "Long";
-    const hasImage = !needsImage || !!(updated as any)?.image;
-    const hasCoreFields = !!(updated as any).video_storage_path && !!(updated as any).post_title && !!(updated as any).post_length;
-    if (updated && hasImage && hasCoreFields) {
-      // All requirements met — promote to unscheduled
-      await supabase.from("social_content").update({ status: "unscheduled" } as any).eq("id", editItem.id);
-      toast({ title: "Media complete — content is now ready!" });
-      setEditItem(null);
-    } else {
-      toast({ title: `${type === "video" ? "Video" : "Image"} uploaded` });
-      // Update local editItem state
-      if (updated) setEditItem(updated as unknown as SocialContent);
-    }
-
+    toast({ title: `${type === "video" ? "Video" : "Image"} uploaded` });
     queryClient.invalidateQueries({ queryKey: ["schedule"] });
+    setEditItem(null);
     setUploading(false);
   };
 
