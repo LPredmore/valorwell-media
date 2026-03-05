@@ -123,7 +123,7 @@ Deno.serve(async (req) => {
       }
 
       // Copy to posted_content — strip social_content-only fields
-      const { id: _id, upload_at: _ua, youtube_status: _ys, youtube_video_id: _yv,
+      const { id: _id, upload_at: _ua, youtube_status: _ys,
               youtube_error_detail: _ye, youtube_uploaded_at: _yu, video_size_bytes: _vs,
               script: _sc,
               ...rest } = row;
@@ -131,6 +131,7 @@ Deno.serve(async (req) => {
         .from("posted_content")
         .insert({
           ...rest,
+          source_content_id: row.id,
           status: "posted",
           posted_at: now,
           video_url: videoUrl,
