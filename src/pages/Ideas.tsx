@@ -92,7 +92,7 @@ export default function Ideas() {
   };
 
   const resetForm = () => {
-    setTopic(""); setAvatar(""); setCategory(""); setLength("Long"); setPlannedDate(undefined);
+    setTopic(""); setAvatar(""); setCategory(""); setLength("Both"); setPlannedDate(undefined);
   };
 
   const handleAddIdea = async () => {
