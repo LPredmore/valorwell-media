@@ -1,89 +1,50 @@
 
+Diagnosis only (no fixes proposed)
 
-# Fix: Shorts Image Requirement + Long Video Image Not Persisting
+What I reviewed (all related feature files)
+- Edge function: `supabase/functions/post-scheduled-content/index.ts`
+- Scheduling/posting flow: `src/hooks/useSchedule.ts`
+- Schedule UI: `src/pages/Schedule.tsx`, `src/components/schedule/UnscheduledTab.tsx`, `ScheduledTab.tsx`, `PastTab.tsx`, `ScheduleDialog.tsx`
+- Content UI/status surfaces: `src/components/content/ContentTable.tsx`, `src/pages/ContentDetail.tsx`, `src/hooks/useContents.ts`, `src/lib/platforms.ts`
+- Runtime config: `supabase/config.toml`
+- Relevant migrations and runtime cron state
+- Live DB state + edge logs
 
-## Two Distinct Issues
+What the database currently shows
+- Shorts in `social_content` with `status='posted'`: 5 unique videos.
+- Shorts in `posted_content`: 6 rows (one video was archived twice; duplicate `source_content_id`).
+- Unique Short results by source content:
+  - 4 are explicitly failed:
+    - 3x `Publer media upload failed [401]: {"errors":["Not authenticated"]}` (older attempts)
+    - 1x `Publer media processing timed out after 80 seconds`
+  - 1 is marked `tiktok_status='posted'` with no error.
+- Latest TikTok status updates happened around 23:10–23:11 UTC, so retries did run recently.
 
-### Issue 1: Shorts cannot be scheduled — database trigger requires image for all content
+What the logs show
+- Recent `post-scheduled-content` edge logs are mostly minute-by-minute boot/shutdown entries.
+- This matches an active cron that runs every minute.
+- No recent detailed Publer result logs are available in the current log window.
+- No Shorts are currently `status='scheduled'`, so cron runs now are mostly no-op checks.
 
-The client-side validation in `UnscheduledTab.tsx` (line 15) correctly skips the image check for Shorts: `if (item.post_length === "Long" && !item.image?.trim())`. So the UI lets you proceed. But then the Supabase update to set `scheduled_at` fires the database trigger `enforce_youtube_schedule_requirements`, which unconditionally checks `if coalesce(new.image, '') = '' then raise exception 'Cannot schedule: image is missing'`. It does not check `post_length`. The trigger rejects the update, Supabase returns an error, and the UI shows the failure.
+What the code is actually doing (critical behavior)
+1. Short posts are attempted to TikTok inside `post-scheduled-content`.
+2. For TikTok, `publishToPubler()` calls `POST /posts/schedule/publish`.
+3. If HTTP is 200, code immediately returns success and sets `tiktok_status='posted'`.
+4. The code does not verify final TikTok publish completion; it only treats “Publer accepted request” as success.
+5. The social row is still moved to `status='posted'` regardless of TikTok outcome branch.
 
-**Root cause**: The trigger was never updated for Shorts. The client-side fix was correct but irrelevant — the server-side gate is the one blocking it.
+Why you can see “posted” internally but nothing on TikTok
+- In this system, “posted” is currently an internal workflow state, not proof of final TikTok publication.
+- A 200 from Publer is being treated as final success, but Publer/TikTok publishing is asynchronous.
+- So the app/database can report success before TikTok actually has a live post.
+- That explains your exact symptom: “none of the videos actually posted to TikTok” even though one record says `tiktok_status='posted'`.
 
-### Issue 2: Long video images are not available after posting
+Additional important context from code/data
+- There is no TikTok post URL/id being persisted back into your DB for final confirmation.
+- There is no TikTok status shown in main content/schedule UI tables (only generic content status + YouTube status), so UI can hide this mismatch.
+- One source content has two archive rows in `posted_content`, which can make status counting look better than reality.
 
-In `post-scheduled-content/index.ts` (line 83-84), the insert into `posted_content` explicitly sets `video_url: null` and `image_url: null`. The `image` field (the R2 storage path) does flow through via `...rest`, so the R2 path is preserved in `posted_content.image`. However, `image_url` (which would be a signed URL for external platforms like Make.com to download) is deliberately nulled. The previous diagnosis noted that signed URLs should be generated here, but currently they are not.
-
-This means: the R2 path is archived, but no usable download URL is generated for external consumers at posting time.
-
-## Technical Decisions
-
-### Decision 1: Fix the trigger, not the client code
-
-The correct fix is to modify the `enforce_youtube_schedule_requirements` database function to skip the image check when `post_length = 'Short'`. This is the single source of truth for scheduling validation. The client-side validation in `UnscheduledTab.tsx` is already correct and needs no change.
-
-### Decision 2: Generate signed R2 URLs in the edge function
-
-The `post-scheduled-content` function should generate signed R2 read URLs for both `video_url` and `image_url` (when `image` is present) instead of nulling them out. This is what Make.com needs to download the assets. The memory note on this system explicitly states this is the intended design: "generates 1-hour signed R2 URLs for `video_url` and `image_url` at the moment of migration." The current code contradicts the documented architecture. The edge function already has access to R2 secrets (it runs with service role), and the `r2-read-url` function shows the pattern for generating signed URLs.
-
-## Changes
-
-### 1. Database migration: update `enforce_youtube_schedule_requirements`
-
-Replace the trigger function to skip the image check when `post_length = 'Short'`:
-
-```sql
-CREATE OR REPLACE FUNCTION public.enforce_youtube_schedule_requirements()
-  RETURNS trigger
-  LANGUAGE plpgsql
-AS $$
-begin
-  if new.scheduled_at is not null then
-    -- Image only required for Long-form content
-    if new.post_length IS DISTINCT FROM 'Short' and coalesce(new.image, '') = '' then
-      raise exception 'Cannot schedule: image is missing';
-    end if;
-
-    if coalesce(new.video_storage_path, '') = '' then
-      raise exception 'Cannot schedule: video_storage_path is missing';
-    end if;
-
-    if coalesce(new.youtube_title, '') = '' then
-      raise exception 'Cannot schedule: youtube_title is missing';
-    end if;
-
-    if coalesce(new.youtube_desc, '') = '' then
-      raise exception 'Cannot schedule: youtube_desc is missing';
-    end if;
-
-    if new.post_length is null then
-      raise exception 'Cannot schedule: post_length is missing';
-    end if;
-  end if;
-
-  return new;
-end;
-$$;
-```
-
-Using `IS DISTINCT FROM 'Short'` rather than `= 'Long'` so the image is still required for any future post types and for null `post_length` (which would be caught by the later null check anyway, but defense in depth).
-
-### 2. Edge function: generate signed R2 URLs instead of nulling them
-
-In `supabase/functions/post-scheduled-content/index.ts`, import the S3 client (same pattern as `r2-read-url`), and before inserting into `posted_content`:
-
-- If `row.video_storage_path` exists, generate a 1-hour signed URL and set it as `video_url`.
-- If `row.image` exists, generate a 1-hour signed URL and set it as `image_url`.
-- If either is missing, leave it as `null`.
-
-This requires reading R2 secrets (`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) which are already configured in the project secrets. I will read the `r2-read-url` function to replicate the exact signing pattern.
-
-### Summary
-
-| Location | Change |
-|---|---|
-| DB migration | Update `enforce_youtube_schedule_requirements` to skip image check for Shorts |
-| `post-scheduled-content/index.ts` | Generate signed R2 URLs for `video_url` and `image_url` instead of setting them to `null` |
-
-No client-side code changes needed. The UI validation is already correct.
-
+Bottom line in plain terms
+- Most Shorts definitely failed (4/5 unique sources).
+- The remaining one marked “posted” is a “request accepted” signal, not a guaranteed “video is live on TikTok” signal.
+- So your observation is consistent with the actual system behavior and data.
