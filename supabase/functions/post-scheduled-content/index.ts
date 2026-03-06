@@ -366,6 +366,7 @@ Deno.serve(async (req) => {
       ) {
         let tiktokStatus: string | null = null;
         let tiktokError: string | null = null;
+        let tiktokJobId: string | null = null;
 
         try {
           const caption = row.ig_tiktok_desc || row.post_title || row.topic || "";
@@ -377,7 +378,13 @@ Deno.serve(async (req) => {
             publerTiktokAccountId,
           );
 
-          if (!publerResult.success) {
+          tiktokJobId = publerResult.jobId ?? null;
+
+          if (publerResult.pending) {
+            console.warn(`Publer TikTok job pending for ${row.id}: ${publerResult.jobId}`);
+            tiktokStatus = "pending";
+            tiktokError = publerResult.error ?? null;
+          } else if (!publerResult.success) {
             console.error(`Publer TikTok publish failed for ${row.id}:`, publerResult.error);
             tiktokStatus = "failed";
             tiktokError = publerResult.error ?? "Unknown Publer error";
@@ -395,7 +402,7 @@ Deno.serve(async (req) => {
         if (tiktokStatus) {
           const { error: ttUpdateErr } = await supabase
             .from("posted_content")
-            .update({ tiktok_status: tiktokStatus, tiktok_error: tiktokError })
+            .update({ tiktok_status: tiktokStatus, tiktok_error: tiktokError, tiktok_job_id: tiktokJobId } as any)
             .eq("source_content_id", row.id);
 
           if (ttUpdateErr) {
