@@ -41,7 +41,7 @@ async function publishToPubler(
   const uploadResp = await fetch(`${PUBLER_BASE}/media/from-url`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ url: videoUrl }),
+    body: JSON.stringify({ media: [{ url: videoUrl, name: "video.mp4" }], type: "video" }),
   });
 
   if (!uploadResp.ok) {
@@ -167,11 +167,14 @@ Deno.serve(async (req) => {
         });
       }
 
-      const { data: posted, error: fetchErr } = await supabase
+      const { data: postedRows, error: fetchErr } = await supabase
         .from("posted_content")
         .select("*")
         .eq("source_content_id", retrySourceContentId)
-        .single();
+        .order("posted_at", { ascending: false })
+        .limit(1);
+
+      const posted = postedRows?.[0] ?? null;
 
       if (fetchErr || !posted) {
         return new Response(JSON.stringify({ error: fetchErr?.message ?? "Posted content not found" }), {
