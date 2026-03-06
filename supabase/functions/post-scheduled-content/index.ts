@@ -104,7 +104,7 @@ async function publishToPubler(
       const jobStatus = statusData?.status;
       console.log(`Publer job ${jobId} poll ${i + 1}: ${jobStatus}`);
 
-      if (jobStatus === "completed" || jobStatus === "done") {
+      if (jobStatus === "completed" || jobStatus === "done" || jobStatus === "complete") {
         return { success: true, jobId };
       }
 
