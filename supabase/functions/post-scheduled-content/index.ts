@@ -37,55 +37,7 @@ async function publishToPubler(
     "Content-Type": "application/json",
   };
 
-  // Step 1: Upload video from signed R2 URL
-  const uploadResp = await fetch(`${PUBLER_BASE}/media/from-url`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ media: [{ url: videoUrl, name: "video.mp4" }], type: "video" }),
-  });
-
-  if (!uploadResp.ok) {
-    const err = await uploadResp.text();
-    return { success: false, error: `Publer media upload failed [${uploadResp.status}]: ${err}` };
-  }
-
-  const uploadData = await uploadResp.json();
-  const jobId = uploadData.job_id ?? uploadData.id;
-
-  if (!jobId) {
-    return { success: false, error: `Publer media upload returned no job_id: ${JSON.stringify(uploadData)}` };
-  }
-
-  // Step 2: Poll job status until completed (max 40 attempts, 2s apart = 80s, fits within edge function timeout)
-  let mediaId: string | null = null;
-  for (let i = 0; i < 40; i++) {
-    await new Promise((r) => setTimeout(r, 2000));
-
-    const statusResp = await fetch(`${PUBLER_BASE}/job_status/${jobId}`, {
-      headers: { "Authorization": `Bearer-API ${apiKey}` },
-    });
-
-    if (!statusResp.ok) continue;
-
-    const statusData = await statusResp.json();
-    console.log(`Publer job ${jobId} poll ${i}: status=${statusData.status}`);
-
-    if (statusData.status === "error" || statusData.status === "failed") {
-      return { success: false, error: `Publer media processing failed: ${JSON.stringify(statusData)}` };
-    }
-
-    if (statusData.status === "completed" || statusData.status === "complete") {
-      // Media ID can be in payload or directly in response
-      mediaId = statusData.payload?.id ?? statusData.id ?? statusData.payload?.[0]?.id;
-      break;
-    }
-  }
-
-  if (!mediaId) {
-    return { success: false, error: "Publer media processing timed out after 80 seconds" };
-  }
-
-  // Step 3: Publish immediately to TikTok
+  // Publish to TikTok using direct URL path in media (no /media/from-url upload needed)
   const postPayload = {
     bulk: {
       state: "scheduled",
@@ -96,13 +48,15 @@ async function publishToPubler(
             tiktok: {
               type: "video",
               text: caption,
-              media: [{ id: mediaId }],
+              media: [{ path: videoUrl }],
             },
           },
         },
       ],
     },
   };
+
+  console.log(`Publishing to Publer TikTok with direct URL path`);
 
   const postResp = await fetch(`${PUBLER_BASE}/posts/schedule/publish`, {
     method: "POST",
@@ -114,6 +68,9 @@ async function publishToPubler(
     const err = await postResp.text();
     return { success: false, error: `Publer post publish failed [${postResp.status}]: ${err}` };
   }
+
+  const postData = await postResp.json();
+  console.log(`Publer post response:`, JSON.stringify(postData));
 
   return { success: true };
 }
