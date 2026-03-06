@@ -282,6 +282,9 @@ Deno.serve(async (req) => {
         publerApiKey && publerWorkspaceId && publerTiktokAccountId &&
         row.post_length === "Short" && videoUrl
       ) {
+        let tiktokStatus: string | null = null;
+        let tiktokError: string | null = null;
+
         try {
           const caption = row.ig_tiktok_desc || row.post_title || row.topic || "";
           const publerResult = await publishToPubler(
@@ -294,11 +297,28 @@ Deno.serve(async (req) => {
 
           if (!publerResult.success) {
             console.error(`Publer TikTok publish failed for ${row.id}:`, publerResult.error);
+            tiktokStatus = "failed";
+            tiktokError = publerResult.error ?? "Unknown Publer error";
           } else {
             console.log(`Publer TikTok publish succeeded for ${row.id}`);
+            tiktokStatus = "posted";
           }
         } catch (publerErr) {
           console.error(`Publer TikTok error for ${row.id}:`, publerErr);
+          tiktokStatus = "failed";
+          tiktokError = publerErr instanceof Error ? publerErr.message : String(publerErr);
+        }
+
+        // Persist TikTok result to posted_content
+        if (tiktokStatus) {
+          const { error: ttUpdateErr } = await supabase
+            .from("posted_content")
+            .update({ tiktok_status: tiktokStatus, tiktok_error: tiktokError })
+            .eq("source_content_id", row.id);
+
+          if (ttUpdateErr) {
+            console.error(`Failed to update tiktok_status for ${row.id}:`, ttUpdateErr);
+          }
         }
       }
 

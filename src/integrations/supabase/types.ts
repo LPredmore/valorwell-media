@@ -887,6 +887,8 @@ export type Database = {
           scheduled_platforms: string[] | null
           source_content_id: string | null
           status: Database["public"]["Enums"]["post_status"]
+          tiktok_error: string | null
+          tiktok_status: string | null
           topic: string
           updated_at: string
           user_id: string
@@ -920,6 +922,8 @@ export type Database = {
           scheduled_platforms?: string[] | null
           source_content_id?: string | null
           status?: Database["public"]["Enums"]["post_status"]
+          tiktok_error?: string | null
+          tiktok_status?: string | null
           topic: string
           updated_at?: string
           user_id: string
@@ -953,6 +957,8 @@ export type Database = {
           scheduled_platforms?: string[] | null
           source_content_id?: string | null
           status?: Database["public"]["Enums"]["post_status"]
+          tiktok_error?: string | null
+          tiktok_status?: string | null
           topic?: string
           updated_at?: string
           user_id?: string
