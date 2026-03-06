@@ -888,6 +888,7 @@ export type Database = {
           source_content_id: string | null
           status: Database["public"]["Enums"]["post_status"]
           tiktok_error: string | null
+          tiktok_job_id: string | null
           tiktok_status: string | null
           topic: string
           updated_at: string
@@ -923,6 +924,7 @@ export type Database = {
           source_content_id?: string | null
           status?: Database["public"]["Enums"]["post_status"]
           tiktok_error?: string | null
+          tiktok_job_id?: string | null
           tiktok_status?: string | null
           topic: string
           updated_at?: string
@@ -958,6 +960,7 @@ export type Database = {
           source_content_id?: string | null
           status?: Database["public"]["Enums"]["post_status"]
           tiktok_error?: string | null
+          tiktok_job_id?: string | null
           tiktok_status?: string | null
           topic?: string
           updated_at?: string

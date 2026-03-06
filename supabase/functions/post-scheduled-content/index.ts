@@ -30,14 +30,13 @@ async function publishToPubler(
   apiKey: string,
   workspaceId: string,
   tiktokAccountId: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; jobId?: string; pending?: boolean }> {
   const headers = {
     "Authorization": `Bearer-API ${apiKey}`,
     "Publer-Workspace-Id": workspaceId,
     "Content-Type": "application/json",
   };
 
-  // Publish to TikTok using direct URL path in media (no /media/from-url upload needed)
   const postPayload = {
     bulk: {
       state: "scheduled",
@@ -72,7 +71,57 @@ async function publishToPubler(
   const postData = await postResp.json();
   console.log(`Publer post response:`, JSON.stringify(postData));
 
-  return { success: true };
+  // Extract job_id for async polling
+  const jobId = postData?.job_id;
+  if (!jobId) {
+    // If no job_id returned, we can't verify — treat as accepted but unverified
+    console.warn("Publer returned no job_id — cannot verify delivery");
+    return { success: false, error: "Publer returned no job_id to track" };
+  }
+
+  // Poll job status until completed, failed, or timeout
+  const MAX_POLLS = 30;
+  const POLL_INTERVAL_MS = 3000;
+
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+    try {
+      const statusResp = await fetch(`${PUBLER_BASE}/job_status/${jobId}`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer-API ${apiKey}`,
+          "Publer-Workspace-Id": workspaceId,
+        },
+      });
+
+      if (!statusResp.ok) {
+        console.warn(`Publer job_status poll ${i + 1} failed [${statusResp.status}]`);
+        continue;
+      }
+
+      const statusData = await statusResp.json();
+      const jobStatus = statusData?.status;
+      console.log(`Publer job ${jobId} poll ${i + 1}: ${jobStatus}`);
+
+      if (jobStatus === "completed" || jobStatus === "done") {
+        return { success: true, jobId };
+      }
+
+      if (jobStatus === "failed" || jobStatus === "error") {
+        const errorDetail = JSON.stringify(statusData?.payload ?? statusData);
+        return { success: false, error: `Publer job failed: ${errorDetail}`, jobId };
+      }
+
+      // Still working — continue polling
+    } catch (pollErr) {
+      console.warn(`Publer job_status poll ${i + 1} error:`, pollErr);
+    }
+  }
+
+  // Timed out — job still in progress
+  console.warn(`Publer job ${jobId} still working after ${MAX_POLLS} polls — marking as pending`);
+  return { success: false, pending: true, jobId, error: `Job ${jobId} still processing after ${MAX_POLLS * POLL_INTERVAL_MS / 1000}s` };
 }
 
 Deno.serve(async (req) => {
@@ -317,6 +366,7 @@ Deno.serve(async (req) => {
       ) {
         let tiktokStatus: string | null = null;
         let tiktokError: string | null = null;
+        let tiktokJobId: string | null = null;
 
         try {
           const caption = row.ig_tiktok_desc || row.post_title || row.topic || "";
@@ -328,7 +378,13 @@ Deno.serve(async (req) => {
             publerTiktokAccountId,
           );
 
-          if (!publerResult.success) {
+          tiktokJobId = publerResult.jobId ?? null;
+
+          if (publerResult.pending) {
+            console.warn(`Publer TikTok job pending for ${row.id}: ${publerResult.jobId}`);
+            tiktokStatus = "pending";
+            tiktokError = publerResult.error ?? null;
+          } else if (!publerResult.success) {
             console.error(`Publer TikTok publish failed for ${row.id}:`, publerResult.error);
             tiktokStatus = "failed";
             tiktokError = publerResult.error ?? "Unknown Publer error";
@@ -346,7 +402,7 @@ Deno.serve(async (req) => {
         if (tiktokStatus) {
           const { error: ttUpdateErr } = await supabase
             .from("posted_content")
-            .update({ tiktok_status: tiktokStatus, tiktok_error: tiktokError })
+            .update({ tiktok_status: tiktokStatus, tiktok_error: tiktokError, tiktok_job_id: tiktokJobId } as any)
             .eq("source_content_id", row.id);
 
           if (ttUpdateErr) {
