@@ -273,6 +273,35 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Publish Shorts to TikTok via Publer
+      const publerApiKey = Deno.env.get("PUBLER_API_KEY");
+      const publerWorkspaceId = Deno.env.get("PUBLER_WORKSPACE_ID");
+      const publerTiktokAccountId = Deno.env.get("PUBLER_TIKTOK_ACCOUNT_ID");
+
+      if (
+        publerApiKey && publerWorkspaceId && publerTiktokAccountId &&
+        row.post_length === "Short" && videoUrl
+      ) {
+        try {
+          const caption = row.ig_tiktok_desc || row.post_title || row.topic || "";
+          const publerResult = await publishToPubler(
+            videoUrl,
+            caption,
+            publerApiKey,
+            publerWorkspaceId,
+            publerTiktokAccountId,
+          );
+
+          if (!publerResult.success) {
+            console.error(`Publer TikTok publish failed for ${row.id}:`, publerResult.error);
+          } else {
+            console.log(`Publer TikTok publish succeeded for ${row.id}`);
+          }
+        } catch (publerErr) {
+          console.error(`Publer TikTok error for ${row.id}:`, publerErr);
+        }
+      }
+
       const { error: updateError } = await supabase
         .from("social_content")
         .update({ status: "posted", posted_at: now })
