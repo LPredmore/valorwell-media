@@ -51,6 +51,23 @@ export function useBulkCreateIdeas() {
   });
 }
 
+export function useUpdateIdea() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...updates }: { id: number } & TablesUpdate<"content_ideas">) => {
+      const { data, error } = await supabase
+        .from("content_ideas")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["content_ideas"] }),
+  });
+}
+
 export function useDeleteIdeas() {
   const qc = useQueryClient();
   return useMutation({
