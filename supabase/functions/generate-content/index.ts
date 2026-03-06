@@ -382,7 +382,7 @@ Deno.serve(async (req) => {
         });
       }
 
-      console.log("[generate-content] Step 2 complete: social copy saved, status:", newStatus);
+      console.log("[generate-content] Step 2 complete: social copy saved");
 
       // Fire-and-forget: email the script to info@valorwell.org
       const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
