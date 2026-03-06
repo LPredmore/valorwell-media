@@ -1,113 +1,89 @@
 
 
-# Plan: Notify Make.com on `posted_content` INSERT
+# Fix: Shorts Image Requirement + Long Video Image Not Persisting
 
-## Context
+## Two Distinct Issues
 
-The `post-scheduled-content` Edge Function already inserts rows into `posted_content` with signed R2 URLs (`video_url`, `image_url`) and all platform captions (`ig_tiktok_desc`, `facebook_desc`, etc.). Make.com has a webhook (`MAKE_WEBHOOK_URL` secret) already configured. The goal is to notify Make.com automatically when content lands in `posted_content` so it can post to Instagram (and potentially other platforms).
+### Issue 1: Shorts cannot be scheduled — database trigger requires image for all content
 
-## Technical Decision: Edge Function called by DB trigger (not a direct `net.http_post` from the trigger)
+The client-side validation in `UnscheduledTab.tsx` (line 15) correctly skips the image check for Shorts: `if (item.post_length === "Long" && !item.image?.trim())`. So the UI lets you proceed. But then the Supabase update to set `scheduled_at` fires the database trigger `enforce_youtube_schedule_requirements`, which unconditionally checks `if coalesce(new.image, '') = '' then raise exception 'Cannot schedule: image is missing'`. It does not check `post_length`. The trigger rejects the update, Supabase returns an error, and the UI shows the failure.
 
-The existing `notify_make_youtube_published` trigger already uses this exact pattern: a PL/pgSQL trigger calls `net.http_post` to invoke a Supabase Edge Function, which then does the real work. However, that pattern has a flaw for this use case: **the trigger fires inside the INSERT transaction, but `net.http_post` (via `pg_net`) is asynchronous and fires after commit** -- which is actually fine for delivery. The real issue is that calling Make.com's webhook directly from PL/pgSQL via `pg_net` means the database is directly coupled to an external third-party URL, and you lose the ability to add logic (e.g., filtering by platform, retry logic, logging).
+**Root cause**: The trigger was never updated for Shorts. The client-side fix was correct but irrelevant — the server-side gate is the one blocking it.
 
-The correct approach: **Add the Make.com webhook call directly into the `post-scheduled-content` Edge Function, immediately after the successful INSERT into `posted_content`.** Here is why:
+### Issue 2: Long video images are not available after posting
 
-1. **The Edge Function already has the data.** It just built the `posted_content` row with signed URLs, captions, and metadata. Sending it to Make.com from here requires zero additional queries -- the data is already in memory.
+In `post-scheduled-content/index.ts` (line 83-84), the insert into `posted_content` explicitly sets `video_url: null` and `image_url: null`. The `image` field (the R2 storage path) does flow through via `...rest`, so the R2 path is preserved in `posted_content.image`. However, `image_url` (which would be a signed URL for external platforms like Make.com to download) is deliberately nulled. The previous diagnosis noted that signed URLs should be generated here, but currently they are not.
 
-2. **No new infrastructure.** No new trigger, no new Edge Function, no new `pg_net` dependency. One HTTP call added to existing code.
+This means: the R2 path is archived, but no usable download URL is generated for external consumers at posting time.
 
-3. **The signed URLs are fresh.** The `video_url` and `image_url` were just generated seconds ago. If you used a DB trigger instead, the trigger would need to read the row back from the table, and the URLs are already there -- but it's an unnecessary extra query when the Edge Function already has them.
+## Technical Decisions
 
-4. **Error isolation.** If the Make.com webhook fails, the content is still safely in `posted_content`. The Edge Function can log the failure without rolling back the insert. A DB trigger calling `net.http_post` gives you no error feedback at all (it's fire-and-forget).
+### Decision 1: Fix the trigger, not the client code
 
-5. **Filtering.** Not all posted content needs to go to Make.com. YouTube Long-form is handled by Fly.io. The Edge Function already knows the `post_length` and `scheduled_platforms`, so it can conditionally skip the webhook call. A DB trigger would need to duplicate this logic in PL/pgSQL.
+The correct fix is to modify the `enforce_youtube_schedule_requirements` database function to skip the image check when `post_length = 'Short'`. This is the single source of truth for scheduling validation. The client-side validation in `UnscheduledTab.tsx` is already correct and needs no change.
 
-A DB trigger would be the right choice if content entered `posted_content` from multiple code paths. But it doesn't -- `post-scheduled-content` is the single gateway. One code path, one place to add the webhook call.
+### Decision 2: Generate signed R2 URLs in the edge function
+
+The `post-scheduled-content` function should generate signed R2 read URLs for both `video_url` and `image_url` (when `image` is present) instead of nulling them out. This is what Make.com needs to download the assets. The memory note on this system explicitly states this is the intended design: "generates 1-hour signed R2 URLs for `video_url` and `image_url` at the moment of migration." The current code contradicts the documented architecture. The edge function already has access to R2 secrets (it runs with service role), and the `r2-read-url` function shows the pattern for generating signed URLs.
 
 ## Changes
 
-### 1. Modify `post-scheduled-content/index.ts`
+### 1. Database migration: update `enforce_youtube_schedule_requirements`
 
-After the successful INSERT into `posted_content` (and before the status UPDATE on `social_content`), add a `fetch()` call to `MAKE_WEBHOOK_URL` with the row data:
+Replace the trigger function to skip the image check when `post_length = 'Short'`:
 
-```typescript
-// After successful insert, notify Make.com
-const makeWebhookUrl = Deno.env.get("MAKE_WEBHOOK_URL");
-if (makeWebhookUrl) {
-  try {
-    const webhookPayload = {
-      source_content_id: row.id,
-      topic: row.topic,
-      post_title: row.post_title,
-      post_length: row.post_length,
-      video_url: videoUrl,
-      image_url: imageUrl,
-      ig_tiktok_desc: row.ig_tiktok_desc,
-      facebook_desc: row.facebook_desc,
-      linkedin_desc: row.linkedin_desc,
-      youtube_desc: row.youtube_desc,
-      youtube_video_id: row.youtube_video_id,
-      scheduled_platforms: row.scheduled_platforms,
-      posted_at: now,
-    };
+```sql
+CREATE OR REPLACE FUNCTION public.enforce_youtube_schedule_requirements()
+  RETURNS trigger
+  LANGUAGE plpgsql
+AS $$
+begin
+  if new.scheduled_at is not null then
+    -- Image only required for Long-form content
+    if new.post_length IS DISTINCT FROM 'Short' and coalesce(new.image, '') = '' then
+      raise exception 'Cannot schedule: image is missing';
+    end if;
 
-    const makeResp = await fetch(makeWebhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(webhookPayload),
-    });
+    if coalesce(new.video_storage_path, '') = '' then
+      raise exception 'Cannot schedule: video_storage_path is missing';
+    end if;
 
-    if (!makeResp.ok) {
-      console.error(`Make.com webhook failed for ${row.id}: ${makeResp.status}`);
-    }
-  } catch (makeErr) {
-    console.error(`Make.com webhook error for ${row.id}:`, makeErr);
-  }
-}
+    if coalesce(new.youtube_title, '') = '' then
+      raise exception 'Cannot schedule: youtube_title is missing';
+    end if;
+
+    if coalesce(new.youtube_desc, '') = '' then
+      raise exception 'Cannot schedule: youtube_desc is missing';
+    end if;
+
+    if new.post_length is null then
+      raise exception 'Cannot schedule: post_length is missing';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
 ```
 
-Key details:
-- The payload is a curated subset -- not the entire row. Make.com gets exactly what it needs: the signed URLs (valid for 1 hour), all platform-specific captions, and identifiers.
-- The webhook call is wrapped in try/catch. A failure does **not** prevent the content from being marked as posted. This is intentional -- Make.com is a downstream consumer, not a gatekeeper.
-- No filtering by `post_length` or `scheduled_platforms` yet. Make.com receives all posted content and can filter internally. If you want server-side filtering later (e.g., only send Shorts to Make.com), it's a one-line `if` guard around this block.
+Using `IS DISTINCT FROM 'Short'` rather than `= 'Long'` so the image is still required for any future post types and for null `post_length` (which would be caught by the later null check anyway, but defense in depth).
 
-### 2. No database changes
+### 2. Edge function: generate signed R2 URLs instead of nulling them
 
-No new triggers, functions, or columns needed.
+In `supabase/functions/post-scheduled-content/index.ts`, import the S3 client (same pattern as `r2-read-url`), and before inserting into `posted_content`:
 
-### 3. No new Edge Functions
+- If `row.video_storage_path` exists, generate a 1-hour signed URL and set it as `video_url`.
+- If `row.image` exists, generate a 1-hour signed URL and set it as `image_url`.
+- If either is missing, leave it as `null`.
 
-Everything stays in the existing `post-scheduled-content` function.
+This requires reading R2 secrets (`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) which are already configured in the project secrets. I will read the `r2-read-url` function to replicate the exact signing pattern.
 
-## What Make.com Receives
-
-The webhook POST body will look like:
-
-```json
-{
-  "source_content_id": "uuid",
-  "topic": "Video Topic Name",
-  "post_title": "The YouTube/Display Title",
-  "post_length": "Short",
-  "video_url": "https://r2-signed-url...(valid 1hr)",
-  "image_url": "https://r2-signed-url...(valid 1hr)",
-  "ig_tiktok_desc": "Caption for Instagram...",
-  "facebook_desc": "Caption for Facebook...",
-  "linkedin_desc": "Caption for LinkedIn...",
-  "youtube_desc": "Description for YouTube...",
-  "youtube_video_id": "dQw4w9WgXcQ",
-  "scheduled_platforms": ["YouTube", "Instagram"],
-  "posted_at": "2026-03-06T12:00:00.000Z"
-}
-```
-
-Make.com can then route by `post_length` or `scheduled_platforms` to decide which modules to trigger (Instagram Reels, Facebook, etc.).
-
-## Summary
+### Summary
 
 | Location | Change |
 |---|---|
-| `post-scheduled-content/index.ts` | Add `fetch()` to `MAKE_WEBHOOK_URL` after successful `posted_content` INSERT |
+| DB migration | Update `enforce_youtube_schedule_requirements` to skip image check for Shorts |
+| `post-scheduled-content/index.ts` | Generate signed R2 URLs for `video_url` and `image_url` instead of setting them to `null` |
 
-One file, one block of code, zero new infrastructure.
+No client-side code changes needed. The UI validation is already correct.
 
