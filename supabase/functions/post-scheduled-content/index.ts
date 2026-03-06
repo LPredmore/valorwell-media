@@ -62,7 +62,7 @@ async function publishToPubler(
     await new Promise((r) => setTimeout(r, 3000));
 
     const statusResp = await fetch(`${PUBLER_BASE}/job_status/${jobId}`, {
-      headers: { "Authorization": `Bearer ${apiKey}` },
+      headers: { "Authorization": `Bearer-API ${apiKey}` },
     });
 
     if (!statusResp.ok) continue;
