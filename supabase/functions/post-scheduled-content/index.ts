@@ -144,6 +144,40 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // Notify Make.com webhook with posted content data
+      const makeWebhookUrl = Deno.env.get("MAKE_WEBHOOK_URL");
+      if (makeWebhookUrl) {
+        try {
+          const webhookPayload = {
+            source_content_id: row.id,
+            topic: row.topic,
+            post_title: row.post_title,
+            post_length: row.post_length,
+            video_url: videoUrl,
+            image_url: imageUrl,
+            ig_tiktok_desc: row.ig_tiktok_desc,
+            facebook_desc: row.facebook_desc,
+            linkedin_desc: row.linkedin_desc,
+            youtube_desc: row.youtube_desc,
+            youtube_video_id: row.youtube_video_id,
+            scheduled_platforms: row.scheduled_platforms,
+            posted_at: now,
+          };
+
+          const makeResp = await fetch(makeWebhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(webhookPayload),
+          });
+
+          if (!makeResp.ok) {
+            console.error(`Make.com webhook failed for ${row.id}: ${makeResp.status}`);
+          }
+        } catch (makeErr) {
+          console.error(`Make.com webhook error for ${row.id}:`, makeErr);
+        }
+      }
+
       const { error: updateError } = await supabase
         .from("social_content")
         .update({ status: "posted", posted_at: now })
