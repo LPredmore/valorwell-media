@@ -1,32 +1,20 @@
 import { useState, useRef } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { useIdeas, useCreateIdea, useBulkCreateIdeas, useDeleteIdeas } from "@/hooks/useIdeas";
+import { useIdeas, useCreateIdea, useBulkCreateIdeas, useDeleteIdeas, useUpdateIdea } from "@/hooks/useIdeas";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription,
-} from "@/components/ui/dialog";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
-import { CalendarIcon, Plus, Upload, Sparkles, Trash2 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import type { TablesInsert } from "@/integrations/supabase/types";
+import { Plus, Upload, Sparkles, Trash2, Pencil } from "lucide-react";
+import type { TablesInsert, Tables } from "@/integrations/supabase/types";
+import { IdeaFormDialog, type IdeaFormValues } from "@/components/ideas/IdeaFormDialog";
 
-const AVATAR_OPTIONS = ["Me", "Male Avatar", "Female Avatar"];
-const CATEGORY_OPTIONS = ["The VA System", "Science & Psychology", "Home Life", "ValorWell's Mission", "Other"];
 const CSV_COLUMNS = ["topic", "category", "avatar", "length", "planned_date"];
 
 function parseCSV(text: string): string[][] {
@@ -55,25 +43,30 @@ function parseCSV(text: string): string[][] {
   return rows;
 }
 
+function ideaToFormValues(idea: Tables<"content_ideas">): IdeaFormValues {
+  return {
+    topic: idea.topic || "",
+    avatar: idea.avatar || "",
+    category: idea.category || "",
+    length: (idea.length as "Short" | "Long" | "Both") || "Both",
+    plannedDate: idea.planned_date ? new Date(idea.planned_date) : undefined,
+  };
+}
+
 export default function Ideas() {
   const { user } = useAuth();
   const { data: ideas = [], isLoading } = useIdeas();
   const createIdea = useCreateIdea();
   const bulkCreate = useBulkCreateIdeas();
   const deleteIdeas = useDeleteIdeas();
+  const updateIdea = useUpdateIdea();
 
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [editingIdea, setEditingIdea] = useState<Tables<"content_ideas"> | null>(null);
   const [generating, setGenerating] = useState(false);
   const [genProgress, setGenProgress] = useState({ current: 0, total: 0 });
   const fileRef = useRef<HTMLInputElement>(null);
-
-  // Form state
-  const [topic, setTopic] = useState("");
-  const [avatar, setAvatar] = useState("");
-  const [category, setCategory] = useState("");
-  const [length, setLength] = useState<"Short" | "Long" | "Both">("Both");
-  const [plannedDate, setPlannedDate] = useState<Date | undefined>();
 
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
@@ -91,25 +84,37 @@ export default function Ideas() {
     }
   };
 
-  const resetForm = () => {
-    setTopic(""); setAvatar(""); setCategory(""); setLength("Both"); setPlannedDate(undefined);
-  };
-
-  const handleAddIdea = async () => {
-    if (!topic.trim()) return;
+  const handleAddIdea = async (values: IdeaFormValues) => {
     try {
       await createIdea.mutateAsync({
-        topic: topic.trim(),
-        avatar: avatar || null,
-        category: category || null,
-        length: length,
-        planned_date: plannedDate ? plannedDate.toISOString() : null,
+        topic: values.topic.trim(),
+        avatar: values.avatar || null,
+        category: values.category || null,
+        length: values.length,
+        planned_date: values.plannedDate ? values.plannedDate.toISOString() : null,
       });
       toast({ title: "Idea added" });
-      resetForm();
-      setDialogOpen(false);
+      setAddDialogOpen(false);
     } catch (err: any) {
       toast({ title: "Failed to add idea", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleEditIdea = async (values: IdeaFormValues) => {
+    if (!editingIdea) return;
+    try {
+      await updateIdea.mutateAsync({
+        id: editingIdea.id,
+        topic: values.topic.trim(),
+        avatar: values.avatar || null,
+        category: values.category || null,
+        length: values.length,
+        planned_date: values.plannedDate ? values.plannedDate.toISOString() : null,
+      });
+      toast({ title: "Idea updated" });
+      setEditingIdea(null);
+    } catch (err: any) {
+      toast({ title: "Failed to update idea", description: err.message, variant: "destructive" });
     }
   };
 
@@ -169,7 +174,6 @@ export default function Ideas() {
     const selectedIdeas = ideas.filter((i) => selected.has(i.id));
     setGenerating(true);
 
-    // Calculate total jobs (Both = 2, otherwise 1)
     const totalJobs = selectedIdeas.reduce((sum, idea) => sum + (idea.length === "Both" ? 2 : 1), 0);
     let completedJobs = 0;
     setGenProgress({ current: 0, total: totalJobs });
@@ -215,12 +219,11 @@ export default function Ideas() {
       }
     }
 
-    // Delete successfully generated ideas
     if (successfulIdeaIds.length > 0) {
       try {
         await deleteIdeas.mutateAsync(successfulIdeaIds);
       } catch {
-        // Non-critical — ideas just won't be cleaned up
+        // Non-critical
       }
     }
 
@@ -254,84 +257,38 @@ export default function Ideas() {
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-extrabold tracking-tight">Content Ideas</h1>
           <div className="flex items-center gap-2">
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="gap-2">
-                  <Plus className="h-4 w-4" /> Add Idea
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Add Content Idea</DialogTitle>
-                  <DialogDescription>Fill in the details for a new content idea.</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div className="space-y-1.5">
-                    <Label>Topic</Label>
-                    <Textarea value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Describe the content idea..." rows={4} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <Label>Avatar</Label>
-                      <Select value={avatar} onValueChange={setAvatar}>
-                        <SelectTrigger><SelectValue placeholder="Select avatar" /></SelectTrigger>
-                        <SelectContent>
-                          {AVATAR_OPTIONS.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Category</Label>
-                      <Select value={category} onValueChange={setCategory}>
-                        <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                        <SelectContent>
-                          {CATEGORY_OPTIONS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <Label>Length</Label>
-                     <Select value={length} onValueChange={(v) => setLength(v as "Short" | "Long" | "Both")}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Both">Both</SelectItem>
-                          <SelectItem value="Long">Long</SelectItem>
-                          <SelectItem value="Short">Short</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Planned Date</Label>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !plannedDate && "text-muted-foreground")}>
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {plannedDate ? format(plannedDate, "PPP") : "Pick a date"}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar mode="single" selected={plannedDate} onSelect={setPlannedDate} initialFocus className="p-3 pointer-events-auto" />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button onClick={handleAddIdea} disabled={!topic.trim() || createIdea.isPending}>
-                    {createIdea.isPending ? "Adding..." : "Add Idea"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-
+            <Button size="sm" className="gap-2" onClick={() => setAddDialogOpen(true)}>
+              <Plus className="h-4 w-4" /> Add Idea
+            </Button>
             <Button size="sm" variant="outline" className="gap-2" onClick={() => fileRef.current?.click()}>
               <Upload className="h-4 w-4" /> CSV
             </Button>
             <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCSV} />
           </div>
         </div>
+
+        {/* Add Dialog */}
+        <IdeaFormDialog
+          open={addDialogOpen}
+          onOpenChange={setAddDialogOpen}
+          onSubmit={handleAddIdea}
+          title="Add Content Idea"
+          description="Fill in the details for a new content idea."
+          submitLabel="Add Idea"
+          isPending={createIdea.isPending}
+        />
+
+        {/* Edit Dialog */}
+        <IdeaFormDialog
+          open={!!editingIdea}
+          onOpenChange={(open) => { if (!open) setEditingIdea(null); }}
+          initialValues={editingIdea ? ideaToFormValues(editingIdea) : undefined}
+          onSubmit={handleEditIdea}
+          title="Edit Content Idea"
+          description="Update the details for this content idea."
+          submitLabel="Save Changes"
+          isPending={updateIdea.isPending}
+        />
 
         {/* Action bar */}
         {selected.size > 0 && (
@@ -381,6 +338,7 @@ export default function Ideas() {
                   <TableHead>Avatar</TableHead>
                   <TableHead>Length</TableHead>
                   <TableHead>Planned Date</TableHead>
+                  <TableHead className="w-12" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -402,6 +360,16 @@ export default function Ideas() {
                       {idea.planned_date
                         ? format(new Date(idea.planned_date), "MMM d, yyyy")
                         : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setEditingIdea(idea)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
