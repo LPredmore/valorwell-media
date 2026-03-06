@@ -144,11 +144,83 @@ Deno.serve(async (req) => {
 
   try {
     let contentId: string | null = null;
+    let retryTiktok = false;
+    let retrySourceContentId: string | null = null;
     try {
       const body = await req.json();
       contentId = body?.contentId ?? null;
+      retryTiktok = body?.retryTiktok === true;
+      retrySourceContentId = body?.sourceContentId ?? null;
     } catch {
       // No body or invalid JSON — fall through to cron behavior
+    }
+
+    // --- TikTok retry path: re-run Publer for already-posted content ---
+    if (retryTiktok && retrySourceContentId) {
+      const publerApiKey = Deno.env.get("PUBLER_API_KEY");
+      const publerWorkspaceId = Deno.env.get("PUBLER_WORKSPACE_ID");
+      const publerTiktokAccountId = Deno.env.get("PUBLER_TIKTOK_ACCOUNT_ID");
+
+      if (!publerApiKey || !publerWorkspaceId || !publerTiktokAccountId) {
+        return new Response(JSON.stringify({ error: "Publer credentials not configured" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: posted, error: fetchErr } = await supabase
+        .from("posted_content")
+        .select("*")
+        .eq("source_content_id", retrySourceContentId)
+        .single();
+
+      if (fetchErr || !posted) {
+        return new Response(JSON.stringify({ error: fetchErr?.message ?? "Posted content not found" }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Generate fresh signed video URL
+      let videoUrl: string | null = posted.video_url;
+      if (r2Client && R2_ENDPOINT && R2_BUCKET_NAME && posted.video_storage_path) {
+        try {
+          videoUrl = await generateSignedUrl(r2Client, R2_ENDPOINT, R2_BUCKET_NAME, posted.video_storage_path);
+        } catch (e) {
+          console.error("Failed to generate signed URL for retry:", e);
+        }
+      }
+
+      if (!videoUrl) {
+        return new Response(JSON.stringify({ error: "No video URL available for retry" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const caption = posted.ig_tiktok_desc || posted.post_title || posted.topic || "";
+      let tiktokStatus = "failed";
+      let tiktokError: string | null = null;
+
+      try {
+        const result = await publishToPubler(videoUrl, caption, publerApiKey, publerWorkspaceId, publerTiktokAccountId);
+        if (result.success) {
+          tiktokStatus = "posted";
+          console.log(`TikTok retry succeeded for ${retrySourceContentId}`);
+        } else {
+          tiktokError = result.error ?? "Unknown Publer error";
+          console.error(`TikTok retry failed for ${retrySourceContentId}:`, tiktokError);
+        }
+      } catch (err) {
+        tiktokError = err instanceof Error ? err.message : String(err);
+        console.error(`TikTok retry error for ${retrySourceContentId}:`, tiktokError);
+      }
+
+      await supabase
+        .from("posted_content")
+        .update({ tiktok_status: tiktokStatus, tiktok_error: tiktokError })
+        .eq("source_content_id", retrySourceContentId);
+
+      return new Response(JSON.stringify({ retried: retrySourceContentId, tiktok_status: tiktokStatus, tiktok_error: tiktokError }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     let rows: any[] = [];
