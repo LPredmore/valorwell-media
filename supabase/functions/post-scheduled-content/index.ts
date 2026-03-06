@@ -32,7 +32,7 @@ async function publishToPubler(
   tiktokAccountId: string,
 ): Promise<{ success: boolean; error?: string }> {
   const headers = {
-    "Authorization": `Bearer ${apiKey}`,
+    "Authorization": `Bearer-API ${apiKey}`,
     "Publer-Workspace-Id": workspaceId,
     "Content-Type": "application/json",
   };
