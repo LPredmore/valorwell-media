@@ -41,7 +41,7 @@ async function publishToPubler(
   const uploadResp = await fetch(`${PUBLER_BASE}/media/from-url`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ url: videoUrl }),
+    body: JSON.stringify({ media: [{ url: videoUrl, name: "video.mp4" }], type: "video" }),
   });
 
   if (!uploadResp.ok) {
