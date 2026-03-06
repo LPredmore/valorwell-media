@@ -1,0 +1,1 @@
+ALTER TABLE posted_content ADD COLUMN IF NOT EXISTS tiktok_job_id text;
