@@ -7,6 +7,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+const PUBLER_BASE = "https://app.publer.com/api/v1";
+
 async function generateSignedUrl(
   client: AwsClient,
   endpoint: string,
@@ -20,6 +22,99 @@ async function generateSignedUrl(
     { aws: { signQuery: true } },
   );
   return signed.url.toString();
+}
+
+async function publishToPubler(
+  videoUrl: string,
+  caption: string,
+  apiKey: string,
+  workspaceId: string,
+  tiktokAccountId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const headers = {
+    "Authorization": `Bearer ${apiKey}`,
+    "Publer-Workspace-Id": workspaceId,
+    "Content-Type": "application/json",
+  };
+
+  // Step 1: Upload video from signed R2 URL
+  const uploadResp = await fetch(`${PUBLER_BASE}/media/from-url`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ url: videoUrl }),
+  });
+
+  if (!uploadResp.ok) {
+    const err = await uploadResp.text();
+    return { success: false, error: `Publer media upload failed [${uploadResp.status}]: ${err}` };
+  }
+
+  const uploadData = await uploadResp.json();
+  const jobId = uploadData.job_id ?? uploadData.id;
+
+  if (!jobId) {
+    return { success: false, error: `Publer media upload returned no job_id: ${JSON.stringify(uploadData)}` };
+  }
+
+  // Step 2: Poll job status until completed (max 60 attempts, 3s apart = 3 min)
+  let mediaId: string | null = null;
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+
+    const statusResp = await fetch(`${PUBLER_BASE}/job_status/${jobId}`, {
+      headers: { "Authorization": `Bearer ${apiKey}` },
+    });
+
+    if (!statusResp.ok) continue;
+
+    const statusData = await statusResp.json();
+
+    if (statusData.status === "error" || statusData.status === "failed") {
+      return { success: false, error: `Publer media processing failed: ${JSON.stringify(statusData)}` };
+    }
+
+    if (statusData.status === "completed" || statusData.status === "complete") {
+      // Media ID can be in payload or directly in response
+      mediaId = statusData.payload?.id ?? statusData.id ?? statusData.payload?.[0]?.id;
+      break;
+    }
+  }
+
+  if (!mediaId) {
+    return { success: false, error: "Publer media processing timed out after 3 minutes" };
+  }
+
+  // Step 3: Publish immediately to TikTok
+  const postPayload = {
+    bulk: {
+      state: "scheduled",
+      posts: [
+        {
+          accounts: [{ id: tiktokAccountId }],
+          networks: {
+            tiktok: {
+              type: "video",
+              text: caption,
+              media: [{ id: mediaId }],
+            },
+          },
+        },
+      ],
+    },
+  };
+
+  const postResp = await fetch(`${PUBLER_BASE}/posts/schedule/publish`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(postPayload),
+  });
+
+  if (!postResp.ok) {
+    const err = await postResp.text();
+    return { success: false, error: `Publer post publish failed [${postResp.status}]: ${err}` };
+  }
+
+  return { success: true };
 }
 
 Deno.serve(async (req) => {
