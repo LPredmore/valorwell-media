@@ -56,10 +56,10 @@ async function publishToPubler(
     return { success: false, error: `Publer media upload returned no job_id: ${JSON.stringify(uploadData)}` };
   }
 
-  // Step 2: Poll job status until completed (max 60 attempts, 3s apart = 3 min)
+  // Step 2: Poll job status until completed (max 40 attempts, 2s apart = 80s, fits within edge function timeout)
   let mediaId: string | null = null;
-  for (let i = 0; i < 60; i++) {
-    await new Promise((r) => setTimeout(r, 3000));
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
 
     const statusResp = await fetch(`${PUBLER_BASE}/job_status/${jobId}`, {
       headers: { "Authorization": `Bearer-API ${apiKey}` },
@@ -68,6 +68,7 @@ async function publishToPubler(
     if (!statusResp.ok) continue;
 
     const statusData = await statusResp.json();
+    console.log(`Publer job ${jobId} poll ${i}: status=${statusData.status}`);
 
     if (statusData.status === "error" || statusData.status === "failed") {
       return { success: false, error: `Publer media processing failed: ${JSON.stringify(statusData)}` };
@@ -81,7 +82,7 @@ async function publishToPubler(
   }
 
   if (!mediaId) {
-    return { success: false, error: "Publer media processing timed out after 3 minutes" };
+    return { success: false, error: "Publer media processing timed out after 80 seconds" };
   }
 
   // Step 3: Publish immediately to TikTok
