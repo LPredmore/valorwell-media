@@ -24,6 +24,95 @@ async function generateSignedUrl(
   return signed.url.toString();
 }
 
+async function uploadMediaFromUrl(
+  videoUrl: string,
+  apiKey: string,
+  workspaceId: string,
+): Promise<{ success: boolean; mediaId?: string; mediaPath?: string; error?: string }> {
+  const headers = {
+    "Authorization": `Bearer-API ${apiKey}`,
+    "Publer-Workspace-Id": workspaceId,
+    "Content-Type": "application/json",
+  };
+
+  console.log(`[Publer Media] Uploading media from URL: ${videoUrl.substring(0, 80)}...`);
+
+  const uploadResp = await fetch(`${PUBLER_BASE}/media/from-url`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ url: videoUrl }),
+  });
+
+  if (!uploadResp.ok) {
+    const err = await uploadResp.text();
+    return { success: false, error: `Media upload request failed [${uploadResp.status}]: ${err}` };
+  }
+
+  const uploadData = await uploadResp.json();
+  console.log(`[Publer Media] Upload response:`, JSON.stringify(uploadData));
+
+  const jobId = uploadData?.job_id;
+  if (!jobId) {
+    // Some responses return the media directly without a job
+    if (uploadData?.id) {
+      return { success: true, mediaId: uploadData.id, mediaPath: uploadData.path ?? uploadData.url };
+    }
+    return { success: false, error: `Media upload returned no job_id: ${JSON.stringify(uploadData)}` };
+  }
+
+  // Poll for media upload completion
+  const MAX_POLLS = 40;
+  const POLL_INTERVAL_MS = 3000;
+
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+    try {
+      const statusResp = await fetch(`${PUBLER_BASE}/job_status/${jobId}`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer-API ${apiKey}`,
+          "Publer-Workspace-Id": workspaceId,
+        },
+      });
+
+      if (!statusResp.ok) {
+        console.warn(`[Publer Media] Job poll ${i + 1} failed [${statusResp.status}]`);
+        continue;
+      }
+
+      const statusData = await statusResp.json();
+      const jobStatus = statusData?.status;
+      console.log(`[Publer Media] Job ${jobId} poll ${i + 1}: ${jobStatus}`, JSON.stringify(statusData));
+
+      if (jobStatus === "completed" || jobStatus === "done" || jobStatus === "complete") {
+        const payload = statusData?.payload;
+        // Extract media ID from payload
+        const mediaId = payload?.id ?? payload?.media_id;
+        const mediaPath = payload?.path ?? payload?.url;
+        if (mediaId) {
+          return { success: true, mediaId, mediaPath };
+        }
+        // If payload is the media object itself
+        if (typeof payload === "object" && payload) {
+          return { success: true, mediaId: payload.id, mediaPath: payload.path ?? payload.url };
+        }
+        // Fallback: return success but log concern
+        console.warn(`[Publer Media] Job complete but no media ID found in payload:`, JSON.stringify(statusData));
+        return { success: true, mediaPath: mediaPath ?? undefined };
+      }
+
+      if (jobStatus === "failed" || jobStatus === "error") {
+        return { success: false, error: `Media upload job failed: ${JSON.stringify(statusData?.payload ?? statusData)}` };
+      }
+    } catch (pollErr) {
+      console.warn(`[Publer Media] Job poll ${i + 1} error:`, pollErr);
+    }
+  }
+
+  return { success: false, error: `Media upload job ${jobId} timed out after ${MAX_POLLS * POLL_INTERVAL_MS / 1000}s` };
+}
+
 async function publishToPubler(
   videoUrl: string,
   caption: string,
@@ -37,6 +126,22 @@ async function publishToPubler(
     "Content-Type": "application/json",
   };
 
+  // Step 1: Pre-upload media to Publer
+  const mediaResult = await uploadMediaFromUrl(videoUrl, apiKey, workspaceId);
+  if (!mediaResult.success) {
+    return { success: false, error: `Media pre-upload failed: ${mediaResult.error}` };
+  }
+
+  console.log(`[Publer Post] Media ready — id: ${mediaResult.mediaId}, path: ${mediaResult.mediaPath}`);
+
+  // Build media object with ID if available
+  const mediaObj: Record<string, string> = {};
+  if (mediaResult.mediaId) mediaObj.id = mediaResult.mediaId;
+  if (mediaResult.mediaPath) mediaObj.path = mediaResult.mediaPath;
+  // Fallback: if neither worked, use original URL
+  if (!mediaObj.id && !mediaObj.path) mediaObj.path = videoUrl;
+
+  // Step 2: Create post with correct payload including details
   const postPayload = {
     bulk: {
       state: "scheduled",
@@ -47,7 +152,15 @@ async function publishToPubler(
             tiktok: {
               type: "video",
               text: caption,
-              media: [{ path: videoUrl }],
+              media: [mediaObj],
+              details: {
+                privacy: "PUBLIC_TO_EVERYONE",
+                comment: true,
+                duet: true,
+                stitch: true,
+                promotional: false,
+                paid: false,
+              },
             },
           },
         },
@@ -55,7 +168,7 @@ async function publishToPubler(
     },
   };
 
-  console.log(`Publishing to Publer TikTok with direct URL path`);
+  console.log(`[Publer Post] Submitting TikTok post:`, JSON.stringify(postPayload));
 
   const postResp = await fetch(`${PUBLER_BASE}/posts/schedule/publish`, {
     method: "POST",
@@ -69,17 +182,15 @@ async function publishToPubler(
   }
 
   const postData = await postResp.json();
-  console.log(`Publer post response:`, JSON.stringify(postData));
+  console.log(`[Publer Post] Response:`, JSON.stringify(postData));
 
-  // Extract job_id for async polling
   const jobId = postData?.job_id;
   if (!jobId) {
-    // If no job_id returned, we can't verify — treat as accepted but unverified
-    console.warn("Publer returned no job_id — cannot verify delivery");
+    console.warn("[Publer Post] No job_id returned — cannot verify delivery");
     return { success: false, error: "Publer returned no job_id to track" };
   }
 
-  // Poll job status until completed, failed, or timeout
+  // Step 3: Poll job status with payload.failures inspection
   const MAX_POLLS = 30;
   const POLL_INTERVAL_MS = 3000;
 
@@ -96,15 +207,22 @@ async function publishToPubler(
       });
 
       if (!statusResp.ok) {
-        console.warn(`Publer job_status poll ${i + 1} failed [${statusResp.status}]`);
+        console.warn(`[Publer Post] Job poll ${i + 1} failed [${statusResp.status}]`);
         continue;
       }
 
       const statusData = await statusResp.json();
       const jobStatus = statusData?.status;
-      console.log(`Publer job ${jobId} poll ${i + 1}: ${jobStatus}`);
+      console.log(`[Publer Post] Job ${jobId} poll ${i + 1}: ${jobStatus}`, JSON.stringify(statusData));
 
       if (jobStatus === "completed" || jobStatus === "done" || jobStatus === "complete") {
+        // CRITICAL: Check payload.failures for per-account errors
+        const failures = statusData?.payload?.failures;
+        if (failures && typeof failures === "object" && Object.keys(failures).length > 0) {
+          const failureDetail = JSON.stringify(failures);
+          console.error(`[Publer Post] Job complete BUT has failures:`, failureDetail);
+          return { success: false, error: `TikTok delivery failed: ${failureDetail}`, jobId };
+        }
         return { success: true, jobId };
       }
 
@@ -112,15 +230,12 @@ async function publishToPubler(
         const errorDetail = JSON.stringify(statusData?.payload ?? statusData);
         return { success: false, error: `Publer job failed: ${errorDetail}`, jobId };
       }
-
-      // Still working — continue polling
     } catch (pollErr) {
-      console.warn(`Publer job_status poll ${i + 1} error:`, pollErr);
+      console.warn(`[Publer Post] Job poll ${i + 1} error:`, pollErr);
     }
   }
 
-  // Timed out — job still in progress
-  console.warn(`Publer job ${jobId} still working after ${MAX_POLLS} polls — marking as pending`);
+  console.warn(`[Publer Post] Job ${jobId} still working after ${MAX_POLLS} polls — marking as pending`);
   return { success: false, pending: true, jobId, error: `Job ${jobId} still processing after ${MAX_POLLS * POLL_INTERVAL_MS / 1000}s` };
 }
 
