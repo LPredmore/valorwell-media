@@ -1,89 +1,102 @@
 
 
-# Fix: Shorts Image Requirement + Long Video Image Not Persisting
+## Diagnosis: Why TikTok Posts Are Not Publishing
 
-## Two Distinct Issues
+### What I found
 
-### Issue 1: Shorts cannot be scheduled — database trigger requires image for all content
+I reviewed the full edge function, Publer API documentation (Creating Posts, Immediate Publishing, TikTok Video format, Media Handling, Job Status), database state, and logs. There are **three distinct problems**, not one.
 
-The client-side validation in `UnscheduledTab.tsx` (line 15) correctly skips the image check for Shorts: `if (item.post_length === "Long" && !item.image?.trim())`. So the UI lets you proceed. But then the Supabase update to set `scheduled_at` fires the database trigger `enforce_youtube_schedule_requirements`, which unconditionally checks `if coalesce(new.image, '') = '' then raise exception 'Cannot schedule: image is missing'`. It does not check `post_length`. The trigger rejects the update, Supabase returns an error, and the UI shows the failure.
+---
 
-**Root cause**: The trigger was never updated for Shorts. The client-side fix was correct but irrelevant — the server-side gate is the one blocking it.
+### Problem 1: Not checking `payload.failures` (false positives)
 
-### Issue 2: Long video images are not available after posting
+The Publer docs explicitly show that a job with `status: "complete"` can still contain failures:
 
-In `post-scheduled-content/index.ts` (line 83-84), the insert into `posted_content` explicitly sets `video_url: null` and `image_url: null`. The `image` field (the R2 storage path) does flow through via `...rest`, so the R2 path is preserved in `posted_content.image`. However, `image_url` (which would be a signed URL for external platforms like Make.com to download) is deliberately nulled. The previous diagnosis noted that signed URLs should be generated here, but currently they are not.
-
-This means: the R2 path is archived, but no usable download URL is generated for external consumers at posting time.
-
-## Technical Decisions
-
-### Decision 1: Fix the trigger, not the client code
-
-The correct fix is to modify the `enforce_youtube_schedule_requirements` database function to skip the image check when `post_length = 'Short'`. This is the single source of truth for scheduling validation. The client-side validation in `UnscheduledTab.tsx` is already correct and needs no change.
-
-### Decision 2: Generate signed R2 URLs in the edge function
-
-The `post-scheduled-content` function should generate signed R2 read URLs for both `video_url` and `image_url` (when `image` is present) instead of nulling them out. This is what Make.com needs to download the assets. The memory note on this system explicitly states this is the intended design: "generates 1-hour signed R2 URLs for `video_url` and `image_url` at the moment of migration." The current code contradicts the documented architecture. The edge function already has access to R2 secrets (it runs with service role), and the `r2-read-url` function shows the pattern for generating signed URLs.
-
-## Changes
-
-### 1. Database migration: update `enforce_youtube_schedule_requirements`
-
-Replace the trigger function to skip the image check when `post_length = 'Short'`:
-
-```sql
-CREATE OR REPLACE FUNCTION public.enforce_youtube_schedule_requirements()
-  RETURNS trigger
-  LANGUAGE plpgsql
-AS $$
-begin
-  if new.scheduled_at is not null then
-    -- Image only required for Long-form content
-    if new.post_length IS DISTINCT FROM 'Short' and coalesce(new.image, '') = '' then
-      raise exception 'Cannot schedule: image is missing';
-    end if;
-
-    if coalesce(new.video_storage_path, '') = '' then
-      raise exception 'Cannot schedule: video_storage_path is missing';
-    end if;
-
-    if coalesce(new.youtube_title, '') = '' then
-      raise exception 'Cannot schedule: youtube_title is missing';
-    end if;
-
-    if coalesce(new.youtube_desc, '') = '' then
-      raise exception 'Cannot schedule: youtube_desc is missing';
-    end if;
-
-    if new.post_length is null then
-      raise exception 'Cannot schedule: post_length is missing';
-    end if;
-  end if;
-
-  return new;
-end;
-$$;
+```text
+{
+  "status": "complete",
+  "payload": {
+    "failures": {}       <-- empty = success
+    "failures": { ... }  <-- non-empty = per-account failures
+  }
+}
 ```
 
-Using `IS DISTINCT FROM 'Short'` rather than `= 'Long'` so the image is still required for any future post types and for null `post_length` (which would be caught by the later null check anyway, but defense in depth).
+The current code (line 107) treats any terminal status as success without inspecting `payload.failures`. This is why the database says `tiktok_status = 'posted'` while nothing is actually on TikTok. The job completed — but completed with a failure that we ignored.
 
-### 2. Edge function: generate signed R2 URLs instead of nulling them
+### Problem 2: Missing required `details` object
 
-In `supabase/functions/post-scheduled-content/index.ts`, import the S3 client (same pattern as `r2-read-url`), and before inserting into `posted_content`:
+The Publer TikTok docs mark the `details` object as **Required** for video posts. It controls privacy, comments, duets, etc. The current payload omits it entirely:
 
-- If `row.video_storage_path` exists, generate a 1-hour signed URL and set it as `video_url`.
-- If `row.image` exists, generate a 1-hour signed URL and set it as `image_url`.
-- If either is missing, leave it as `null`.
+```text
+Current payload (line 41-56):
+  tiktok: {
+    type: "video",
+    text: caption,
+    media: [{ path: videoUrl }]
+    // ← no details object
+  }
 
-This requires reading R2 secrets (`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) which are already configured in the project secrets. I will read the `r2-read-url` function to replicate the exact signing pattern.
+Required by Publer:
+  tiktok: {
+    type: "video",
+    text: caption,
+    media: [...],
+    details: {              // ← REQUIRED
+      privacy: "PUBLIC_TO_EVERYONE",
+      comment: true,
+      duet: true,
+      stitch: true,
+      promotional: false,
+      paid: false
+    }
+  }
+```
 
-### Summary
+Without `details`, Publer may reject the post at the TikTok API level. This would show up as a per-account failure inside `payload.failures` — which we never check (Problem 1).
 
-| Location | Change |
-|---|---|
-| DB migration | Update `enforce_youtube_schedule_requirements` to skip image check for Shorts |
-| `post-scheduled-content/index.ts` | Generate signed R2 URLs for `video_url` and `image_url` instead of setting them to `null` |
+### Problem 3: Media may need pre-upload to Publer
 
-No client-side code changes needed. The UI validation is already correct.
+The TikTok video post docs show `media[].id` as **Required** ("Media ID if using stored media"). The current code passes only `{ path: videoUrl }` with no `id`. The Publer media handling docs describe two upload methods:
+
+1. `POST /media/from-url` — upload by URL (async, returns job_id → poll → get media ID)
+2. Direct file upload
+
+Historical errors support this theory:
+- `media processing timed out after 80 seconds` — Publer tried to download/process the video inline during post creation, rather than from a pre-uploaded asset. This is fragile because signed R2 URLs must be downloaded within the Publer processing window.
+
+Pre-uploading via `/media/from-url` would give Publer time to download and process the video before the post is submitted, making the flow more reliable.
+
+---
+
+### The Fix
+
+**Single change location**: `supabase/functions/post-scheduled-content/index.ts`
+
+#### Change 1: Add media pre-upload step
+Before creating the TikTok post, call `POST /media/from-url` with the signed R2 video URL. Poll the upload job until complete. Extract the returned media `id`. This decouples video download/processing from post creation, eliminating timeouts.
+
+#### Change 2: Fix the post payload
+Use the media `id` from the upload step. Add the required `details` object with sensible defaults (`privacy: "PUBLIC_TO_EVERYONE"`, `comment: true`, `duet: true`, `stitch: true`).
+
+#### Change 3: Check `payload.failures` in job status polling
+When `status` is `complete`/`completed`/`done`, inspect `payload.failures`. If it's a non-empty object, extract the error and return failure — not success.
+
+#### Change 4: Log the full job status response
+Currently only the `status` string is logged. Log the entire response body so failures are visible in edge function logs for debugging.
+
+### Why this is the right approach
+
+- **Pre-uploading media** is what Publer's architecture expects. Passing raw URLs inline is an undocumented shortcut that works unreliably (evidenced by the 80s timeout). The official examples all use media IDs.
+- **Checking `payload.failures`** is mandatory per the docs and is the single biggest bug — without it, every failure looks like success.
+- **Adding `details`** fulfills a documented requirement. Even if Publer applies defaults when it's missing, omitting a required field is asking for unpredictable behavior.
+- No database changes needed. No client-side changes needed. The fix is entirely within the edge function.
+
+### Execution order
+
+1. Add `uploadMediaFromUrl()` helper function (POST to `/media/from-url`, poll job, return media ID)
+2. Update `publishToPubler()` to call the upload helper first, then build the correct payload with `id`, `path`, and `details`
+3. Fix the job status polling to inspect `payload.failures`
+4. Add detailed logging throughout
+5. Redeploy the edge function
 
