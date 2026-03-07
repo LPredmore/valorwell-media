@@ -90,15 +90,12 @@ async function uploadMediaFromUrl(
 
       if (jobStatus === "completed" || jobStatus === "done" || jobStatus === "complete") {
         const payload = statusData?.payload;
-        // Extract media ID from payload
-        const mediaId = payload?.id ?? payload?.media_id;
-        const mediaPath = payload?.path ?? payload?.url;
+        // Publer returns payload as an array of media objects
+        const mediaItem = Array.isArray(payload) ? payload[0] : payload;
+        const mediaId = mediaItem?.id ?? mediaItem?.media_id;
+        const mediaPath = mediaItem?.path ?? mediaItem?.url;
         if (mediaId) {
           return { success: true, mediaId, mediaPath };
-        }
-        // If payload is the media object itself
-        if (typeof payload === "object" && payload) {
-          return { success: true, mediaId: payload.id, mediaPath: payload.path ?? payload.url };
         }
         // Fallback: return success but log concern
         console.warn(`[Publer Media] Job complete but no media ID found in payload:`, JSON.stringify(statusData));
