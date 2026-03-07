@@ -216,13 +216,27 @@ async function publishToPubler(
       console.log(`[Publer Post] Job ${jobId} poll ${i + 1}: ${jobStatus}`, JSON.stringify(statusData));
 
       if (jobStatus === "completed" || jobStatus === "done" || jobStatus === "complete") {
-        // CRITICAL: Check payload.failures for per-account errors
-        const failures = statusData?.payload?.failures;
+        // CRITICAL: Check payload for failures in both formats
+        const payload = statusData?.payload;
+        
+        // Format 1: payload.failures object (keyed by account)
+        const failures = payload?.failures;
         if (failures && typeof failures === "object" && Object.keys(failures).length > 0) {
           const failureDetail = JSON.stringify(failures);
           console.error(`[Publer Post] Job complete BUT has failures:`, failureDetail);
           return { success: false, error: `TikTok delivery failed: ${failureDetail}`, jobId };
         }
+        
+        // Format 2: payload is array of results, check each for failure/error status
+        if (Array.isArray(payload)) {
+          const failedItems = payload.filter((item: any) => item?.status === "failed" || item?.type === "error" || item?.failure);
+          if (failedItems.length > 0) {
+            const failureDetail = JSON.stringify(failedItems);
+            console.error(`[Publer Post] Job complete BUT has per-post failures:`, failureDetail);
+            return { success: false, error: `TikTok delivery failed: ${failureDetail}`, jobId };
+          }
+        }
+        
         return { success: true, jobId };
       }
 
