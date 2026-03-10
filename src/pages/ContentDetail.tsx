@@ -92,6 +92,7 @@ export default function ContentDetail() {
     if (!id) return;
     setVideoUploading(true);
     setVideoProgress(0);
+    setVideoFileSize(file.size);
     const ext = file.name.split(".").pop();
     const storagePath = `content/${id}/video.${ext}`;
 
