@@ -1,0 +1,1 @@
+ALTER TABLE public.posted_content ADD COLUMN planned_date timestamptz;
