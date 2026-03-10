@@ -7,8 +7,10 @@ const MAX_RETRIES = 3;
 
 /**
  * Upload a video file to Cloudflare R2.
- * - Files under 100 MB: single presigned PUT (existing path).
+ * - Files under 100 MB: single presigned PUT.
  * - Files 100 MB+: S3-compatible multipart upload with 50 MB chunks.
+ *
+ * Both paths use XMLHttpRequest for real-time upload progress.
  */
 export async function uploadVideoToR2(
   storagePath: string,
@@ -40,6 +42,46 @@ export async function uploadVideoToR2(
   }
 }
 
+// ── XHR helper ──────────────────────────────────────────────────────
+
+/**
+ * Upload a blob to a presigned URL via XHR, with per-byte progress.
+ * Returns the ETag header from the response (needed for multipart complete).
+ */
+function xhrPut(
+  url: string,
+  body: Blob,
+  contentType: string | undefined,
+  timeoutMs: number,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<{ status: number; etag: string | null }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    if (contentType) xhr.setRequestHeader("Content-Type", contentType);
+    xhr.timeout = timeoutMs;
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded, e.total);
+    };
+
+    xhr.onload = () => {
+      const etag = xhr.getResponseHeader("ETag") || xhr.getResponseHeader("etag");
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve({ status: xhr.status, etag });
+      } else {
+        reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error(`Network error (status=${xhr.status})`));
+    xhr.ontimeout = () => reject(new Error("Upload timed out"));
+    xhr.onabort = () => reject(new Error("Upload was aborted"));
+
+    xhr.send(body);
+  });
+}
+
 // ── Single PUT (files < 100 MB) ─────────────────────────────────────
 
 async function singlePutUpload(
@@ -58,33 +100,15 @@ async function singlePutUpload(
     throw new Error(error?.message ?? data?.error ?? "Failed to get upload URL");
   }
 
-  const uploadUrl: string = data.uploadUrl;
+  await xhrPut(
+    data.uploadUrl,
+    file,
+    file.type,
+    600_000, // 10 minutes
+    (loaded, total) => onProgress?.((loaded / total) * 100),
+  );
 
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", uploadUrl);
-    xhr.setRequestHeader("Content-Type", file.type);
-    xhr.timeout = 600000; // 10 minutes
-
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress?.((e.loaded / e.total) * 100);
-    };
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        console.log("[R2 Upload] Single PUT succeeded");
-        resolve();
-      } else {
-        reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
-      }
-    };
-
-    xhr.onerror = () => reject(new Error(`Network error (status=${xhr.status})`));
-    xhr.ontimeout = () => reject(new Error("Upload timed out"));
-    xhr.onabort = () => reject(new Error("Upload was aborted"));
-
-    xhr.send(file);
-  });
+  console.log("[R2 Upload] Single PUT succeeded");
 }
 
 // ── Multipart upload (files ≥ 100 MB) ───────────────────────────────
@@ -114,9 +138,9 @@ async function multipartUpload(
   };
   console.log(`[R2 Multipart] Got uploadId=${uploadId}, ${partUrls.length} presigned URLs`);
 
-  // 2. Upload each chunk
+  // 2. Upload each chunk with real-time progress via XHR
   const completedParts: { partNumber: number; etag: string }[] = [];
-  let bytesUploaded = 0;
+  let bytesCompleted = 0; // bytes from fully finished prior chunks
 
   try {
     for (const { partNumber, url } of partUrls) {
@@ -131,27 +155,19 @@ async function multipartUpload(
 
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), CHUNK_TIMEOUT);
+          const result = await xhrPut(
+            url,
+            chunk,
+            undefined, // no Content-Type needed for part uploads
+            CHUNK_TIMEOUT,
+            (loaded) => {
+              // Combine completed bytes from prior chunks + in-flight bytes from this chunk
+              const totalUploaded = bytesCompleted + loaded;
+              onProgress?.((totalUploaded / totalSize) * 100);
+            },
+          );
 
-          const res = await fetch(url, {
-            method: "PUT",
-            body: chunk,
-            signal: controller.signal,
-          });
-
-          clearTimeout(timer);
-
-          if (!res.ok) {
-            const body = await res.text().catch(() => "");
-            throw new Error(`HTTP ${res.status}: ${body}`);
-          }
-
-          etag = res.headers.get("ETag");
-          if (!etag) {
-            // Some CORS configs strip ETag. Try lowercase.
-            etag = res.headers.get("etag");
-          }
+          etag = result.etag;
           if (!etag) {
             throw new Error("No ETag in response — check R2 CORS ExposeHeaders config");
           }
@@ -172,8 +188,8 @@ async function multipartUpload(
       }
 
       completedParts.push({ partNumber, etag: etag! });
-      bytesUploaded += chunkSize;
-      onProgress?.((bytesUploaded / totalSize) * 100);
+      bytesCompleted += chunkSize;
+      onProgress?.((bytesCompleted / totalSize) * 100);
     }
 
     // 3. Complete

@@ -64,6 +64,7 @@ export default function ContentDetail() {
   const [topicInit, setTopicInit] = useState(false);
   const [videoUploading, setVideoUploading] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
+  const [videoFileSize, setVideoFileSize] = useState<number | null>(null);
   const [regenerating, setRegenerating] = useState(false);
 
   if (content && !topicInit) {
@@ -90,8 +91,8 @@ export default function ContentDetail() {
   const handleVideoReplace = async (file: File) => {
     if (!id) return;
     setVideoUploading(true);
-    setVideoProgress(20);
-
+    setVideoProgress(0);
+    setVideoFileSize(file.size);
     const ext = file.name.split(".").pop();
     const storagePath = `content/${id}/video.${ext}`;
 
@@ -105,7 +106,7 @@ export default function ContentDetail() {
 
     try {
       await uploadVideoToR2(storagePath, file, (pct) => {
-        setVideoProgress(20 + pct * 0.5);
+        setVideoProgress(pct);
       });
       console.log("[ContentDetail] Video upload succeeded, updating DB...");
     } catch (uploadError: any) {
@@ -375,6 +376,7 @@ export default function ContentDetail() {
           onReplace={handleVideoReplace}
           uploading={videoUploading}
           progress={videoProgress}
+          fileSize={videoFileSize}
         />
 
         {content.post_length === "Long" && (

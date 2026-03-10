@@ -7,9 +7,10 @@ interface Props {
   onReplace: (file: File) => void;
   uploading: boolean;
   progress: number;
+  fileSize?: number | null;
 }
 
-export function VideoSection({ content, onReplace, uploading, progress }: Props) {
+export function VideoSection({ content, onReplace, uploading, progress, fileSize }: Props) {
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Video</h3>
@@ -22,10 +23,10 @@ export function VideoSection({ content, onReplace, uploading, progress }: Props)
               <p className="text-xs text-muted-foreground">{content.video_mime_type}</p>
             </div>
           </div>
-          <VideoUploader onFileSelected={onReplace} uploading={uploading} progress={progress} currentFilename={content.video_original_filename} />
+          <VideoUploader onFileSelected={onReplace} uploading={uploading} progress={progress} currentFilename={content.video_original_filename} fileSize={fileSize} />
         </div>
       ) : (
-        <VideoUploader onFileSelected={onReplace} uploading={uploading} progress={progress} />
+        <VideoUploader onFileSelected={onReplace} uploading={uploading} progress={progress} fileSize={fileSize} />
       )}
     </div>
   );

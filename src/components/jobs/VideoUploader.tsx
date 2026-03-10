@@ -8,9 +8,17 @@ interface Props {
   progress?: number;
   uploading?: boolean;
   currentFilename?: string | null;
+  fileSize?: number | null;
 }
 
-export function VideoUploader({ onFileSelected, progress = 0, uploading = false, currentFilename }: Props) {
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
+
+export function VideoUploader({ onFileSelected, progress = 0, uploading = false, currentFilename, fileSize }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -66,7 +74,9 @@ export function VideoUploader({ onFileSelected, progress = 0, uploading = false,
       {uploading && (
         <div className="mt-4 w-full max-w-xs">
           <Progress value={progress} className="h-2" />
-          <p className="mt-1 text-center text-xs text-muted-foreground">{Math.round(progress)}%</p>
+          <p className="mt-1 text-center text-xs text-muted-foreground">
+            {Math.round(progress)}%{fileSize ? ` of ${formatBytes(fileSize)}` : ""} — Uploading…
+          </p>
         </div>
       )}
     </div>
