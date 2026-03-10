@@ -1,89 +1,32 @@
 
 
-# Fix: Shorts Image Requirement + Long Video Image Not Persisting
+## Diagnosis
 
-## Two Distinct Issues
+The CSV contains multi-line quoted fields — the `topic` column has full paragraphs with newlines inside double quotes. The current `parseCSV` function splits on `\n` first, then parses each line individually. This fundamentally cannot work with multi-line fields because a single cell's content gets split across dozens of "lines," each parsed independently. The result: corrupted column mapping, narrative text landing in `planned_date`, and a Postgres type error.
 
-### Issue 1: Shorts cannot be scheduled — database trigger requires image for all content
+Secondary issue: the CSV also has columns (`id`, `created_at`, `playlist_id`) not in `CSV_COLUMNS`. The current code handles this fine (it looks up columns by name), so that is not the problem.
 
-The client-side validation in `UnscheduledTab.tsx` (line 15) correctly skips the image check for Shorts: `if (item.post_length === "Long" && !item.image?.trim())`. So the UI lets you proceed. But then the Supabase update to set `scheduled_at` fires the database trigger `enforce_youtube_schedule_requirements`, which unconditionally checks `if coalesce(new.image, '') = '' then raise exception 'Cannot schedule: image is missing'`. It does not check `post_length`. The trigger rejects the update, Supabase returns an error, and the UI shows the failure.
+Third issue: the `planned_date` values in the CSV are malformed (`2026-03-010` — note the extra zero). Even with correct parsing, these would fail Postgres timestamp validation.
 
-**Root cause**: The trigger was never updated for Shorts. The client-side fix was correct but irrelevant — the server-side gate is the one blocking it.
+## Fix
 
-### Issue 2: Long video images are not available after posting
+### 1. Replace the CSV parser with one that handles multi-line quoted fields
 
-In `post-scheduled-content/index.ts` (line 83-84), the insert into `posted_content` explicitly sets `video_url: null` and `image_url: null`. The `image` field (the R2 storage path) does flow through via `...rest`, so the R2 path is preserved in `posted_content.image`. However, `image_url` (which would be a signed URL for external platforms like Make.com to download) is deliberately nulled. The previous diagnosis noted that signed URLs should be generated here, but currently they are not.
+The current parser splits on newlines first, which is architecturally wrong for RFC 4180 CSV. The replacement must parse the entire text character-by-character, tracking quote state across newlines. When inside a quoted field, newlines become part of the cell content rather than row boundaries.
 
-This means: the R2 path is archived, but no usable download URL is generated for external consumers at posting time.
+This is a rewrite of the `parseCSV` function only — same signature, same return type.
 
-## Technical Decisions
+### 2. Validate `planned_date` before insertion
 
-### Decision 1: Fix the trigger, not the client code
+After parsing, validate that `planned_date` values produce a valid `Date` object. If they don't (like `2026-03-010`), set to `null` and continue rather than letting the bad value reach Supabase where it causes a hard error. Show a toast noting how many rows had invalid dates.
 
-The correct fix is to modify the `enforce_youtube_schedule_requirements` database function to skip the image check when `post_length = 'Short'`. This is the single source of truth for scheduling validation. The client-side validation in `UnscheduledTab.tsx` is already correct and needs no change.
+### 3. No other changes needed
 
-### Decision 2: Generate signed R2 URLs in the edge function
+- `CSV_COLUMNS` already uses name-based lookup, so extra columns in the CSV are harmless.
+- The insert logic, hooks, and database schema are all fine.
+- The `content_ideas` table accepts nullable `planned_date`, so nulling out bad dates is safe.
 
-The `post-scheduled-content` function should generate signed R2 read URLs for both `video_url` and `image_url` (when `image` is present) instead of nulling them out. This is what Make.com needs to download the assets. The memory note on this system explicitly states this is the intended design: "generates 1-hour signed R2 URLs for `video_url` and `image_url` at the moment of migration." The current code contradicts the documented architecture. The edge function already has access to R2 secrets (it runs with service role), and the `r2-read-url` function shows the pattern for generating signed URLs.
+## Scope
 
-## Changes
-
-### 1. Database migration: update `enforce_youtube_schedule_requirements`
-
-Replace the trigger function to skip the image check when `post_length = 'Short'`:
-
-```sql
-CREATE OR REPLACE FUNCTION public.enforce_youtube_schedule_requirements()
-  RETURNS trigger
-  LANGUAGE plpgsql
-AS $$
-begin
-  if new.scheduled_at is not null then
-    -- Image only required for Long-form content
-    if new.post_length IS DISTINCT FROM 'Short' and coalesce(new.image, '') = '' then
-      raise exception 'Cannot schedule: image is missing';
-    end if;
-
-    if coalesce(new.video_storage_path, '') = '' then
-      raise exception 'Cannot schedule: video_storage_path is missing';
-    end if;
-
-    if coalesce(new.youtube_title, '') = '' then
-      raise exception 'Cannot schedule: youtube_title is missing';
-    end if;
-
-    if coalesce(new.youtube_desc, '') = '' then
-      raise exception 'Cannot schedule: youtube_desc is missing';
-    end if;
-
-    if new.post_length is null then
-      raise exception 'Cannot schedule: post_length is missing';
-    end if;
-  end if;
-
-  return new;
-end;
-$$;
-```
-
-Using `IS DISTINCT FROM 'Short'` rather than `= 'Long'` so the image is still required for any future post types and for null `post_length` (which would be caught by the later null check anyway, but defense in depth).
-
-### 2. Edge function: generate signed R2 URLs instead of nulling them
-
-In `supabase/functions/post-scheduled-content/index.ts`, import the S3 client (same pattern as `r2-read-url`), and before inserting into `posted_content`:
-
-- If `row.video_storage_path` exists, generate a 1-hour signed URL and set it as `video_url`.
-- If `row.image` exists, generate a 1-hour signed URL and set it as `image_url`.
-- If either is missing, leave it as `null`.
-
-This requires reading R2 secrets (`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) which are already configured in the project secrets. I will read the `r2-read-url` function to replicate the exact signing pattern.
-
-### Summary
-
-| Location | Change |
-|---|---|
-| DB migration | Update `enforce_youtube_schedule_requirements` to skip image check for Shorts |
-| `post-scheduled-content/index.ts` | Generate signed R2 URLs for `video_url` and `image_url` instead of setting them to `null` |
-
-No client-side code changes needed. The UI validation is already correct.
+Single file change: `src/pages/Ideas.tsx` — rewrite `parseCSV` function and add date validation in `handleCSV`.
 
