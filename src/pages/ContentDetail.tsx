@@ -64,6 +64,7 @@ export default function ContentDetail() {
   const [topicInit, setTopicInit] = useState(false);
   const [videoUploading, setVideoUploading] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
+  const [videoFileSize, setVideoFileSize] = useState<number | null>(null);
   const [regenerating, setRegenerating] = useState(false);
 
   if (content && !topicInit) {
