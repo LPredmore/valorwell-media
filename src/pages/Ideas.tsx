@@ -19,27 +19,42 @@ const CSV_COLUMNS = ["topic", "category", "avatar", "length", "planned_date"];
 
 function parseCSV(text: string): string[][] {
   const rows: string[][] = [];
-  const lines = text.split(/\r?\n/);
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const cells: string[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (inQuotes) {
-        if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
-        else if (ch === '"') { inQuotes = false; }
-        else { current += ch; }
+  let current = "";
+  let inQuotes = false;
+  let cells: string[] = [];
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
       } else {
-        if (ch === '"') { inQuotes = true; }
-        else if (ch === ',') { cells.push(current.trim()); current = ""; }
-        else { current += ch; }
+        current += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        cells.push(current.trim());
+        current = "";
+      } else if (ch === '\n' || (ch === '\r' && text[i + 1] === '\n')) {
+        if (ch === '\r') i++; // skip \n after \r
+        cells.push(current.trim());
+        if (cells.some((c) => c !== "")) rows.push(cells);
+        cells = [];
+        current = "";
+      } else {
+        current += ch;
       }
     }
-    cells.push(current.trim());
-    rows.push(cells);
   }
+  // flush last row
+  cells.push(current.trim());
+  if (cells.some((c) => c !== "")) rows.push(cells);
+
   return rows;
 }
 
@@ -140,6 +155,7 @@ export default function Ideas() {
     }
     const colIdx = Object.fromEntries(CSV_COLUMNS.map((c) => [c, headers.indexOf(c)]));
     const inserts: TablesInsert<"content_ideas">[] = [];
+    let invalidDateCount = 0;
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
       if (r.length < CSV_COLUMNS.length) continue;
@@ -147,12 +163,22 @@ export default function Ideas() {
       if (!t) continue;
       const len = r[colIdx.length]?.trim();
       const parsedLen = len === "Short" ? "Short" : len === "Long" ? "Long" : "Both";
+      const rawDate = r[colIdx.planned_date]?.trim() || null;
+      let validDate: string | null = null;
+      if (rawDate) {
+        const d = new Date(rawDate);
+        if (!isNaN(d.getTime())) {
+          validDate = d.toISOString();
+        } else {
+          invalidDateCount++;
+        }
+      }
       inserts.push({
         topic: t,
         category: r[colIdx.category]?.trim() || null,
         avatar: r[colIdx.avatar]?.trim() || null,
         length: parsedLen as any,
-        planned_date: r[colIdx.planned_date]?.trim() || null,
+        planned_date: validDate,
       });
     }
     if (inserts.length === 0) {
@@ -162,7 +188,8 @@ export default function Ideas() {
     }
     try {
       await bulkCreate.mutateAsync(inserts);
-      toast({ title: `${inserts.length} ideas imported` });
+      const dateWarning = invalidDateCount > 0 ? ` (${invalidDateCount} invalid dates were cleared)` : "";
+      toast({ title: `${inserts.length} ideas imported${dateWarning}` });
     } catch (err: any) {
       toast({ title: "CSV import failed", description: err.message, variant: "destructive" });
     }
