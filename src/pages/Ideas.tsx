@@ -188,7 +188,8 @@ export default function Ideas() {
     }
     try {
       await bulkCreate.mutateAsync(inserts);
-      toast({ title: `${inserts.length} ideas imported` });
+      const dateWarning = invalidDateCount > 0 ? ` (${invalidDateCount} invalid dates were cleared)` : "";
+      toast({ title: `${inserts.length} ideas imported${dateWarning}` });
     } catch (err: any) {
       toast({ title: "CSV import failed", description: err.message, variant: "destructive" });
     }
