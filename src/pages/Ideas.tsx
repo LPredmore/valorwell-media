@@ -155,6 +155,7 @@ export default function Ideas() {
     }
     const colIdx = Object.fromEntries(CSV_COLUMNS.map((c) => [c, headers.indexOf(c)]));
     const inserts: TablesInsert<"content_ideas">[] = [];
+    let invalidDateCount = 0;
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
       if (r.length < CSV_COLUMNS.length) continue;
