@@ -90,8 +90,7 @@ export default function ContentDetail() {
   const handleVideoReplace = async (file: File) => {
     if (!id) return;
     setVideoUploading(true);
-    setVideoProgress(20);
-
+    setVideoProgress(0);
     const ext = file.name.split(".").pop();
     const storagePath = `content/${id}/video.${ext}`;
 
