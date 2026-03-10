@@ -162,12 +162,22 @@ export default function Ideas() {
       if (!t) continue;
       const len = r[colIdx.length]?.trim();
       const parsedLen = len === "Short" ? "Short" : len === "Long" ? "Long" : "Both";
+      const rawDate = r[colIdx.planned_date]?.trim() || null;
+      let validDate: string | null = null;
+      if (rawDate) {
+        const d = new Date(rawDate);
+        if (!isNaN(d.getTime())) {
+          validDate = d.toISOString();
+        } else {
+          invalidDateCount++;
+        }
+      }
       inserts.push({
         topic: t,
         category: r[colIdx.category]?.trim() || null,
         avatar: r[colIdx.avatar]?.trim() || null,
         length: parsedLen as any,
-        planned_date: r[colIdx.planned_date]?.trim() || null,
+        planned_date: validDate,
       });
     }
     if (inserts.length === 0) {
