@@ -24,8 +24,8 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/" element={<Navigate to="/content" replace />} />
-          <Route path="/content" element={<AuthGuard><ContentList /></AuthGuard>} />
+          <Route path="/" element={<Navigate to="/schedule" replace />} />
+          <Route path="/content" element={<Navigate to="/schedule" replace />} />
           <Route path="/content/new" element={<AuthGuard><CreateContent /></AuthGuard>} />
           <Route path="/content/:id" element={<AuthGuard><ContentDetail /></AuthGuard>} />
           <Route path="/schedule" element={<AuthGuard><Schedule /></AuthGuard>} />
