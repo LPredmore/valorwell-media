@@ -18,24 +18,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               Content<span className="text-primary">Hub</span>
             </Link>
             <nav className="flex items-center gap-1">
-              <Link to="/content">
-                <Button
-                  variant={location.pathname.startsWith("/content") ? "secondary" : "ghost"}
-                  size="sm"
-                  className="gap-2"
-                >
-                  <FileText className="h-4 w-4" />
-                  <span className="hidden sm:inline">Content</span>
-                </Button>
-              </Link>
               <Link to="/schedule">
                 <Button
                   variant={location.pathname.startsWith("/schedule") ? "secondary" : "ghost"}
                   size="sm"
                   className="gap-2"
                 >
-                  <CalendarDays className="h-4 w-4" />
-                  <span className="hidden sm:inline">Schedule</span>
+                  <FileText className="h-4 w-4" />
+                  <span className="hidden sm:inline">Content</span>
                 </Button>
               </Link>
               <Link to="/ideas">

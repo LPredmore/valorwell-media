@@ -24,8 +24,8 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/" element={<Navigate to="/content" replace />} />
-          <Route path="/content" element={<AuthGuard><ContentList /></AuthGuard>} />
+          <Route path="/" element={<Navigate to="/schedule" replace />} />
+          <Route path="/content" element={<Navigate to="/schedule" replace />} />
           <Route path="/content/new" element={<AuthGuard><CreateContent /></AuthGuard>} />
           <Route path="/content/:id" element={<AuthGuard><ContentDetail /></AuthGuard>} />
           <Route path="/schedule" element={<AuthGuard><Schedule /></AuthGuard>} />
@@ -33,9 +33,9 @@ const App = () => (
           <Route path="/instructions" element={<AuthGuard><Instructions /></AuthGuard>} />
           <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
           {/* Redirect old routes */}
-          <Route path="/jobs" element={<Navigate to="/content" replace />} />
+          <Route path="/jobs" element={<Navigate to="/schedule" replace />} />
           <Route path="/jobs/new" element={<Navigate to="/content/new" replace />} />
-          <Route path="/jobs/:id" element={<Navigate to="/content" replace />} />
+          <Route path="/jobs/:id" element={<Navigate to="/schedule" replace />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

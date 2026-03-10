@@ -222,6 +222,7 @@ export default function Ideas() {
             post_length: len,
             user_id: user.id,
             status: "incomplete" as const,
+            planned_date: idea.planned_date || null,
           })
           .select()
           .single();
@@ -260,7 +261,7 @@ export default function Ideas() {
       title: `Generated ${completedJobs} content items from ${selectedIdeas.length} ideas`,
       description: "View them in the content list.",
       action: (
-        <a href="/content" className="underline font-medium">
+        <a href="/schedule" className="underline font-medium">
           Go to Content
         </a>
       ),

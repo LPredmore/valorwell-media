@@ -12,7 +12,7 @@ export default function Schedule() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <h1 className="text-3xl font-extrabold tracking-tight">Schedule</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight">Content</h1>
 
         <Tabs value={lengthFilter} onValueChange={(v) => setLengthFilter(v as "Long" | "Short")}>
           <TabsList>
