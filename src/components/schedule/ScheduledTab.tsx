@@ -1,15 +1,21 @@
 import { useState } from "react";
 import { format } from "date-fns";
-import { Pencil, TableIcon, CalendarDays } from "lucide-react";
+import { Pencil, TableIcon, CalendarDays, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { useScheduledContent, useUpdateSchedule } from "@/hooks/useSchedule";
+import { useDeleteContent } from "@/hooks/useContents";
 import { ScheduleThumbnail } from "./ScheduleThumbnail";
 import { ScheduleDialog } from "./ScheduleDialog";
 import { CalendarView } from "./CalendarView";
 import { toast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import type { SocialContent } from "@/hooks/useContents";
 
 function YtBadge({ status }: { status: string | null }) {
@@ -26,6 +32,8 @@ function YtBadge({ status }: { status: string | null }) {
 export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) {
   const { data: items, isLoading } = useScheduledContent(postLength);
   const updateMutation = useUpdateSchedule();
+  const deleteMutation = useDeleteContent();
+  const queryClient = useQueryClient();
   const [view, setView] = useState<"table" | "calendar">("table");
   const [editItem, setEditItem] = useState<SocialContent | null>(null);
 
@@ -34,15 +42,22 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
     updateMutation.mutate(
       { id: editItem.id, scheduledAt, playlistId },
       {
-        onSuccess: () => {
-          toast({ title: "Schedule updated" });
-          setEditItem(null);
-        },
-        onError: (err: any) => {
-          toast({ title: "Failed to update", description: err.message, variant: "destructive" });
-        },
+        onSuccess: () => { toast({ title: "Schedule updated" }); setEditItem(null); },
+        onError: (err: any) => { toast({ title: "Failed to update", description: err.message, variant: "destructive" }); },
       }
     );
+  };
+
+  const handleDelete = (id: string) => {
+    deleteMutation.mutate(id, {
+      onSuccess: () => {
+        toast({ title: "Content deleted" });
+        queryClient.invalidateQueries({ queryKey: ["schedule"] });
+      },
+      onError: (err: any) => {
+        toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+      },
+    });
   };
 
   if (isLoading) return <div className="py-8 text-center text-muted-foreground">Loading…</div>;
@@ -54,20 +69,9 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
   return (
     <>
       <div className="flex justify-end mb-4">
-        <ToggleGroup
-          type="single"
-          value={view}
-          onValueChange={(v) => v && setView(v as "table" | "calendar")}
-          size="sm"
-        >
-          <ToggleGroupItem value="table" className="gap-1.5">
-            <TableIcon className="h-3.5 w-3.5" />
-            Table
-          </ToggleGroupItem>
-          <ToggleGroupItem value="calendar" className="gap-1.5">
-            <CalendarDays className="h-3.5 w-3.5" />
-            Calendar
-          </ToggleGroupItem>
+        <ToggleGroup type="single" value={view} onValueChange={(v) => v && setView(v as "table" | "calendar")} size="sm">
+          <ToggleGroupItem value="table" className="gap-1.5"><TableIcon className="h-3.5 w-3.5" />Table</ToggleGroupItem>
+          <ToggleGroupItem value="calendar" className="gap-1.5"><CalendarDays className="h-3.5 w-3.5" />Calendar</ToggleGroupItem>
         </ToggleGroup>
       </div>
 
@@ -81,7 +85,7 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
               <TableHead>Topic</TableHead>
               <TableHead className="w-44">Scheduled Date</TableHead>
               <TableHead className="w-24 hidden sm:table-cell">YouTube</TableHead>
-              <TableHead className="w-16 text-right">Action</TableHead>
+              <TableHead className="w-24 text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -90,15 +94,32 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
                 <TableCell className="hidden sm:table-cell"><ScheduleThumbnail imagePath={item.image} /></TableCell>
                 <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.post_title || item.topic}</TableCell>
                 <TableCell className="text-muted-foreground">
-                  {item.scheduled_at
-                    ? format(new Date(item.scheduled_at), "MMM d, yyyy h:mm a")
-                    : "—"}
+                  {item.scheduled_at ? format(new Date(item.scheduled_at), "MMM d, yyyy h:mm a") : "—"}
                 </TableCell>
                 <TableCell className="hidden sm:table-cell"><YtBadge status={item.youtube_status} /></TableCell>
                 <TableCell className="text-right">
-                  <Button size="sm" variant="ghost" onClick={() => setEditItem(item)}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
+                  <div className="flex items-center justify-end gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => setEditItem(item)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete content?</AlertDialogTitle>
+                          <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => handleDelete(item.id)}>Delete</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -114,11 +135,7 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
           loading={updateMutation.isPending}
           title="Edit Schedule"
           initialDate={editItem.scheduled_at ? new Date(editItem.scheduled_at) : undefined}
-          initialTime={
-            editItem.scheduled_at
-              ? format(new Date(editItem.scheduled_at), "HH:mm")
-              : undefined
-          }
+          initialTime={editItem.scheduled_at ? format(new Date(editItem.scheduled_at), "HH:mm") : undefined}
           initialPlaylistId={(editItem as any).playlist_id ?? null}
           postLength={editItem.post_length}
         />

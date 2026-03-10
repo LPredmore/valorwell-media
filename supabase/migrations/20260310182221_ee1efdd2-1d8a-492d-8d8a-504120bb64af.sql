@@ -1,0 +1,1 @@
+ALTER TABLE public.social_content ADD COLUMN planned_date timestamptz;

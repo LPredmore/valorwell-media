@@ -30,6 +30,7 @@ export type SocialContent = {
   youtube_uploaded_at: string | null;
   video_size_bytes: number | null;
   script: string | null;
+  planned_date: string | null;
   created_at: string;
   updated_at: string;
 };
