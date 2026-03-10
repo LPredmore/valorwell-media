@@ -19,27 +19,42 @@ const CSV_COLUMNS = ["topic", "category", "avatar", "length", "planned_date"];
 
 function parseCSV(text: string): string[][] {
   const rows: string[][] = [];
-  const lines = text.split(/\r?\n/);
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const cells: string[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (inQuotes) {
-        if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
-        else if (ch === '"') { inQuotes = false; }
-        else { current += ch; }
+  let current = "";
+  let inQuotes = false;
+  let cells: string[] = [];
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
       } else {
-        if (ch === '"') { inQuotes = true; }
-        else if (ch === ',') { cells.push(current.trim()); current = ""; }
-        else { current += ch; }
+        current += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        cells.push(current.trim());
+        current = "";
+      } else if (ch === '\n' || (ch === '\r' && text[i + 1] === '\n')) {
+        if (ch === '\r') i++; // skip \n after \r
+        cells.push(current.trim());
+        if (cells.some((c) => c !== "")) rows.push(cells);
+        cells = [];
+        current = "";
+      } else {
+        current += ch;
       }
     }
-    cells.push(current.trim());
-    rows.push(cells);
   }
+  // flush last row
+  cells.push(current.trim());
+  if (cells.some((c) => c !== "")) rows.push(cells);
+
   return rows;
 }
 
