@@ -18,7 +18,7 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-export function VideoUploader({ onFileSelected, progress = 0, uploading = false, currentFilename }: Props) {
+export function VideoUploader({ onFileSelected, progress = 0, uploading = false, currentFilename, fileSize }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
