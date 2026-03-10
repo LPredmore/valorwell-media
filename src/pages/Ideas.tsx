@@ -222,6 +222,7 @@ export default function Ideas() {
             post_length: len,
             user_id: user.id,
             status: "incomplete" as const,
+            planned_date: idea.planned_date || null,
           })
           .select()
           .single();
