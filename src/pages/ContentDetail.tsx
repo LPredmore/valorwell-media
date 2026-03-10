@@ -104,7 +104,7 @@ export default function ContentDetail() {
 
     try {
       await uploadVideoToR2(storagePath, file, (pct) => {
-        setVideoProgress(20 + pct * 0.5);
+        setVideoProgress(pct);
       });
       console.log("[ContentDetail] Video upload succeeded, updating DB...");
     } catch (uploadError: any) {

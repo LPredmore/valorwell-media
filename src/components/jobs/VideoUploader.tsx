@@ -74,7 +74,9 @@ export function VideoUploader({ onFileSelected, progress = 0, uploading = false,
       {uploading && (
         <div className="mt-4 w-full max-w-xs">
           <Progress value={progress} className="h-2" />
-          <p className="mt-1 text-center text-xs text-muted-foreground">{Math.round(progress)}%</p>
+          <p className="mt-1 text-center text-xs text-muted-foreground">
+            {Math.round(progress)}%{fileSize ? ` of ${formatBytes(fileSize)}` : ""} — Uploading…
+          </p>
         </div>
       )}
     </div>
