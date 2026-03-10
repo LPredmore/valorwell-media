@@ -376,6 +376,7 @@ export default function ContentDetail() {
           onReplace={handleVideoReplace}
           uploading={videoUploading}
           progress={videoProgress}
+          fileSize={videoFileSize}
         />
 
         {content.post_length === "Long" && (
