@@ -105,33 +105,26 @@ export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" })
               <TableCell className="text-muted-foreground hidden sm:table-cell">
                 {(item as any).planned_date ? format(new Date((item as any).planned_date), "MMM d, yyyy") : "—"}
               </TableCell>
-              <TableCell className="text-right">
-                <div className="flex items-center justify-end gap-1">
-                  <Button size="sm" variant="ghost" onClick={() => navigate(`/content/${item.id}`)}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setEditItem(item)}>
-                    Upload Media
-                  </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete content?</AlertDialogTitle>
-                        <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => handleDelete(item.id)}>Delete</AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              </TableCell>
+                <TableCell className="text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => navigate(`/content/${item.id}`)}>
+                        <Pencil className="h-4 w-4 mr-2" /> Edit
+                      </DropdownMenuItem>
+                      {(!item.image || !item.video_storage_path) && (
+                        <DropdownMenuItem onClick={() => setEditItem(item)}>
+                          <Upload className="h-4 w-4 mr-2" /> Upload Media
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(item.id)}>
+                        <Trash2 className="h-4 w-4 mr-2" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
             </TableRow>
           ))}
         </TableBody>
