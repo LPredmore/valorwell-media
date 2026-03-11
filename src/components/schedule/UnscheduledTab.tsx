@@ -36,6 +36,7 @@ export function UnscheduledTab({ postLength }: { postLength?: "Long" | "Short" }
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [selectedItem, setSelectedItem] = useState<SocialContent | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleScheduleClick = (item: SocialContent) => {
     const missing = validateForScheduling(item);
