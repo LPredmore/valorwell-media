@@ -1,12 +1,15 @@
 import { useState } from "react";
-import { Check, Minus, ImageIcon, Film, Loader2, Pencil, Trash2 } from "lucide-react";
+import { Check, Minus, ImageIcon, Film, Loader2, Pencil, Trash2, Upload, MoreHorizontal } from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useIncompleteContent } from "@/hooks/useSchedule";
 import { useDeleteContent } from "@/hooks/useContents";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,6 +28,7 @@ export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" })
   const navigate = useNavigate();
   const deleteMutation = useDeleteContent();
   const [editItem, setEditItem] = useState<SocialContent | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
   const handleMediaUpload = async (file: File, type: "video" | "image") => {
@@ -83,7 +87,7 @@ export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" })
             {postLength !== "Short" && <TableHead className="w-20 text-center hidden sm:table-cell">Image</TableHead>}
             <TableHead className="w-20 text-center hidden sm:table-cell">Video</TableHead>
             <TableHead className="w-32 hidden sm:table-cell">Planned Date</TableHead>
-            <TableHead className="w-36 text-right">Action</TableHead>
+            <TableHead className="w-14 text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -101,33 +105,26 @@ export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" })
               <TableCell className="text-muted-foreground hidden sm:table-cell">
                 {(item as any).planned_date ? format(new Date((item as any).planned_date), "MMM d, yyyy") : "—"}
               </TableCell>
-              <TableCell className="text-right">
-                <div className="flex items-center justify-end gap-1">
-                  <Button size="sm" variant="ghost" onClick={() => navigate(`/content/${item.id}`)}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setEditItem(item)}>
-                    Upload Media
-                  </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete content?</AlertDialogTitle>
-                        <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => handleDelete(item.id)}>Delete</AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              </TableCell>
+                <TableCell className="text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => navigate(`/content/${item.id}`)}>
+                        <Pencil className="h-4 w-4 mr-2" /> Edit
+                      </DropdownMenuItem>
+                      {(!item.image || !item.video_storage_path) && (
+                        <DropdownMenuItem onClick={() => setEditItem(item)}>
+                          <Upload className="h-4 w-4 mr-2" /> Upload Media
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(item.id)}>
+                        <Trash2 className="h-4 w-4 mr-2" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -171,6 +168,19 @@ export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" })
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete content?</AlertDialogTitle>
+            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (deleteTarget) handleDelete(deleteTarget); setDeleteTarget(null); }}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

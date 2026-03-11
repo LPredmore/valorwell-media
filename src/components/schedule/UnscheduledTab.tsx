@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { format } from "date-fns";
 import { useNavigate } from "react-router-dom";
-import { CalendarPlus, Pencil, Trash2 } from "lucide-react";
+import { CalendarPlus, Pencil, Trash2, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useUnscheduledContent, useScheduleContent, usePostNow } from "@/hooks/useSchedule";
 import { useDeleteContent } from "@/hooks/useContents";
 import { ScheduleThumbnail } from "./ScheduleThumbnail";
@@ -33,6 +36,7 @@ export function UnscheduledTab({ postLength }: { postLength?: "Long" | "Short" }
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [selectedItem, setSelectedItem] = useState<SocialContent | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleScheduleClick = (item: SocialContent) => {
     const missing = validateForScheduling(item);
@@ -86,7 +90,7 @@ export function UnscheduledTab({ postLength }: { postLength?: "Long" | "Short" }
             <TableHead className="w-14 hidden sm:table-cell">Image</TableHead>
             <TableHead>Topic</TableHead>
             <TableHead className="w-40 hidden sm:table-cell">Planned Date</TableHead>
-            <TableHead className="w-36 text-right">Action</TableHead>
+            <TableHead className="w-14 text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -100,32 +104,22 @@ export function UnscheduledTab({ postLength }: { postLength?: "Long" | "Short" }
                   {format(new Date(dateToShow), "MMM d, yyyy")}
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => navigate(`/content/${item.id}`)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleScheduleClick(item)}>
-                      <CalendarPlus className="h-3.5 w-3.5" />
-                      Schedule
-                    </Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete content?</AlertDialogTitle>
-                          <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handleDelete(item.id)}>Delete</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => navigate(`/content/${item.id}`)}>
+                        <Pencil className="h-4 w-4 mr-2" /> Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleScheduleClick(item)}>
+                        <CalendarPlus className="h-4 w-4 mr-2" /> Schedule
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(item.id)}>
+                        <Trash2 className="h-4 w-4 mr-2" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             );
@@ -140,6 +134,19 @@ export function UnscheduledTab({ postLength }: { postLength?: "Long" | "Short" }
         loading={scheduleMutation.isPending || postNowMutation.isPending}
         postLength={selectedItem?.post_length}
       />
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete content?</AlertDialogTitle>
+            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (deleteTarget) handleDelete(deleteTarget); setDeleteTarget(null); }}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
