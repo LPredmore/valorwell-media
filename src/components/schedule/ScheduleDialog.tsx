@@ -30,25 +30,34 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { usePlaylists } from "@/hooks/useSchedule";
 
-// Preferred times in CST (UTC-6)
-const SHORT_TIMES_CST = [
-  { label: "11 AM", cstHour: 11 },
-  { label: "1 PM", cstHour: 13 },
-  { label: "6 PM", cstHour: 18 },
-  { label: "8 PM", cstHour: 20 },
+// Preferred times in America/Chicago (handles CST/CDT automatically)
+const SHORT_TIMES_CHICAGO = [
+  { label: "11 AM", chicagoHour: 11 },
+  { label: "1 PM", chicagoHour: 13 },
+  { label: "6 PM", chicagoHour: 18 },
+  { label: "8 PM", chicagoHour: 20 },
 ];
-const LONG_TIMES_CST = [
-  { label: "6 AM", cstHour: 6 },
-  { label: "8 AM", cstHour: 8 },
+const LONG_TIMES_CHICAGO = [
+  { label: "6 AM", chicagoHour: 6 },
+  { label: "8 AM", chicagoHour: 8 },
 ];
 
-/** Convert a CST hour to a local time string HH:mm */
-function cstHourToLocalTime(cstHour: number): string {
-  // CST = UTC-6. Create a date in UTC for today at cstHour + 6
-  const now = new Date();
-  const utc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), cstHour + 6, 0, 0);
-  const local = new Date(utc);
-  return `${String(local.getHours()).padStart(2, "0")}:${String(local.getMinutes()).padStart(2, "0")}`;
+/** Convert a Chicago-time hour to a UTC Date for the given date */
+function chicagoHourToUTC(date: Date, chicagoHour: number): Date {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(chicagoHour).padStart(2, "0");
+
+  // Create a probe date to discover Chicago's actual UTC offset on that day
+  const probe = new Date(`${year}-${month}-${day}T${hour}:00:00`);
+  const chicagoStr = probe.toLocaleString("en-US", { timeZone: "America/Chicago" });
+  const chicagoDate = new Date(chicagoStr);
+  const offsetMs = probe.getTime() - chicagoDate.getTime();
+
+  // The real UTC time = Chicago wall-clock time + offset
+  const utcMs = new Date(year, date.getMonth(), date.getDate(), chicagoHour, 0, 0).getTime() + offsetMs;
+  return new Date(utcMs);
 }
 
 interface ScheduleDialogProps {
@@ -81,19 +90,21 @@ export function ScheduleDialog({
   const [playlistId, setPlaylistId] = useState<number | null>(initialPlaylistId ?? null);
   const { data: playlists } = usePlaylists();
 
-  const prefOptions = postLength === "Long" ? LONG_TIMES_CST : SHORT_TIMES_CST;
+  const prefOptions = postLength === "Long" ? LONG_TIMES_CHICAGO : SHORT_TIMES_CHICAGO;
 
   const handleConfirm = () => {
     if (!date) return;
 
-    // Determine the effective time string
-    const effectiveTime = usePrefTimes && selectedPrefTime
-      ? cstHourToLocalTime(Number(selectedPrefTime))
-      : time;
-
-    const [hours, minutes] = effectiveTime.split(":").map(Number);
-    const selectedAt = new Date(date);
-    selectedAt.setHours(hours, minutes, 0, 0);
+    let selectedAt: Date;
+    if (usePrefTimes && selectedPrefTime) {
+      // Convert Chicago wall-clock hour → UTC, DST-aware
+      selectedAt = chicagoHourToUTC(date, Number(selectedPrefTime));
+    } else {
+      // Manual time input is in the user's local browser timezone
+      const [hours, minutes] = time.split(":").map(Number);
+      selectedAt = new Date(date);
+      selectedAt.setHours(hours, minutes, 0, 0);
+    }
 
     onConfirm(selectedAt, playlistId);
   };
@@ -171,8 +182,8 @@ export function ScheduleDialog({
               >
                 {prefOptions.map((opt) => (
                   <ToggleGroupItem
-                    key={opt.cstHour}
-                    value={String(opt.cstHour)}
+                    key={opt.chicagoHour}
+                    value={String(opt.chicagoHour)}
                     variant="outline"
                     className="px-3 py-1.5 text-sm"
                   >
