@@ -87,7 +87,7 @@ export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" })
             {postLength !== "Short" && <TableHead className="w-20 text-center hidden sm:table-cell">Image</TableHead>}
             <TableHead className="w-20 text-center hidden sm:table-cell">Video</TableHead>
             <TableHead className="w-32 hidden sm:table-cell">Planned Date</TableHead>
-            <TableHead className="w-36 text-right">Action</TableHead>
+            <TableHead className="w-14 text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
