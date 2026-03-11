@@ -35,6 +35,7 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
   const updateMutation = useUpdateSchedule();
   const deleteMutation = useDeleteContent();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [view, setView] = useState<"table" | "calendar">("table");
   const [editItem, setEditItem] = useState<SocialContent | null>(null);
 
