@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { format } from "date-fns";
+import { useNavigate } from "react-router-dom";
 import { Pencil, TableIcon, CalendarDays, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
   const updateMutation = useUpdateSchedule();
   const deleteMutation = useDeleteContent();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [view, setView] = useState<"table" | "calendar">("table");
   const [editItem, setEditItem] = useState<SocialContent | null>(null);
 
@@ -99,8 +101,11 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
                 <TableCell className="hidden sm:table-cell"><YtBadge status={item.youtube_status} /></TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => setEditItem(item)}>
+                    <Button size="sm" variant="ghost" onClick={() => navigate(`/content/${item.id}`)}>
                       <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditItem(item)}>
+                      <CalendarDays className="h-3.5 w-3.5" />
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
