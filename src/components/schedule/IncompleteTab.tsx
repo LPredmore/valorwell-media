@@ -1,12 +1,15 @@
 import { useState } from "react";
-import { Check, Minus, ImageIcon, Film, Loader2, Pencil, Trash2 } from "lucide-react";
+import { Check, Minus, ImageIcon, Film, Loader2, Pencil, Trash2, Upload, MoreHorizontal } from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useIncompleteContent } from "@/hooks/useSchedule";
 import { useDeleteContent } from "@/hooks/useContents";
 import { supabase } from "@/integrations/supabase/client";
