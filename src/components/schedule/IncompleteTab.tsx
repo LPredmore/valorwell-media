@@ -28,6 +28,7 @@ export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" })
   const navigate = useNavigate();
   const deleteMutation = useDeleteContent();
   const [editItem, setEditItem] = useState<SocialContent | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
   const handleMediaUpload = async (file: File, type: "video" | "image") => {
