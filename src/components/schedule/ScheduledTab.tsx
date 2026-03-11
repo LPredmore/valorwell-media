@@ -41,6 +41,7 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
   const navigate = useNavigate();
   const [view, setView] = useState<"table" | "calendar">("table");
   const [editItem, setEditItem] = useState<SocialContent | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleUpdate = (scheduledAt: Date, playlistId: number | null) => {
     if (!editItem) return;
