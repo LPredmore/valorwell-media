@@ -90,7 +90,7 @@ export function UnscheduledTab({ postLength }: { postLength?: "Long" | "Short" }
             <TableHead className="w-14 hidden sm:table-cell">Image</TableHead>
             <TableHead>Topic</TableHead>
             <TableHead className="w-40 hidden sm:table-cell">Planned Date</TableHead>
-            <TableHead className="w-36 text-right">Action</TableHead>
+            <TableHead className="w-14 text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
