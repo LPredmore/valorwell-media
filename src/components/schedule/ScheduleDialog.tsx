@@ -182,8 +182,8 @@ export function ScheduleDialog({
               >
                 {prefOptions.map((opt) => (
                   <ToggleGroupItem
-                    key={opt.cstHour}
-                    value={String(opt.cstHour)}
+                    key={opt.chicagoHour}
+                    value={String(opt.chicagoHour)}
                     variant="outline"
                     className="px-3 py-1.5 text-sm"
                   >
