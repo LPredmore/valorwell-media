@@ -90,7 +90,7 @@ export function ScheduleDialog({
   const [playlistId, setPlaylistId] = useState<number | null>(initialPlaylistId ?? null);
   const { data: playlists } = usePlaylists();
 
-  const prefOptions = postLength === "Long" ? LONG_TIMES_CST : SHORT_TIMES_CST;
+  const prefOptions = postLength === "Long" ? LONG_TIMES_CHICAGO : SHORT_TIMES_CHICAGO;
 
   const handleConfirm = () => {
     if (!date) return;
