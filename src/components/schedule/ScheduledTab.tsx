@@ -91,7 +91,7 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
               <TableHead>Topic</TableHead>
               <TableHead className="w-44">Scheduled Date</TableHead>
               <TableHead className="w-24 hidden sm:table-cell">YouTube</TableHead>
-              <TableHead className="w-24 text-right">Action</TableHead>
+              <TableHead className="w-14 text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
