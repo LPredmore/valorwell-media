@@ -104,32 +104,22 @@ export function UnscheduledTab({ postLength }: { postLength?: "Long" | "Short" }
                   {format(new Date(dateToShow), "MMM d, yyyy")}
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => navigate(`/content/${item.id}`)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleScheduleClick(item)}>
-                      <CalendarPlus className="h-3.5 w-3.5" />
-                      Schedule
-                    </Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete content?</AlertDialogTitle>
-                          <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handleDelete(item.id)}>Delete</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => navigate(`/content/${item.id}`)}>
+                        <Pencil className="h-4 w-4 mr-2" /> Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleScheduleClick(item)}>
+                        <CalendarPlus className="h-4 w-4 mr-2" /> Schedule
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(item.id)}>
+                        <Trash2 className="h-4 w-4 mr-2" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             );
