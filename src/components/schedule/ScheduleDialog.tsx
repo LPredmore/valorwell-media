@@ -95,14 +95,16 @@ export function ScheduleDialog({
   const handleConfirm = () => {
     if (!date) return;
 
-    // Determine the effective time string
-    const effectiveTime = usePrefTimes && selectedPrefTime
-      ? cstHourToLocalTime(Number(selectedPrefTime))
-      : time;
-
-    const [hours, minutes] = effectiveTime.split(":").map(Number);
-    const selectedAt = new Date(date);
-    selectedAt.setHours(hours, minutes, 0, 0);
+    let selectedAt: Date;
+    if (usePrefTimes && selectedPrefTime) {
+      // Convert Chicago wall-clock hour → UTC, DST-aware
+      selectedAt = chicagoHourToUTC(date, Number(selectedPrefTime));
+    } else {
+      // Manual time input is in the user's local browser timezone
+      const [hours, minutes] = time.split(":").map(Number);
+      selectedAt = new Date(date);
+      selectedAt.setHours(hours, minutes, 0, 0);
+    }
 
     onConfirm(selectedAt, playlistId);
   };
