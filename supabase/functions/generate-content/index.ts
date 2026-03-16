@@ -254,7 +254,7 @@ Deno.serve(async (req) => {
   const adminClient = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    const { contentId } = await req.json();
+    const { contentId, skipScript } = await req.json();
     if (!contentId) {
       return new Response(JSON.stringify({ error: "contentId is required" }), {
         status: 400,
@@ -299,7 +299,11 @@ Deno.serve(async (req) => {
     let script: string | null = null;
 
     // ── Step 1: Generate script (one per video type) ──
-    if (postLength === "Long") {
+    // If skipScript is true, use the pre-populated script from the DB
+    if (skipScript && content.script) {
+      script = content.script;
+      console.log(`[generate-content] Skipping script generation — using pre-populated script`);
+    } else if (postLength === "Long") {
       try {
         console.log(`[generate-content] Step 1: Generating long script for "${topic}"`);
         script = await generateLongScript(OPENROUTER_API_KEY, topic, instructions);

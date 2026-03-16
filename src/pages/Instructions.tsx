@@ -32,6 +32,7 @@ const SCOPE_LABELS: Record<string, string> = {
   youtube_comment: "YouTube Comment",
   script_long: "Script (Long-Form Videos)",
   script_short: "Script (Short-Form Videos)",
+  shorts_extraction: "Shorts Extraction Strategy",
 };
 
 function ContentInstructionRow({ row }: { row: ContentInstruction }) {
