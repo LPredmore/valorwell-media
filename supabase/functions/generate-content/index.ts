@@ -254,7 +254,7 @@ Deno.serve(async (req) => {
   const adminClient = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    const { contentId } = await req.json();
+    const { contentId, skipScript } = await req.json();
     if (!contentId) {
       return new Response(JSON.stringify({ error: "contentId is required" }), {
         status: 400,
