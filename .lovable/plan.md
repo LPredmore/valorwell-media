@@ -1,130 +1,89 @@
 
 
-# Shorts Extraction from Long-Form Content — Implementation Plan
+# Fix: Shorts Image Requirement + Long Video Image Not Persisting
 
-## Architecture Decision: Client-Side Sequential Loop (No New Edge Function)
+## Two Distinct Issues
 
-The client already loops sequentially through ideas in `handleGenerate`. The new flow adds one AI call to extract short scripts, then reuses the existing `generate-content` function for each Short's social copy. This eliminates timeout risk entirely — each network call is independent and well within limits.
+### Issue 1: Shorts cannot be scheduled — database trigger requires image for all content
 
-## How Every Risk Item Drops to Low
+The client-side validation in `UnscheduledTab.tsx` (line 15) correctly skips the image check for Shorts: `if (item.post_length === "Long" && !item.image?.trim())`. So the UI lets you proceed. But then the Supabase update to set `scheduled_at` fires the database trigger `enforce_youtube_schedule_requirements`, which unconditionally checks `if coalesce(new.image, '') = '' then raise exception 'Cannot schedule: image is missing'`. It does not check `post_length`. The trigger rejects the update, Supabase returns an error, and the UI shows the failure.
 
-| Risk | Mitigation |
-|------|-----------|
-| **Edge function timeout (was HIGH)** | No new edge function. One extraction call + N independent `generate-content` calls, each under 15s. |
-| **Partial failures (was HIGH)** | Idea deletion deferred until ALL items (Long + every Short) succeed. If any Short fails, the idea survives for retry. Already-created content rows remain usable. |
-| **posted_content schema (was HIGH)** | `parent_content_id` added to both `social_content` AND `posted_content`. The `...rest` spread in `post-scheduled-content` will pass it through cleanly. |
-| **Regenerate destroys context (was MED)** | No change needed now — `generate-content` already checks `post_length` and generates the right script type. Extracted Shorts are regular Short rows; regenerating one produces a standalone short script, which is acceptable behavior. |
-| **CSV batch amplification (was MED)** | Sequential processing is already the pattern. Progress bar updated per-item so user sees real progress. |
-| **Missing email notifications (was MED)** | Each extracted Short calls `generate-content`, which already sends emails. No gap. |
-| **Dangling Bridge CTAs on delete (was MED)** | `ON DELETE SET NULL` is correct — Shorts remain functional content even without a parent. The Bridge CTA is baked into the script text; it references "the full video" generically, not a specific URL. |
-| **Progress bar accuracy (was LOW)** | Progress shows "Step 1: Extracting shorts..." then updates total dynamically once extraction returns the count. |
-| **No visual distinction (was LOW)** | Deferred — not a risk, just a future UX enhancement. |
-| **Instruction seed idempotency (was LOW)** | Use `INSERT ... ON CONFLICT` or check existence. `content_instructions` gets a unique constraint on `scope`. |
+**Root cause**: The trigger was never updated for Shorts. The client-side fix was correct but irrelevant — the server-side gate is the one blocking it.
 
-## Implementation Steps
+### Issue 2: Long video images are not available after posting
 
-### 1. Database Migration
+In `post-scheduled-content/index.ts` (line 83-84), the insert into `posted_content` explicitly sets `video_url: null` and `image_url: null`. The `image` field (the R2 storage path) does flow through via `...rest`, so the R2 path is preserved in `posted_content.image`. However, `image_url` (which would be a signed URL for external platforms like Make.com to download) is deliberately nulled. The previous diagnosis noted that signed URLs should be generated here, but currently they are not.
+
+This means: the R2 path is archived, but no usable download URL is generated for external consumers at posting time.
+
+## Technical Decisions
+
+### Decision 1: Fix the trigger, not the client code
+
+The correct fix is to modify the `enforce_youtube_schedule_requirements` database function to skip the image check when `post_length = 'Short'`. This is the single source of truth for scheduling validation. The client-side validation in `UnscheduledTab.tsx` is already correct and needs no change.
+
+### Decision 2: Generate signed R2 URLs in the edge function
+
+The `post-scheduled-content` function should generate signed R2 read URLs for both `video_url` and `image_url` (when `image` is present) instead of nulling them out. This is what Make.com needs to download the assets. The memory note on this system explicitly states this is the intended design: "generates 1-hour signed R2 URLs for `video_url` and `image_url` at the moment of migration." The current code contradicts the documented architecture. The edge function already has access to R2 secrets (it runs with service role), and the `r2-read-url` function shows the pattern for generating signed URLs.
+
+## Changes
+
+### 1. Database migration: update `enforce_youtube_schedule_requirements`
+
+Replace the trigger function to skip the image check when `post_length = 'Short'`:
 
 ```sql
--- Add parent tracking to both tables
-ALTER TABLE social_content
-  ADD COLUMN parent_content_id uuid REFERENCES social_content(id) ON DELETE SET NULL;
+CREATE OR REPLACE FUNCTION public.enforce_youtube_schedule_requirements()
+  RETURNS trigger
+  LANGUAGE plpgsql
+AS $$
+begin
+  if new.scheduled_at is not null then
+    -- Image only required for Long-form content
+    if new.post_length IS DISTINCT FROM 'Short' and coalesce(new.image, '') = '' then
+      raise exception 'Cannot schedule: image is missing';
+    end if;
 
-ALTER TABLE posted_content
-  ADD COLUMN parent_content_id uuid;
+    if coalesce(new.video_storage_path, '') = '' then
+      raise exception 'Cannot schedule: video_storage_path is missing';
+    end if;
 
--- Prevent duplicate instruction scopes
-ALTER TABLE content_instructions
-  ADD CONSTRAINT content_instructions_scope_unique UNIQUE (scope);
+    if coalesce(new.youtube_title, '') = '' then
+      raise exception 'Cannot schedule: youtube_title is missing';
+    end if;
 
--- Seed the extraction instruction
-INSERT INTO content_instructions (scope, instruction, is_active)
-VALUES ('shorts_extraction', '<the full Shorts Strategist prompt>', true)
-ON CONFLICT (scope) DO NOTHING;
+    if coalesce(new.youtube_desc, '') = '' then
+      raise exception 'Cannot schedule: youtube_desc is missing';
+    end if;
+
+    if new.post_length is null then
+      raise exception 'Cannot schedule: post_length is missing';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
 ```
 
-### 2. New Edge Function: `extract-shorts` (Lightweight, Single-Purpose)
+Using `IS DISTINCT FROM 'Short'` rather than `= 'Long'` so the image is still required for any future post types and for null `post_length` (which would be caught by the later null check anyway, but defense in depth).
 
-**Input:** `{ longScript, topic }`
-**Output:** `{ shorts: [{ title, script }, ...] }` (3-5 items)
+### 2. Edge function: generate signed R2 URLs instead of nulling them
 
-This function does ONE thing: calls the AI with the `shorts_extraction` instruction and returns structured Short scripts. No DB writes, no social copy generation. ~10s max execution time.
+In `supabase/functions/post-scheduled-content/index.ts`, import the S3 client (same pattern as `r2-read-url`), and before inserting into `posted_content`:
 
-```
-supabase/functions/extract-shorts/index.ts
-```
+- If `row.video_storage_path` exists, generate a 1-hour signed URL and set it as `video_url`.
+- If `row.image` exists, generate a 1-hour signed URL and set it as `image_url`.
+- If either is missing, leave it as `null`.
 
-- Fetches `shorts_extraction` instruction from `content_instructions`
-- Calls OpenRouter with tool calling, tool returns array of `{ title, script }`
-- Returns JSON array to client
+This requires reading R2 secrets (`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) which are already configured in the project secrets. I will read the `r2-read-url` function to replicate the exact signing pattern.
 
-Register in `config.toml`:
-```toml
-[functions.extract-shorts]
-verify_jwt = false
-```
+### Summary
 
-### 3. Update `Ideas.tsx` — `handleGenerate` for "Both" Flow
+| Location | Change |
+|---|---|
+| DB migration | Update `enforce_youtube_schedule_requirements` to skip image check for Shorts |
+| `post-scheduled-content/index.ts` | Generate signed R2 URLs for `video_url` and `image_url` instead of setting them to `null` |
 
-Current flow for "Both": creates Long row → generate-content, then Short row → generate-content, then deletes idea.
-
-New flow for "Both":
-1. Create Long row → call `generate-content` (existing)
-2. Call `extract-shorts` with `{ longScript, topic }` → get 3-5 short scripts
-3. For each extracted short, sequentially:
-   - Insert `social_content` row with `post_length: "Short"`, `parent_content_id: longContentId`, `script: extractedScript`
-   - Call `generate-content` with `{ contentId, skipScript: true }` — generates social copy only, skips script generation since script is pre-populated
-4. Only delete idea if Long AND all Shorts succeeded
-
-Progress tracking:
-- Phase 1: "Generating long-form..." (1 step)
-- Phase 2: "Extracting shorts..." (1 step)  
-- Phase 3: "Generating short 1 of N..." (N steps)
-- Total recalculated dynamically after Phase 2 returns
-
-### 4. Update `generate-content` Edge Function — Add `skipScript` Flag
-
-When called with `{ contentId, skipScript: true }`:
-- Skip Step 1 (script generation) entirely
-- Use the existing `script` column value for social copy generation in Step 2
-- Everything else unchanged
-
-This is a 5-line change: check for `skipScript` in the request body, and if true, read `content.script` instead of generating a new one.
-
-### 5. Update `Instructions.tsx` — Add Scope Label
-
-Add to `SCOPE_LABELS`:
-```typescript
-shorts_extraction: "Shorts Extraction Strategy",
-```
-
-### 6. Update `post-scheduled-content` — Strip `parent_content_id` from Spread
-
-Add `parent_content_id` to the destructured-and-excluded fields, then explicitly set it on the insert. This ensures the column is handled explicitly rather than relying on spread:
-
-```typescript
-const { id: _id, ..., parent_content_id,  ...rest } = row;
-// insert with: parent_content_id
-```
-
-Actually — since `posted_content` now has the column and we want to preserve the relationship, `...rest` will pass it through automatically. No code change needed in this file.
-
-## Files Changed
-
-| File | Change |
-|------|--------|
-| DB migration | Add `parent_content_id` to both tables, unique constraint on `content_instructions.scope`, seed `shorts_extraction` row |
-| `supabase/functions/extract-shorts/index.ts` | **New** — lightweight AI extraction, returns short scripts |
-| `supabase/functions/generate-content/index.ts` | Add `skipScript` flag support (~5 lines) |
-| `supabase/config.toml` | Register `extract-shorts` |
-| `src/pages/Ideas.tsx` | Refactor "Both" flow: Long → extract → sequential Short generation |
-| `src/pages/Instructions.tsx` | Add `shorts_extraction` to `SCOPE_LABELS` |
-
-## What Does NOT Change
-
-- `ContentDetail.tsx` — Regenerate button works as-is (generates standalone script for any content type)
-- `post-scheduled-content` — `...rest` spread passes `parent_content_id` through naturally
-- `ContentList.tsx` / Schedule pages — Shorts appear normally in Short tab
-- Standalone "Short" ideas — Still create one Short, call `generate-content` directly
-- YouTube/TikTok/Publer posting — Completely unaffected
+No client-side code changes needed. The UI validation is already correct.
 

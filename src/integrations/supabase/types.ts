@@ -352,6 +352,44 @@ export type Database = {
           },
         ]
       }
+      app_campaign_triggers: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          entity_type: string
+          id: string
+          is_active: boolean
+          trigger_status: string
+          updated_at: string
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          entity_type: string
+          id?: string
+          is_active?: boolean
+          trigger_status: string
+          updated_at?: string
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          entity_type?: string
+          id?: string
+          is_active?: boolean
+          trigger_status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_campaign_triggers_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "app_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       app_campaigns: {
         Row: {
           created_at: string
@@ -606,8 +644,15 @@ export type Database = {
           {
             foreignKeyName: "current_competitors_influencer_id_fkey"
             columns: ["influencer_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "influencers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "current_competitors_influencer_id_fkey"
+            columns: ["influencer_id"]
+            isOneToOne: true
+            referencedRelation: "influencers_with_top_platform"
             referencedColumns: ["id"]
           },
         ]
@@ -724,6 +769,13 @@ export type Database = {
             columns: ["influencer_id"]
             isOneToOne: false
             referencedRelation: "influencers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "influencer_platforms_influencer_id_fkey"
+            columns: ["influencer_id"]
+            isOneToOne: false
+            referencedRelation: "influencers_with_top_platform"
             referencedColumns: ["id"]
           },
         ]
@@ -1346,7 +1398,68 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      competitors_with_influencer: {
+        Row: {
+          accepted_rules: boolean | null
+          avatar_url: string | null
+          comp_link: string | null
+          created_at: string | null
+          division: string | null
+          email: string | null
+          first_name: string | null
+          id: string | null
+          influencer_id: string | null
+          last_name: string | null
+          pref_name: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "current_competitors_influencer_id_fkey"
+            columns: ["influencer_id"]
+            isOneToOne: true
+            referencedRelation: "influencers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "current_competitors_influencer_id_fkey"
+            columns: ["influencer_id"]
+            isOneToOne: true
+            referencedRelation: "influencers_with_top_platform"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      influencers_with_top_platform: {
+        Row: {
+          accepted_rules: boolean | null
+          additional_info: string | null
+          avatar_url: string | null
+          comfort_level: string | null
+          created_at: string | null
+          email: string | null
+          first_name: string | null
+          fundraising_goal: string | null
+          highest_follower_count: number | null
+          highest_follower_platform: string | null
+          id: string | null
+          is_competing: boolean | null
+          last_name: string | null
+          motivation: string | null
+          password: string | null
+          past_competitions: Json[] | null
+          personal_mission: string | null
+          pref_name: string | null
+          profile_complete: boolean | null
+          state: string | null
+          status: string | null
+          top_follower_count: number | null
+          top_platform: string | null
+          user_id: string | null
+          veteran_connection: string | null
+          willing_to_share: boolean | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       has_role: {
