@@ -931,6 +931,7 @@ export type Database = {
           image: string | null
           image_url: string | null
           linkedin_desc: string | null
+          parent_content_id: string | null
           planned_date: string | null
           playlist_id: number | null
           post_length: Database["public"]["Enums"]["video_length"] | null
@@ -968,6 +969,7 @@ export type Database = {
           image?: string | null
           image_url?: string | null
           linkedin_desc?: string | null
+          parent_content_id?: string | null
           planned_date?: string | null
           playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
@@ -1005,6 +1007,7 @@ export type Database = {
           image?: string | null
           image_url?: string | null
           linkedin_desc?: string | null
+          parent_content_id?: string | null
           planned_date?: string | null
           playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
@@ -1127,6 +1130,7 @@ export type Database = {
           ig_tiktok_desc: string | null
           image: string | null
           linkedin_desc: string | null
+          parent_content_id: string | null
           planned_date: string | null
           playlist_id: number | null
           post_length: Database["public"]["Enums"]["video_length"] | null
@@ -1164,6 +1168,7 @@ export type Database = {
           ig_tiktok_desc?: string | null
           image?: string | null
           linkedin_desc?: string | null
+          parent_content_id?: string | null
           planned_date?: string | null
           playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
@@ -1201,6 +1206,7 @@ export type Database = {
           ig_tiktok_desc?: string | null
           image?: string | null
           linkedin_desc?: string | null
+          parent_content_id?: string | null
           planned_date?: string | null
           playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
@@ -1231,6 +1237,13 @@ export type Database = {
           youtube_video_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "social_content_parent_content_id_fkey"
+            columns: ["parent_content_id"]
+            isOneToOne: false
+            referencedRelation: "social_content"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "social_content_playlist_id_fkey"
             columns: ["playlist_id"]
