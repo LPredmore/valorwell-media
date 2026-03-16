@@ -201,19 +201,127 @@ export default function Ideas() {
     const selectedIdeas = ideas.filter((i) => selected.has(i.id));
     setGenerating(true);
 
-    const totalJobs = selectedIdeas.reduce((sum, idea) => sum + (idea.length === "Both" ? 2 : 1), 0);
+    // Initial estimate: "Both" = 1 Long + 1 extraction + ~3 shorts (estimate)
+    const initialTotalJobs = selectedIdeas.reduce((sum, idea) => {
+      if (idea.length === "Both") return sum + 2; // Long + extraction (shorts added dynamically)
+      return sum + 1;
+    }, 0);
     let completedJobs = 0;
+    let totalJobs = initialTotalJobs;
     setGenProgress({ current: 0, total: totalJobs });
 
     const successfulIdeaIds: number[] = [];
+    let totalCreated = 0;
 
     for (const idea of selectedIdeas) {
-      const lengths: Array<"Short" | "Long"> = idea.length === "Both" ? ["Long", "Short"] : [(idea.length || "Long") as "Short" | "Long"];
       let ideaSuccess = true;
 
-      for (const len of lengths) {
-        completedJobs++;
-        setGenProgress({ current: completedJobs, total: totalJobs });
+      if (idea.length === "Both") {
+        // ── Phase 1: Generate Long-form content ──
+        const { data: longContent, error: longInsertErr } = await supabase
+          .from("social_content")
+          .insert({
+            topic: idea.topic || "Untitled",
+            post_length: "Long" as const,
+            user_id: user.id,
+            status: "incomplete" as const,
+            planned_date: idea.planned_date || null,
+          })
+          .select()
+          .single();
+
+        if (longInsertErr || !longContent) {
+          toast({ title: `Failed to create Long content for "${idea.topic?.slice(0, 40)}"`, description: longInsertErr?.message, variant: "destructive" });
+          ideaSuccess = false;
+        } else {
+          const { error: genErr } = await supabase.functions.invoke("generate-content", {
+            body: { contentId: longContent.id },
+          });
+          if (genErr) {
+            toast({ title: `Long generation failed for "${idea.topic?.slice(0, 40)}"`, description: genErr.message, variant: "destructive" });
+            ideaSuccess = false;
+          } else {
+            totalCreated++;
+            completedJobs++;
+            setGenProgress({ current: completedJobs, total: totalJobs });
+
+            // ── Phase 2: Extract shorts from long script ──
+            // Fetch the generated long script
+            const { data: updatedLong } = await supabase
+              .from("social_content")
+              .select("script")
+              .eq("id", longContent.id)
+              .single();
+
+            const longScript = updatedLong?.script;
+
+            if (longScript) {
+              completedJobs++;
+              setGenProgress({ current: completedJobs, total: totalJobs });
+
+              const { data: extractData, error: extractErr } = await supabase.functions.invoke("extract-shorts", {
+                body: { longScript, topic: idea.topic || "Untitled" },
+              });
+
+              if (extractErr || !extractData?.shorts) {
+                toast({ title: `Shorts extraction failed for "${idea.topic?.slice(0, 40)}"`, description: extractErr?.message || "No shorts returned", variant: "destructive" });
+                ideaSuccess = false;
+              } else {
+                const shorts = extractData.shorts as Array<{ title: string; script: string }>;
+                // Update total dynamically now that we know the count
+                totalJobs = totalJobs + shorts.length;
+                setGenProgress({ current: completedJobs, total: totalJobs });
+
+                // ── Phase 3: Generate each short sequentially ──
+                for (let i = 0; i < shorts.length; i++) {
+                  const short = shorts[i];
+
+                  const { data: shortContent, error: shortInsertErr } = await supabase
+                    .from("social_content")
+                    .insert({
+                      topic: idea.topic || "Untitled",
+                      post_length: "Short" as const,
+                      user_id: user.id,
+                      status: "incomplete" as const,
+                      planned_date: idea.planned_date || null,
+                      script: short.script,
+                      parent_content_id: longContent.id,
+                    })
+                    .select()
+                    .single();
+
+                  if (shortInsertErr || !shortContent) {
+                    toast({ title: `Failed to create Short ${i + 1} for "${idea.topic?.slice(0, 40)}"`, description: shortInsertErr?.message, variant: "destructive" });
+                    ideaSuccess = false;
+                    continue;
+                  }
+
+                  const { error: shortGenErr } = await supabase.functions.invoke("generate-content", {
+                    body: { contentId: shortContent.id, skipScript: true },
+                  });
+
+                  if (shortGenErr) {
+                    toast({ title: `Short ${i + 1} generation failed for "${idea.topic?.slice(0, 40)}"`, description: shortGenErr.message, variant: "destructive" });
+                    ideaSuccess = false;
+                  } else {
+                    totalCreated++;
+                  }
+
+                  completedJobs++;
+                  setGenProgress({ current: completedJobs, total: totalJobs });
+                }
+              }
+            } else {
+              // No script was generated — skip extraction
+              ideaSuccess = false;
+              completedJobs++;
+              setGenProgress({ current: completedJobs, total: totalJobs });
+            }
+          }
+        }
+      } else {
+        // ── Standard Single-Length Flow (Long or Short) ──
+        const len = (idea.length || "Long") as "Short" | "Long";
 
         const { data: content, error: insertErr } = await supabase
           .from("social_content")
@@ -230,16 +338,20 @@ export default function Ideas() {
         if (insertErr || !content) {
           toast({ title: `Failed to create content for "${idea.topic?.slice(0, 40)}"`, description: insertErr?.message, variant: "destructive" });
           ideaSuccess = false;
-          continue;
+        } else {
+          const { error: genErr } = await supabase.functions.invoke("generate-content", {
+            body: { contentId: content.id },
+          });
+          if (genErr) {
+            toast({ title: `Generation failed for "${idea.topic?.slice(0, 40)}"`, description: genErr.message, variant: "destructive" });
+            ideaSuccess = false;
+          } else {
+            totalCreated++;
+          }
         }
 
-        const { error: genErr } = await supabase.functions.invoke("generate-content", {
-          body: { contentId: content.id },
-        });
-        if (genErr) {
-          toast({ title: `Generation failed for "${idea.topic?.slice(0, 40)}"`, description: genErr.message, variant: "destructive" });
-          ideaSuccess = false;
-        }
+        completedJobs++;
+        setGenProgress({ current: completedJobs, total: totalJobs });
       }
 
       if (ideaSuccess) {
@@ -258,7 +370,7 @@ export default function Ideas() {
     setGenerating(false);
     setSelected(new Set());
     toast({
-      title: `Generated ${completedJobs} content items from ${selectedIdeas.length} ideas`,
+      title: `Generated ${totalCreated} content items from ${selectedIdeas.length} ideas`,
       description: "View them in the content list.",
       action: (
         <a href="/schedule" className="underline font-medium">
