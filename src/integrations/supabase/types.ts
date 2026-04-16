@@ -294,6 +294,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "app_campaign_step_logs_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "app_campaign_enrollments_with_entity"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "app_campaign_step_logs_step_id_fkey"
             columns: ["step_id"]
             isOneToOne: false
@@ -309,7 +316,7 @@ export type Database = {
           campaign_id: string
           channel: string
           created_at: string
-          delay_days: number
+          delay_hours: number
           id: string
           signature_id: string | null
           step_order: number
@@ -322,7 +329,7 @@ export type Database = {
           campaign_id: string
           channel?: string
           created_at?: string
-          delay_days?: number
+          delay_hours?: number
           id?: string
           signature_id?: string | null
           step_order?: number
@@ -335,7 +342,7 @@ export type Database = {
           campaign_id?: string
           channel?: string
           created_at?: string
-          delay_days?: number
+          delay_hours?: number
           id?: string
           signature_id?: string | null
           step_order?: number
@@ -1411,6 +1418,30 @@ export type Database = {
       }
     }
     Views: {
+      app_campaign_enrollments_with_entity: {
+        Row: {
+          campaign_id: string | null
+          cancelled_at: string | null
+          completed_at: string | null
+          current_step_order: number | null
+          enrolled_at: string | null
+          entity_email: string | null
+          entity_id: string | null
+          entity_name: string | null
+          entity_type: string | null
+          id: string | null
+          status: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_campaign_enrollments_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "app_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       competitors_with_influencer: {
         Row: {
           accepted_rules: boolean | null
