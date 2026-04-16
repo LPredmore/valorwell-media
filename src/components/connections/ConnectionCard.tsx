@@ -36,7 +36,7 @@ export function ConnectionCard({
             </Badge>
           )}
           {status === "connected" && (
-            <Badge variant="default" className="shrink-0 bg-green-500/15 text-green-700 dark:text-green-400 hover:bg-green-500/20">
+            <Badge variant="secondary" className="shrink-0">
               Connected
             </Badge>
           )}

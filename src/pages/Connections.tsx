@@ -122,7 +122,7 @@ export default function Connections() {
             ) : connection ? (
               <div className="space-y-4">
                 <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/50 p-4">
-                  <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+                  <CheckCircle2 className="h-5 w-5 text-primary mt-0.5 shrink-0" />
                   <div className="space-y-1 min-w-0">
                     {connection.channel_title && (
                       <p className="text-sm">
