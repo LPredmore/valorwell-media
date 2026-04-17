@@ -1,66 +1,62 @@
 
 
-The Fly.io cutover is done. Per the original phased plan, what remains is **Phase 1c — Open the doors** (public signup) plus the verification steps that confirm the per-user pipeline actually works end-to-end on the new domain.
+# Rebrand: ContentHub → Flurra
 
-Here's the recommended order. It's deliberately verification-first because turning on signups before confirming the upload path works would let real users hit broken state.
+## Concept
+Position Flurra as a **"team member,"** not a tool. Warmer, more conversational, more confident. Lean into the deep-navy + electric-blue/aqua/mint gradient from your logo. Move from the current corporate indigo to a sophisticated dark-first palette with a friendlier voice everywhere copy lives.
 
----
+## Brand identity
 
-## Step 1 — End-to-end verification (do this first, today)
+**Name:** Flurra (replaces "ContentHub" everywhere)
 
-Before opening signup, prove the per-user path works on a real schedule.
+**Color system** (extracted from your logo):
+- Deep navy `#101A2B` → `#16263D` (background gradients)
+- Electric cyan `#11C5FF` (primary action)
+- Cobalt `#2E7BFF` (secondary accent)
+- Mint `#4BE09E` (success / "live" states)
+- Light mode stays available but the default app shell shifts to dark-first to match the logo
 
-1. **Pre-flight SQL** (Supabase SQL editor):
-   ```sql
-   SELECT yc.user_id, yc.google_email, yc.channel_title
-   FROM youtube_connections yc
-   WHERE yc.user_id IN (SELECT user_id FROM user_roles WHERE role='admin');
-   ```
-   Must return ≥1 row.
+**Typography:** Keep Inter but add **Space Grotesk** for the wordmark and section headlines — gives the modern, slightly playful "team member" feel.
 
-2. **Schedule a test post** owned by your admin user for ~5 min from now via `/schedule`.
+**Voice shift:** Microcopy moves from imperative tool-speak ("Generate content", "No unscheduled content") to first-person teammate ("I'll write your script", "Nothing waiting in the queue — want me to draft something?"). Applied selectively to high-visibility surfaces (onboarding, empty states, headers) — not every label.
 
-3. **Watch Fly logs** in PowerShell:
-   ```
-   fly logs -a youtube-uploader-service
-   ```
-   Look for the `youtube-get-access-token` call → 200 → upload progress → "uploaded and scheduled".
+## Assets
 
-4. **Confirm** the video lands on **your** channel (the one connected at `/connections`), not the legacy global account.
+1. Copy `flurra_favicon_vector.svg` → `public/favicon.svg` (replace `favicon.ico` reference)
+2. Copy the chibi mascot PNG → `src/assets/flurra-mascot.png` — used on Login, Signup, Onboarding step 1, and the empty-state for first-time users
+3. Add a small wordmark-only SVG inline in `AppLayout` header
 
-5. **Check edge function logs** for `youtube-get-access-token` in Supabase to confirm no errors.
-
-If all green → proceed. If anything fails, stop and we debug before opening signup.
-
----
-
-## Step 2 — Phase 1c: Public signup
-
-Currently `/login` has no link to `/signup`, so even though signup works, no one can find it. Three small UI changes:
+## Files to change
 
 | File | Change |
 |---|---|
-| `src/pages/Login.tsx` | Add "Don't have an account? Sign up" link → `/signup` |
-| `src/pages/Signup.tsx` | Confirm "Already have an account? Log in" link exists → `/login` |
-| `src/pages/Onboarding.tsx` | Verify it auto-redirects new users to `/connections` so they immediately see the YouTube connect prompt |
+| `index.html` | Title → "Flurra"; description, og tags, favicon to `/favicon.svg`, theme-color meta |
+| `public/favicon.svg` | New — copy of uploaded SVG |
+| `src/assets/flurra-mascot.png` | New — copy of uploaded mascot |
+| `src/index.css` | Replace color tokens; default `<html>` to `dark` class; add Space Grotesk import; subtle gradient background utility |
+| `tailwind.config.ts` | Add `font-display: ['Space Grotesk', ...]`; add `brand-cyan`, `brand-mint`, `brand-cobalt` semantic colors |
+| `src/components/AppLayout.tsx` | Wordmark "Flurra" with gradient text; mascot 24px avatar next to wordmark; nav restyled with pill active state |
+| `src/pages/Login.tsx` | Mascot above wordmark; "Hi, I'm Flurra" tagline; warmer microcopy |
+| `src/pages/Signup.tsx` | Same treatment; "Let's get you set up" |
+| `src/pages/Onboarding.tsx` | Replace "Welcome to ContentHub" → "Hi, I'm Flurra"; rewrite the 4 flow steps in first person ("I'll capture your ideas…", "I'll write the script…", "I'll schedule it…", "I'll post it for you"); mascot in step 1 |
+| `src/pages/Connections.tsx` | Copy: "…publish content directly from Flurra" |
+| Empty states (`UnscheduledTab`, `ScheduledTab`, `IncompleteTab`, `PastTab`, `Ideas.tsx`) | Friendlier first-person empty copy |
 
-Also worth a quick audit:
-- **Supabase Auth → Sign Up settings**: confirm "Enable signups" is ON and email confirmation is configured how you want it
-- **`enforce_youtube_schedule_requirements` trigger**: confirm it doesn't block new users from creating content rows before they've connected YouTube (the UI guard handles the schedule step, but the trigger could surprise us)
+## Out of scope (intentional)
+- Server-side `info@valorwell.org` email branding (separate concern — that's transactional infra, not the user-facing app)
+- Edge function prompt content (ValorWell brand guidance for clients stays — that's the user's content domain, not Flurra's product brand)
+- Database column renames
 
----
+## Technical decisions
 
-## Step 3 — Post-cutover cleanup (1 week out, after multiple successful per-user uploads)
+1. **Dark-first by default**, light mode preserved. The logo lives natively against deep navy — forcing it onto white backgrounds (current state) loses contrast. Add `class="dark"` to `<html>` in `index.html`. Users who later want a theme toggle can have one added; we don't build it now.
+2. **Gradient brand text** for "Flurra" wordmark via `bg-gradient-to-r from-[--brand-cyan] via-[--brand-cobalt] to-[--brand-mint] bg-clip-text text-transparent` — matches the logo's wave-gradient signature.
+3. **Mascot used sparingly** — only auth/onboarding/first-run empty states. Inside the app shell it's a small avatar next to the wordmark, not a recurring character. Keeps it from feeling cartoonish in daily workflow views.
+4. **Single CSS variable swap** drives the entire palette change — no component-level color rewrites needed because everything already consumes `hsl(var(--primary))` etc.
 
-- Delete `GOOGLE_OAUTH_REFRESH_TOKEN` from Supabase Edge Function secrets
-- Unset `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` on Fly (no longer used by the uploader — they live in the Lovable edge function now)
-- Drop the legacy `content_instructions` table if unused (out of scope for 1c, listed in original plan)
-
----
-
-## What I'd build now (after you confirm Step 1 verification passes)
-
-Just Step 2 — the signup link + onboarding flow audit. It's a small, contained change. Roughly 3 files touched, no DB migration, no edge function changes.
-
-Want me to proceed with Step 2 once you've completed the Step 1 verification, or do you want to tackle something else first?
+## Verification after build
+- `getflurra.com/login` shows new wordmark + mascot, dark background
+- Schedule page tabs render correctly with new accent colors
+- YouTube "Connect" button still uses the brand cyan as primary
+- Favicon updates in browser tab
 
