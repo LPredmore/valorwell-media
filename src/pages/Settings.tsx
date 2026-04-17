@@ -1,6 +1,9 @@
 import { useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { LogOut } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 import { ProfileView } from "@/components/settings/ProfileView";
 import { InstructionsView } from "@/components/settings/InstructionsView";
 import { ConnectionsView } from "@/components/settings/ConnectionsView";
@@ -9,6 +12,7 @@ const VALID_TABS = ["profile", "instructions", "connections"] as const;
 type TabValue = typeof VALID_TABS[number];
 
 export default function Settings() {
+  const { signOut } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get("tab");
   const activeTab: TabValue = (VALID_TABS as readonly string[]).includes(tabParam || "")
@@ -28,7 +32,17 @@ export default function Settings() {
   return (
     <AppLayout>
       <div className="max-w-3xl mx-auto space-y-6">
-        <h1 className="font-display text-3xl font-bold tracking-tight">Settings</h1>
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="font-display text-3xl font-bold tracking-tight">Settings</h1>
+          <Button
+            variant="outline"
+            onClick={signOut}
+            className="gap-2"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </Button>
+        </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList>
