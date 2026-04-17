@@ -48,7 +48,7 @@ export default function Onboarding() {
     return null;
   }
 
-  const finishOnboarding = async (destination: string = "/schedule") => {
+  const finishOnboarding = async (destination: string = "/connections") => {
     try {
       await completeOnboarding.mutateAsync();
       navigate(destination, { replace: true });
@@ -75,7 +75,7 @@ export default function Onboarding() {
         length: "Both",
       });
       toast({ title: "First idea saved!" });
-      await finishOnboarding("/ideas");
+      await finishOnboarding("/connections");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Could not save idea";
       toast({ title: "Error", description: msg, variant: "destructive" });
@@ -227,7 +227,7 @@ export default function Onboarding() {
                   {savingIdea ? "Saving..." : "Save idea & finish"}
                 </Button>
                 <Button
-                  onClick={() => finishOnboarding("/schedule")}
+                  onClick={() => finishOnboarding("/connections")}
                   variant="ghost"
                   className="w-full"
                   disabled={completeOnboarding.isPending}
