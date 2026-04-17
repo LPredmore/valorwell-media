@@ -1,11 +1,8 @@
-import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "react-router-dom";
-import { LogOut } from "lucide-react";
 import mascot from "@/assets/flurra-mascot.png";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const { signOut, user } = useAuth();
   const location = useLocation();
 
   const navItems = [
@@ -53,18 +50,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 );
               })}
             </nav>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground hidden md:inline">{user?.email}</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={signOut}
-              title="Sign out"
-              className="rounded-full text-muted-foreground hover:text-foreground"
-            >
-              <LogOut className="h-4 w-4" />
-            </Button>
           </div>
         </div>
       </header>
