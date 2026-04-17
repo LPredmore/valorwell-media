@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-import { CheckCircle2, MailCheck } from "lucide-react";
+import { MailCheck } from "lucide-react";
+import mascot from "@/assets/flurra-mascot.png";
 
 export default function Signup() {
   const [email, setEmail] = useState("");
@@ -48,15 +49,15 @@ export default function Signup() {
   if (submitted) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="w-full max-w-sm space-y-6 rounded-xl border border-border bg-card p-8 text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+        <div className="w-full max-w-sm space-y-6 rounded-2xl border border-border surface-elevated p-8 text-center animate-fade-in-up">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/15">
             <MailCheck className="h-6 w-6 text-primary" />
           </div>
           <div className="space-y-2">
-            <h1 className="text-2xl font-bold tracking-tight">Check your email</h1>
+            <h1 className="font-display text-2xl font-bold tracking-tight">Check your email</h1>
             <p className="text-sm text-muted-foreground">
-              We sent a confirmation link to <strong className="text-foreground">{email}</strong>.
-              Click it to activate your account, then sign in.
+              I sent a confirmation link to <strong className="text-foreground">{email}</strong>.
+              Click it to activate your account, then come back and sign in.
             </p>
           </div>
           <Link to="/login">
@@ -69,12 +70,21 @@ export default function Signup() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm space-y-8">
-        <div className="text-center">
-          <h1 className="text-3xl font-extrabold tracking-tight text-foreground">
-            Content<span className="text-primary">Hub</span>
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">Create your free account</p>
+      <div className="w-full max-w-sm space-y-8 animate-fade-in-up">
+        <div className="text-center space-y-4">
+          <img
+            src={mascot}
+            alt="Flurra"
+            className="mx-auto h-20 w-20 rounded-2xl object-cover ring-1 ring-border bg-brand-navy-2 shadow-lg shadow-brand-cyan/10"
+          />
+          <div>
+            <h1 className="font-display text-4xl font-bold tracking-tight text-brand-gradient">
+              Let's get you set up
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Create your account and I'll take it from there.
+            </p>
+          </div>
         </div>
 
         <form onSubmit={handleSignup} className="space-y-4">

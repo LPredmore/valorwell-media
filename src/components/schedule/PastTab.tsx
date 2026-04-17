@@ -8,7 +8,7 @@ export function PastTab({ postLength }: { postLength?: "Long" | "Short" }) {
   if (isLoading) return <div className="py-8 text-center text-muted-foreground">Loading…</div>;
 
   if (!items?.length) {
-    return <div className="py-8 text-center text-muted-foreground">No posted content yet.</div>;
+    return <div className="py-8 text-center text-muted-foreground">Nothing's gone live yet — your first post will land here.</div>;
   }
 
   return (

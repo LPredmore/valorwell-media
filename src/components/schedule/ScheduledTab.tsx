@@ -69,7 +69,7 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
   if (isLoading) return <div className="py-8 text-center text-muted-foreground">Loading…</div>;
 
   if (!items?.length) {
-    return <div className="py-8 text-center text-muted-foreground">No scheduled content yet.</div>;
+    return <div className="py-8 text-center text-muted-foreground">Nothing on the calendar yet — schedule a post and I'll take it from there.</div>;
   }
 
   return (

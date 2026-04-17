@@ -395,7 +395,7 @@ export default function Ideas() {
     <AppLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-extrabold tracking-tight">Content Ideas</h1>
+          <h1 className="font-display text-3xl font-bold tracking-tight">Ideas</h1>
           <div className="flex items-center gap-2">
             <Button size="sm" className="gap-2" onClick={() => setAddDialogOpen(true)}>
               <Plus className="h-4 w-4" /> Add Idea
@@ -460,7 +460,7 @@ export default function Ideas() {
           </div>
         ) : ideas.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
-            <p>No ideas yet. Add one manually or upload a CSV.</p>
+            <p>No ideas yet — toss me a topic or upload a CSV and I'll get to work.</p>
           </div>
         ) : (
           <div className="rounded-lg border border-border">

@@ -79,7 +79,7 @@ export function UnscheduledTab({ postLength }: { postLength?: "Long" | "Short" }
   if (isLoading) return <div className="py-8 text-center text-muted-foreground">Loading…</div>;
 
   if (!items?.length) {
-    return <div className="py-8 text-center text-muted-foreground">No unscheduled content. Generate content first.</div>;
+    return <div className="py-8 text-center text-muted-foreground">Nothing waiting in the queue — want me to draft something from your Ideas?</div>;
   }
 
   return (
