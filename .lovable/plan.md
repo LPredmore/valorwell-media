@@ -1,89 +1,121 @@
 
 
-# Fix: Shorts Image Requirement + Long Video Image Not Persisting
+## Plan: Per-Tenant Instructions with Defaults
 
-## Two Distinct Issues
+### Goal
+Each user gets their own copy of instructions, can edit them freely, and can restore any individual instruction back to the system default at any time.
 
-### Issue 1: Shorts cannot be scheduled — database trigger requires image for all content
+### Current state
+- `content_instructions` is a single global table (one row per `scope`).
+- Only admins can edit; everyone reads the same rows.
+- `generate-content` edge function fetches all active rows and applies them to every user's generation.
 
-The client-side validation in `UnscheduledTab.tsx` (line 15) correctly skips the image check for Shorts: `if (item.post_length === "Long" && !item.image?.trim())`. So the UI lets you proceed. But then the Supabase update to set `scheduled_at` fires the database trigger `enforce_youtube_schedule_requirements`, which unconditionally checks `if coalesce(new.image, '') = '' then raise exception 'Cannot schedule: image is missing'`. It does not check `post_length`. The trigger rejects the update, Supabase returns an error, and the UI shows the failure.
+### Architecture decision: Per-user rows + immutable defaults table
 
-**Root cause**: The trigger was never updated for Shorts. The client-side fix was correct but irrelevant — the server-side gate is the one blocking it.
+Two tables:
 
-### Issue 2: Long video images are not available after posting
+1. **`content_instruction_defaults`** (read-only reference, admin-managed)
+   - `scope` (PK), `instruction`, `updated_at`
+   - Seeded from current `content_instructions` rows.
+   - Admin-only writes via `Instructions` page (admins edit defaults here).
+   - Acts as the "factory reset" source.
 
-In `post-scheduled-content/index.ts` (line 83-84), the insert into `posted_content` explicitly sets `video_url: null` and `image_url: null`. The `image` field (the R2 storage path) does flow through via `...rest`, so the R2 path is preserved in `posted_content.image`. However, `image_url` (which would be a signed URL for external platforms like Make.com to download) is deliberately nulled. The previous diagnosis noted that signed URLs should be generated here, but currently they are not.
+2. **`user_content_instructions`** (per-tenant overrides)
+   - `user_id`, `scope`, `instruction`, `is_active`, `updated_at`
+   - PK: `(user_id, scope)`
+   - RLS: users CRUD their own rows; admins can read all.
+   - Auto-populated on first signup via trigger (copies all defaults into user's rows).
+   - Backfill: copy current `content_instructions` to every existing user.
 
-This means: the R2 path is archived, but no usable download URL is generated for external consumers at posting time.
+3. **Drop `content_instructions`** after backfill (or keep as legacy, unused).
 
-## Technical Decisions
+### Why this design (not alternatives)
 
-### Decision 1: Fix the trigger, not the client code
+- **Why not one table with `user_id` nullable + fallback?** Two-tier lookup logic in every query. Harder to reason about which instruction is "active." A user editing a global default would silently fork — confusing.
+- **Why not store only diffs from defaults?** Edge function would need to merge per-scope at runtime. Restoring one field becomes "delete the override row," which works but obscures what the user is actually using. Explicit copies are clearer and self-documenting.
+- **Why seed on signup?** Users see and can edit every instruction immediately. No "where did these come from?" confusion. Cost is ~12 rows per user — trivial.
 
-The correct fix is to modify the `enforce_youtube_schedule_requirements` database function to skip the image check when `post_length = 'Short'`. This is the single source of truth for scheduling validation. The client-side validation in `UnscheduledTab.tsx` is already correct and needs no change.
+### Edge function change
 
-### Decision 2: Generate signed R2 URLs in the edge function
+`generate-content/index.ts`:
+- Replace `adminClient.from("content_instructions").select(...)` with `adminClient.from("user_content_instructions").select(...).eq("user_id", content.user_id).eq("is_active", true)`.
+- One line of logic changes; everything else stays.
 
-The `post-scheduled-content` function should generate signed R2 read URLs for both `video_url` and `image_url` (when `image` is present) instead of nulling them out. This is what Make.com needs to download the assets. The memory note on this system explicitly states this is the intended design: "generates 1-hour signed R2 URLs for `video_url` and `image_url` at the moment of migration." The current code contradicts the documented architecture. The edge function already has access to R2 secrets (it runs with service role), and the `r2-read-url` function shows the pattern for generating signed URLs.
+### UI change: `src/pages/Instructions.tsx`
 
-## Changes
+- **Non-admins**: page now shows their own `user_content_instructions` rows. No "admin only" gate. Each card gets a **"Restore default"** button that copies the matching `content_instruction_defaults.instruction` into the textarea (and saves).
+- **Admins**: a toggle at the top — "My instructions" / "System defaults" — switches the source table being edited. Editing defaults only affects future signups + anyone who clicks "restore" later (does NOT retroactively overwrite user rows).
+- Make `Instructions` link visible to all in `AppLayout` (remove `isAdmin` gate on this nav item).
 
-### 1. Database migration: update `enforce_youtube_schedule_requirements`
-
-Replace the trigger function to skip the image check when `post_length = 'Short'`:
+### Migration steps
 
 ```sql
-CREATE OR REPLACE FUNCTION public.enforce_youtube_schedule_requirements()
-  RETURNS trigger
-  LANGUAGE plpgsql
-AS $$
-begin
-  if new.scheduled_at is not null then
-    -- Image only required for Long-form content
-    if new.post_length IS DISTINCT FROM 'Short' and coalesce(new.image, '') = '' then
-      raise exception 'Cannot schedule: image is missing';
-    end if;
+-- 1. Create defaults table, seed from current global instructions
+CREATE TABLE content_instruction_defaults (
+  scope text PRIMARY KEY,
+  instruction text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO content_instruction_defaults (scope, instruction)
+SELECT scope, instruction FROM content_instructions;
 
-    if coalesce(new.video_storage_path, '') = '' then
-      raise exception 'Cannot schedule: video_storage_path is missing';
-    end if;
+-- 2. Create per-user table
+CREATE TABLE user_content_instructions (
+  user_id uuid NOT NULL,
+  scope text NOT NULL,
+  instruction text NOT NULL,
+  is_active boolean NOT NULL DEFAULT true,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, scope)
+);
+ALTER TABLE user_content_instructions ENABLE ROW LEVEL SECURITY;
 
-    if coalesce(new.youtube_title, '') = '' then
-      raise exception 'Cannot schedule: youtube_title is missing';
-    end if;
+-- RLS: users own their rows, admins read all
+CREATE POLICY "users manage own" ON user_content_instructions
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "admins read all" ON user_content_instructions
+  FOR SELECT USING (has_role(auth.uid(), 'admin'));
 
-    if coalesce(new.youtube_desc, '') = '' then
-      raise exception 'Cannot schedule: youtube_desc is missing';
-    end if;
+-- Defaults table: admin write, all read
+ALTER TABLE content_instruction_defaults ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "all read defaults" ON content_instruction_defaults
+  FOR SELECT USING (true);
+CREATE POLICY "admins write defaults" ON content_instruction_defaults
+  FOR ALL USING (has_role(auth.uid(), 'admin')) WITH CHECK (has_role(auth.uid(), 'admin'));
 
-    if new.post_length is null then
-      raise exception 'Cannot schedule: post_length is missing';
-    end if;
-  end if;
+-- 3. Backfill existing users
+INSERT INTO user_content_instructions (user_id, scope, instruction)
+SELECT u.id, d.scope, d.instruction
+FROM auth.users u CROSS JOIN content_instruction_defaults d;
 
-  return new;
-end;
-$$;
+-- 4. Trigger: seed new users on signup
+CREATE FUNCTION seed_user_instructions() RETURNS trigger ...
+  -- inserts a row per default for NEW.id
+CREATE TRIGGER on_auth_user_created_seed_instructions
+  AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION seed_user_instructions();
 ```
 
-Using `IS DISTINCT FROM 'Short'` rather than `= 'Long'` so the image is still required for any future post types and for null `post_length` (which would be caught by the later null check anyway, but defense in depth).
+### Files changing
 
-### 2. Edge function: generate signed R2 URLs instead of nulling them
-
-In `supabase/functions/post-scheduled-content/index.ts`, import the S3 client (same pattern as `r2-read-url`), and before inserting into `posted_content`:
-
-- If `row.video_storage_path` exists, generate a 1-hour signed URL and set it as `video_url`.
-- If `row.image` exists, generate a 1-hour signed URL and set it as `image_url`.
-- If either is missing, leave it as `null`.
-
-This requires reading R2 secrets (`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`) which are already configured in the project secrets. I will read the `r2-read-url` function to replicate the exact signing pattern.
-
-### Summary
-
-| Location | Change |
+| File | Change |
 |---|---|
-| DB migration | Update `enforce_youtube_schedule_requirements` to skip image check for Shorts |
-| `post-scheduled-content/index.ts` | Generate signed R2 URLs for `video_url` and `image_url` instead of setting them to `null` |
+| Migration (new) | Tables, RLS, backfill, signup trigger |
+| `supabase/functions/generate-content/index.ts` | Query `user_content_instructions` scoped to `content.user_id` |
+| `src/pages/Instructions.tsx` | Per-user rows + "Restore default" button + admin defaults editor toggle |
+| `src/components/AppLayout.tsx` | Remove `isAdmin` gate on Instructions nav link |
+| `src/integrations/supabase/types.ts` | Auto-regenerated by Supabase |
 
-No client-side code changes needed. The UI validation is already correct.
+### Risks & mitigations
+
+- **Existing users with no rows**: Backfill SQL covers all `auth.users` at migration time. Trigger handles future signups. Low risk.
+- **Admin edits a default — does it propagate?** No. Existing users keep their copy. They see the new default only when they click "Restore." This is the correct, predictable behavior.
+- **Old `content_instructions` table**: I'll leave it in place but unused (safer than dropping during a live cutover). Can be dropped in a follow-up after verifying generation works.
+
+### Open question
+
+Phase 1a (signup, onboarding, content_ideas user_id) is still pending from the previous plan. **Should I:**
+- **(A)** Do this instructions work first (standalone — works for existing users now)
+- **(B)** Bundle it into Phase 1a (since onboarding flow + new signups both depend on the seed trigger working)
+
+I recommend **(A)** — it's self-contained, ships value immediately, and the signup trigger added now will Just Work when Phase 1a lands.
 
