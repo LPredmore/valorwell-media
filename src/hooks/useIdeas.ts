@@ -1,9 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
+import { useAuth } from "./useAuth";
 
 type Idea = Tables<"content_ideas">;
 type IdeaInsert = TablesInsert<"content_ideas">;
+type IdeaInsertInput = Omit<IdeaInsert, "user_id">;
 
 export function useIdeas() {
   return useQuery({
@@ -22,11 +24,13 @@ export function useIdeas() {
 
 export function useCreateIdea() {
   const qc = useQueryClient();
+  const { user } = useAuth();
   return useMutation({
-    mutationFn: async (idea: IdeaInsert) => {
+    mutationFn: async (idea: IdeaInsertInput) => {
+      if (!user) throw new Error("Not authenticated");
       const { data, error } = await supabase
         .from("content_ideas")
-        .insert(idea)
+        .insert({ ...idea, user_id: user.id })
         .select()
         .single();
       if (error) throw error;
@@ -38,11 +42,14 @@ export function useCreateIdea() {
 
 export function useBulkCreateIdeas() {
   const qc = useQueryClient();
+  const { user } = useAuth();
   return useMutation({
-    mutationFn: async (ideas: IdeaInsert[]) => {
+    mutationFn: async (ideas: IdeaInsertInput[]) => {
+      if (!user) throw new Error("Not authenticated");
+      const withUser = ideas.map((i) => ({ ...i, user_id: user.id }));
       const { data, error } = await supabase
         .from("content_ideas")
-        .insert(ideas)
+        .insert(withUser)
         .select();
       if (error) throw error;
       return data;
