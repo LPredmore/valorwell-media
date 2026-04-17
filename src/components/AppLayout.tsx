@@ -21,17 +21,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/70 backdrop-blur-xl">
-        <div className="container flex h-16 items-center justify-between gap-4">
+        <div className="container flex h-24 items-center justify-between gap-4">
           <div className="flex items-center gap-4 sm:gap-8">
-            <Link to="/schedule" className="flex items-center gap-2.5 group">
+            <Link to="/schedule" className="flex items-center group" aria-label="Flurra home">
               <img
                 src={mascot}
                 alt="Flurra"
-                className="h-9 w-9 rounded-full ring-1 ring-border object-cover bg-brand-navy-2 transition-transform group-hover:scale-105"
+                className="h-16 w-16 rounded-2xl object-contain bg-brand-navy-2 ring-1 ring-border/60 transition-transform group-hover:scale-105"
               />
-              <span className="font-display text-2xl font-bold tracking-tight text-brand-gradient">
-                Flurra
-              </span>
             </Link>
             <nav className="flex items-center gap-1">
               {navItems.map((item) => {
