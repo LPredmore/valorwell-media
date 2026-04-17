@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Separator } from "@/components/ui/separator";
+import mascot from "@/assets/flurra-mascot.png";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -15,7 +16,7 @@ export default function Login() {
   const { user } = useAuth();
 
   useEffect(() => {
-    if (user) navigate("/content", { replace: true });
+    if (user) navigate("/schedule", { replace: true });
   }, [user, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -27,7 +28,7 @@ export default function Login() {
     if (error) {
       setError(error.message);
     } else {
-      navigate("/content", { replace: true });
+      navigate("/schedule", { replace: true });
     }
     setLoading(false);
   };
@@ -36,19 +37,28 @@ export default function Login() {
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/content`,
+        redirectTo: `${window.location.origin}/schedule`,
       },
     });
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm space-y-8">
-        <div className="text-center">
-          <h1 className="text-3xl font-extrabold tracking-tight text-foreground">
-            Content<span className="text-primary">Hub</span>
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">Sign in to manage your content</p>
+      <div className="w-full max-w-sm space-y-8 animate-fade-in-up">
+        <div className="text-center space-y-4">
+          <img
+            src={mascot}
+            alt="Flurra"
+            className="mx-auto h-20 w-20 rounded-2xl object-cover ring-1 ring-border bg-brand-navy-2 shadow-lg shadow-brand-cyan/10"
+          />
+          <div>
+            <h1 className="font-display text-4xl font-bold tracking-tight text-brand-gradient">
+              Hi, I'm Flurra
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Sign in and let's get your content out the door.
+            </p>
+          </div>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
@@ -115,9 +125,9 @@ export default function Login() {
         </Button>
 
         <p className="text-center text-sm text-muted-foreground">
-          Don't have an account?{" "}
+          New here?{" "}
           <Link to="/signup" className="font-medium text-primary hover:underline">
-            Create one
+            Let's set you up
           </Link>
         </p>
       </div>

@@ -32,13 +32,13 @@ export default function Schedule() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <h1 className="text-3xl font-extrabold tracking-tight">Content</h1>
+        <h1 className="font-display text-3xl font-bold tracking-tight">Content</h1>
 
         {showBanner && (
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertDescription className="flex items-center justify-between gap-3">
-              <span>Connect your YouTube account to start posting.</span>
+              <span>Hook me up to YouTube so I can start publishing for you.</span>
               <div className="flex items-center gap-2">
                 <Link to="/connections">
                   <Button size="sm">Connect</Button>

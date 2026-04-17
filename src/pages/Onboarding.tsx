@@ -16,6 +16,7 @@ import {
   ArrowRight,
   CheckCircle2,
 } from "lucide-react";
+import mascot from "@/assets/flurra-mascot.png";
 
 export default function Onboarding() {
   const navigate = useNavigate();
@@ -88,9 +89,12 @@ export default function Onboarding() {
       <div className="mx-auto flex min-h-screen max-w-2xl flex-col px-4 py-8">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
-          <h1 className="text-xl font-extrabold tracking-tight text-foreground">
-            Content<span className="text-primary">Hub</span>
-          </h1>
+          <div className="flex items-center gap-2">
+            <img src={mascot} alt="Flurra" className="h-7 w-7 rounded-full ring-1 ring-border bg-brand-navy-2" />
+            <span className="font-display text-xl font-bold tracking-tight text-brand-gradient">
+              Flurra
+            </span>
+          </div>
           <div className="flex items-center gap-2">
             {[1, 2, 3].map((s) => (
               <div
@@ -103,45 +107,49 @@ export default function Onboarding() {
           </div>
         </div>
 
-        <div className="flex-1 space-y-8">
+        <div className="flex-1 space-y-8 animate-fade-in-up">
           {/* Step 1: Welcome + product tour */}
           {step === 1 && (
             <div className="space-y-8">
-              <div className="space-y-3">
-                <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                  <Sparkles className="h-6 w-6 text-primary" />
-                </div>
-                <h2 className="text-3xl font-extrabold tracking-tight">Welcome to ContentHub</h2>
+              <div className="space-y-4">
+                <img
+                  src={mascot}
+                  alt="Flurra mascot"
+                  className="h-24 w-24 rounded-2xl object-cover ring-1 ring-border bg-brand-navy-2 shadow-lg shadow-brand-cyan/10"
+                />
+                <h2 className="font-display text-4xl font-bold tracking-tight text-brand-gradient">
+                  Hi, I'm Flurra
+                </h2>
                 <p className="text-muted-foreground">
-                  AI-powered scripts and social copy for your videos. Here's how it works:
+                  Think of me as your content teammate. Here's how I help:
                 </p>
               </div>
 
               <div className="space-y-3">
                 <FlowStep
                   icon={<Lightbulb className="h-5 w-5" />}
-                  title="1. Capture ideas"
-                  body="Add topics in Ideas. Bulk-import from CSV or type them in."
+                  title="You bring the ideas"
+                  body="Drop topics in Ideas — type them in or bulk-import a CSV."
                 />
                 <FlowStep
                   icon={<Sparkles className="h-5 w-5" />}
-                  title="2. Generate content"
-                  body="ContentHub writes your script and platform-specific captions."
+                  title="I'll write the scripts"
+                  body="Long-form scripts plus platform-specific captions, ready to review."
                 />
                 <FlowStep
                   icon={<CalendarDays className="h-5 w-5" />}
-                  title="3. Schedule"
-                  body="Pick a date. Upload your video. Done."
+                  title="I'll handle the calendar"
+                  body="You pick the date, drop the video, and I queue it up."
                 />
                 <FlowStep
                   icon={<Send className="h-5 w-5" />}
-                  title="4. Auto-post"
-                  body="Posts go live on YouTube and other channels automatically."
+                  title="I'll publish for you"
+                  body="When the time comes, I push it live to YouTube and your channels."
                 />
               </div>
 
               <Button onClick={() => setStep(2)} className="w-full gap-2" size="lg">
-                Get started
+                Let's go
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </div>
@@ -151,28 +159,28 @@ export default function Onboarding() {
           {step === 2 && (
             <div className="space-y-8">
               <div className="space-y-3">
-                <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/15">
                   <Youtube className="h-6 w-6 text-primary" />
                 </div>
-                <h2 className="text-3xl font-extrabold tracking-tight">Connect YouTube</h2>
+                <h2 className="font-display text-3xl font-bold tracking-tight">Hook me up to YouTube</h2>
                 <p className="text-muted-foreground">
-                  Link your YouTube channel so we can publish videos directly when you schedule them.
-                  You can always add this later.
+                  Link your channel so I can publish videos for you when they're scheduled.
+                  Totally fine to do this later.
                 </p>
               </div>
 
-              <div className="rounded-lg border border-border bg-card p-6 space-y-3">
+              <div className="rounded-2xl border border-border surface-elevated p-6 space-y-3">
                 <div className="flex items-start gap-3">
                   <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                  <p className="text-sm text-foreground">Auto-publish scheduled videos to YouTube</p>
+                  <p className="text-sm text-foreground">I'll auto-publish your scheduled videos</p>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                  <p className="text-sm text-foreground">Auto-post the first comment with hashtags</p>
+                  <p className="text-sm text-foreground">I'll drop the first comment with your hashtags</p>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                  <p className="text-sm text-foreground">Read-only — we never post without your schedule</p>
+                  <p className="text-sm text-foreground">I never post anything without your schedule</p>
                 </div>
               </div>
 
@@ -196,13 +204,13 @@ export default function Onboarding() {
           {step === 3 && (
             <div className="space-y-8">
               <div className="space-y-3">
-                <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/15">
                   <Lightbulb className="h-6 w-6 text-primary" />
                 </div>
-                <h2 className="text-3xl font-extrabold tracking-tight">Your first idea</h2>
+                <h2 className="font-display text-3xl font-bold tracking-tight">What's on your mind?</h2>
                 <p className="text-muted-foreground">
-                  Describe a video topic. We'll save it so you can generate the script and copy
-                  with one click.
+                  Toss me a video topic and I'll save it. You can generate the full script and
+                  social copy with one click later.
                 </p>
               </div>
 
@@ -232,7 +240,7 @@ export default function Onboarding() {
                   className="w-full"
                   disabled={completeOnboarding.isPending}
                 >
-                  Skip — I'll add ideas later
+                  I'll add ideas later
                 </Button>
               </div>
             </div>
@@ -253,8 +261,8 @@ function FlowStep({
   body: string;
 }) {
   return (
-    <div className="flex gap-4 rounded-lg border border-border bg-card p-4">
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+    <div className="flex gap-4 rounded-2xl border border-border surface-elevated p-4 transition-colors hover:border-primary/40">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
         {icon}
       </div>
       <div className="space-y-0.5">

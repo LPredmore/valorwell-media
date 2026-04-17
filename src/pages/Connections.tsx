@@ -99,9 +99,9 @@ export default function Connections() {
     <AppLayout>
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Connections</h1>
+          <h1 className="font-display text-3xl font-bold tracking-tight">Connections</h1>
           <p className="text-muted-foreground mt-1">
-            Connect your social media accounts to publish content directly from ContentHub.
+            Hook up your social accounts so I can publish content directly from Flurra.
           </p>
         </div>
 

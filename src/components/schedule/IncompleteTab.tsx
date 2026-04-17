@@ -75,7 +75,7 @@ export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" })
   if (isLoading) return <div className="py-8 text-center text-muted-foreground">Loading…</div>;
 
   if (!items?.length) {
-    return <div className="py-8 text-center text-muted-foreground">No incomplete content.</div>;
+    return <div className="py-8 text-center text-muted-foreground">All caught up — nothing waiting on you right now.</div>;
   }
 
   return (
