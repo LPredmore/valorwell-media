@@ -38,18 +38,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   <span className="hidden sm:inline">Ideas</span>
                 </Button>
               </Link>
-              {isAdmin && (
-                <Link to="/instructions">
-                  <Button
-                    variant={location.pathname === "/instructions" ? "secondary" : "ghost"}
-                    size="sm"
-                    className="gap-2"
-                  >
-                    <Settings className="h-4 w-4" />
-                    <span className="hidden sm:inline">Instructions</span>
-                  </Button>
-                </Link>
-              )}
+              <Link to="/instructions">
+                <Button
+                  variant={location.pathname === "/instructions" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="gap-2"
+                >
+                  <Settings className="h-4 w-4" />
+                  <span className="hidden sm:inline">Instructions</span>
+                </Button>
+              </Link>
               <Link to="/connections">
                 <Button
                   variant={location.pathname === "/connections" ? "secondary" : "ghost"}

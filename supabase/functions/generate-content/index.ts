@@ -282,10 +282,11 @@ Deno.serve(async (req) => {
       .update({ status: "incomplete", error: null })
       .eq("id", contentId);
 
-    // Fetch active content instructions
+    // Fetch this user's active content instructions (per-tenant)
     const { data: instructionRows } = await adminClient
-      .from("content_instructions")
+      .from("user_content_instructions")
       .select("scope, instruction")
+      .eq("user_id", content.user_id)
       .eq("is_active", true);
 
     const instructions: Record<string, string> = {};
