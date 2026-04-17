@@ -589,6 +589,24 @@ export type Database = {
         }
         Relationships: []
       }
+      content_instruction_defaults: {
+        Row: {
+          instruction: string
+          scope: string
+          updated_at: string
+        }
+        Insert: {
+          instruction: string
+          scope: string
+          updated_at?: string
+        }
+        Update: {
+          instruction?: string
+          scope?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       content_instructions: {
         Row: {
           created_at: string
@@ -1344,6 +1362,30 @@ export type Database = {
           status?: string
           telehealth_experience?: boolean
           weekly_hours?: string
+        }
+        Relationships: []
+      }
+      user_content_instructions: {
+        Row: {
+          instruction: string
+          is_active: boolean
+          scope: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          instruction: string
+          is_active?: boolean
+          scope: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          instruction?: string
+          is_active?: boolean
+          scope?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
