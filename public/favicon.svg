@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="tile" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#101A2B"/>
+      <stop offset="100%" stop-color="#16263D"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="8%" y1="92%" x2="92%" y2="8%">
+      <stop offset="0%" stop-color="#11C5FF"/>
+      <stop offset="52%" stop-color="#2E7BFF"/>
+      <stop offset="100%" stop-color="#4BE09E"/>
+    </linearGradient>
+  </defs>
+
+  <!-- app tile -->
+  <rect x="16" y="16" width="224" height="224" rx="56" fill="url(#tile)"/>
+
+  <!-- simplified F / falcon / motion mark -->
+  <g>
+    <path d="M86 188
+             C92 155,108 116,138 80
+             C149 67,166 57,186 53
+             C176 68,166 79,151 90
+             C138 99,124 106,112 113
+             C131 112,154 114,176 119
+             C164 130,148 136,127 138
+             C117 139,106 139,97 139
+             C90 154,86 170,86 188 Z"
+          fill="url(#mark)"/>
+
+    <path d="M92 103
+             C120 79,151 66,194 67
+             C181 80,164 91,143 98
+             C129 102,113 104,92 103 Z"
+          fill="url(#mark)"/>
+
+    <path d="M89 164
+             C116 177,151 177,189 158
+             C178 179,153 196,122 200
+             C109 201,98 198,90 191
+             C85 186,85 176,89 164 Z"
+          fill="url(#mark)" opacity="0.96"/>
+
+    <!-- negative cut for sharper bird/F feel -->
+    <path d="M138 99
+             C151 93,162 88,173 80
+             C167 92,158 102,146 109
+             C139 114,130 117,121 119
+             C125 111,130 104,138 99 Z"
+          fill="#16263D"/>
+  </g>
+</svg>
