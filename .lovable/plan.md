@@ -1,84 +1,66 @@
 
 
-# Adjustments for `getflurra.com` as the Production Domain
+The Fly.io cutover is done. Per the original phased plan, what remains is **Phase 1c — Open the doors** (public signup) plus the verification steps that confirm the per-user pipeline actually works end-to-end on the new domain.
 
-## TL;DR
-
-**The Fly.io diff doesn't change.** The Lovable app code doesn't change either — it already uses `window.location.origin` for OAuth redirects. What you need to update is **OAuth allowlists in three places** and **one default URL in the Fly code**.
+Here's the recommended order. It's deliberately verification-first because turning on signups before confirming the upload path works would let real users hit broken state.
 
 ---
 
-## What needs updating (and where)
+## Step 1 — End-to-end verification (do this first, today)
 
-### 1. Google Cloud Console — OAuth client (REQUIRED)
+Before opening signup, prove the per-user path works on a real schedule.
 
-This is the one that will silently break YouTube connect for `getflurra.com` users if you skip it.
+1. **Pre-flight SQL** (Supabase SQL editor):
+   ```sql
+   SELECT yc.user_id, yc.google_email, yc.channel_title
+   FROM youtube_connections yc
+   WHERE yc.user_id IN (SELECT user_id FROM user_roles WHERE role='admin');
+   ```
+   Must return ≥1 row.
 
-**Authorized JavaScript origins** — add:
-- `https://getflurra.com`
-- `https://www.getflurra.com` (if you'll use www)
+2. **Schedule a test post** owned by your admin user for ~5 min from now via `/schedule`.
 
-**Authorized redirect URIs** — add:
-- `https://asjhkidpuhqodryczuth.supabase.co/auth/v1/callback` *(should already be there)*
+3. **Watch Fly logs** in PowerShell:
+   ```
+   fly logs -a youtube-uploader-service
+   ```
+   Look for the `youtube-get-access-token` call → 200 → upload progress → "uploaded and scheduled".
 
-Note: the redirect URI is **always** the Supabase callback, regardless of your frontend domain. Supabase then bounces back to your `redirectTo`. So only the **JavaScript origins** list needs the new domain.
+4. **Confirm** the video lands on **your** channel (the one connected at `/connections`), not the legacy global account.
 
-### 2. Supabase Auth — URL Configuration (REQUIRED)
+5. **Check edge function logs** for `youtube-get-access-token` in Supabase to confirm no errors.
 
-In Supabase Dashboard → Authentication → URL Configuration:
-
-- **Site URL**: change to `https://getflurra.com`
-- **Redirect URLs (allowlist)**: add
-  - `https://getflurra.com/**`
-  - `https://www.getflurra.com/**` (if using www)
-  - Keep `https://video-to-post-pro.lovable.app/**` and the preview URL during transition
-
-If `getflurra.com/connections` isn't on the allowlist, the OAuth callback will reject the redirect and YouTube connect will fail with `redirect_to is not allowed`.
-
-### 3. Fly.io `src/index.js` — default Lovable URL (OPTIONAL but recommended)
-
-In the diff I gave you, this line:
-```js
-const LOVABLE_FUNCTIONS_URL = process.env.LOVABLE_FUNCTIONS_URL || 'https://asjhkidpuhqodryczuth.supabase.co/functions/v1';
-```
-
-The fallback already points at the **Supabase functions URL** (not the Lovable frontend), which is correct and domain-independent. **No change needed.** Fly.io always calls Supabase directly, never `getflurra.com`.
-
-You can ignore `LOVABLE_FUNCTIONS_URL` as an env var entirely — the default is fine.
-
-### 4. Email templates (Supabase Auth) — REQUIRED if you use confirmation/magic-link emails
-
-In Supabase Dashboard → Authentication → Email Templates, any hardcoded URLs should use `{{ .SiteURL }}` (which now resolves to `getflurra.com` after step 2). If you've customized templates with literal lovable.app URLs, update them.
+If all green → proceed. If anything fails, stop and we debug before opening signup.
 
 ---
 
-## What does NOT need to change
+## Step 2 — Phase 1c: Public signup
 
-| Item | Why |
+Currently `/login` has no link to `/signup`, so even though signup works, no one can find it. Three small UI changes:
+
+| File | Change |
 |---|---|
-| Fly.io code diff | Calls Supabase functions URL directly, not the frontend |
-| `youtube-get-access-token` edge function | No CORS/origin coupling — service-role auth only |
-| `youtube-save-connection` edge function | CORS is `*` |
-| `Connections.tsx` redirect logic | Uses `window.location.origin` — auto-adapts |
-| `Login.tsx` / `Signup.tsx` redirects | Same — domain-agnostic |
-| Any DB schema | Domain-independent |
-| `SUPABASE_SERVICE_ROLE_KEY` on Fly | Same key works regardless of frontend domain |
+| `src/pages/Login.tsx` | Add "Don't have an account? Sign up" link → `/signup` |
+| `src/pages/Signup.tsx` | Confirm "Already have an account? Log in" link exists → `/login` |
+| `src/pages/Onboarding.tsx` | Verify it auto-redirects new users to `/connections` so they immediately see the YouTube connect prompt |
+
+Also worth a quick audit:
+- **Supabase Auth → Sign Up settings**: confirm "Enable signups" is ON and email confirmation is configured how you want it
+- **`enforce_youtube_schedule_requirements` trigger**: confirm it doesn't block new users from creating content rows before they've connected YouTube (the UI guard handles the schedule step, but the trigger could surprise us)
 
 ---
 
-## Updated cutover sequence
+## Step 3 — Post-cutover cleanup (1 week out, after multiple successful per-user uploads)
 
-Insert these **before** the Fly.io deploy:
-
-1. **Google Cloud Console**: add `https://getflurra.com` to JavaScript origins
-2. **Supabase Auth URL Config**: set Site URL + add `getflurra.com/**` to allowlist
-3. **Connect custom domain in Lovable** (Project Settings → Domains → Connect `getflurra.com`)
-4. **Verify**: load `https://getflurra.com/connections`, click Connect YouTube, confirm round-trip works
-5. **Then** proceed with the Fly.io deploy from the previous plan
+- Delete `GOOGLE_OAUTH_REFRESH_TOKEN` from Supabase Edge Function secrets
+- Unset `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` on Fly (no longer used by the uploader — they live in the Lovable edge function now)
+- Drop the legacy `content_instructions` table if unused (out of scope for 1c, listed in original plan)
 
 ---
 
-## One gotcha to watch
+## What I'd build now (after you confirm Step 1 verification passes)
 
-If a user connected YouTube while the app was on `lovable.app` and later visits via `getflurra.com`, **their connection still works** — the refresh token is stored server-side in `youtube_connections`, not tied to a domain. Only the **OAuth handshake itself** is domain-sensitive.
+Just Step 2 — the signup link + onboarding flow audit. It's a small, contained change. Roughly 3 files touched, no DB migration, no edge function changes.
+
+Want me to proceed with Step 2 once you've completed the Step 1 verification, or do you want to tackle something else first?
 
