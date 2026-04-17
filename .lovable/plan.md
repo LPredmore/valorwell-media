@@ -1,138 +1,84 @@
 
 
-# Phase 1b: Per-User YouTube Publishing — Definitive Plan
+# Adjustments for `getflurra.com` as the Production Domain
 
-## The decision
+## TL;DR
 
-**Build `youtube-get-access-token` as the single source of truth for YouTube access tokens. No global fallback. Reuse the existing `SERVICE_ROLE_KEY` for Fly.io→Lovable auth. Cut over Fly.io in the same window as the Lovable deploy.**
-
-### Why this is right (not why you'll like it)
-
-1. **No global fallback = no silent cross-tenant data leaks.** A fallback to `GOOGLE_OAUTH_REFRESH_TOKEN` means a misconfigured user's video uploads to *your* admin channel. That's a worse failure than a clear "not connected" error. Fail loud, fail safe.
-
-2. **Reuse `SERVICE_ROLE_KEY`, don't mint a new one.** You said this token endpoint is the only Fly.io→Lovable call. A dedicated key adds rotation surface for zero benefit. Service role is already in Fly.io's env (it's how Fly currently reads `social_content`). One key, one rotation point.
-
-3. **Same-window cutover, not staged.** A staged cutover means Fly.io keeps using the global token — meaning new tenants who connect their own account would *still* upload to your channel until step 2 lands. The "safety" of staging is illusory; it just extends the window of incorrect behavior. Cut over both sides together.
-
-4. **Token resolver takes `contentId`, not `userId`.** Fly.io already has the `social_content` row in hand. Passing `contentId` lets the edge function do the user lookup server-side, which means Fly.io can never accidentally pass the wrong user_id (e.g., from a stale row). Single-trip, server-validated.
+**The Fly.io diff doesn't change.** The Lovable app code doesn't change either — it already uses `window.location.origin` for OAuth redirects. What you need to update is **OAuth allowlists in three places** and **one default URL in the Fly code**.
 
 ---
 
-## Risk mitigations (mapped to the audit)
+## What needs updating (and where)
 
-| Risk | Mitigation |
-|---|---|
-| Admin not connected → all queued uploads fail | **Pre-flight gate**: I'll provide the SQL check. Cutover blocked until it returns a row. |
-| Token refresh fails mid-flight | Edge function returns typed errors (`no_connection`, `refresh_failed`, `invalid_grant`). Fly.io maps each to a specific `youtube_error_detail` so the user sees actionable text. |
-| User schedules without connection | UI guard in `ScheduleDialog` (disable + banner) + page-level banner on `/schedule`. Server-side enforcement isn't needed because the upload will simply fail-and-mark, but UX should prevent the dead-end. |
-| `google-account-info` still uses global token (Settings page) | Rewrite to per-user. Drop global branch. |
-| Dead `publish-youtube` config entry | Remove from `config.toml`. |
-| `GOOGLE_OAUTH_REFRESH_TOKEN` lingering | Keep secret in Supabase for 1 week post-cutover as recovery hatch. Then delete. Document in plan. |
-| Stuck-in-`uploading` rows from cutover | Existing `reset_stuck_youtube_uploads(30)` function handles this. No new work. |
-| Fly.io `youtube-uploader-service` calls `kick_youtube_run_due` cron — needs new behavior | Cron stays the same. Only the per-row upload step inside Fly.io changes. |
-| New users with no connection get queued items | Schedule trigger `enforce_youtube_schedule_requirements` doesn't check connection. Add a pre-insert check OR rely on UI guard + graceful Fly failure. **Decision: UI guard only.** Server-side check would require coupling `social_content` writes to `youtube_connections` reads, which complicates RLS and adds a query to every schedule. Failed uploads are already first-class state. |
+### 1. Google Cloud Console — OAuth client (REQUIRED)
 
----
+This is the one that will silently break YouTube connect for `getflurra.com` users if you skip it.
 
-## Implementation
+**Authorized JavaScript origins** — add:
+- `https://getflurra.com`
+- `https://www.getflurra.com` (if you'll use www)
 
-### 1. New edge function: `youtube-get-access-token`
+**Authorized redirect URIs** — add:
+- `https://asjhkidpuhqodryczuth.supabase.co/auth/v1/callback` *(should already be there)*
 
-```text
-POST /functions/v1/youtube-get-access-token
-Auth: Bearer <SERVICE_ROLE_KEY>
-Body: { contentId: string }
+Note: the redirect URI is **always** the Supabase callback, regardless of your frontend domain. Supabase then bounces back to your `redirectTo`. So only the **JavaScript origins** list needs the new domain.
 
-Returns 200: { accessToken, channelId, channelTitle, userId }
-Returns 404: { error: "no_connection", userId }
-Returns 401: { error: "refresh_failed", detail: string }
-Returns 400: { error: "invalid_request" }
-Returns 403: { error: "unauthorized" }  // wrong service key
+### 2. Supabase Auth — URL Configuration (REQUIRED)
+
+In Supabase Dashboard → Authentication → URL Configuration:
+
+- **Site URL**: change to `https://getflurra.com`
+- **Redirect URLs (allowlist)**: add
+  - `https://getflurra.com/**`
+  - `https://www.getflurra.com/**` (if using www)
+  - Keep `https://video-to-post-pro.lovable.app/**` and the preview URL during transition
+
+If `getflurra.com/connections` isn't on the allowlist, the OAuth callback will reject the redirect and YouTube connect will fail with `redirect_to is not allowed`.
+
+### 3. Fly.io `src/index.js` — default Lovable URL (OPTIONAL but recommended)
+
+In the diff I gave you, this line:
+```js
+const LOVABLE_FUNCTIONS_URL = process.env.LOVABLE_FUNCTIONS_URL || 'https://asjhkidpuhqodryczuth.supabase.co/functions/v1';
 ```
 
-Logic:
-1. Validate `Authorization: Bearer <SERVICE_ROLE_KEY>` (constant-time compare against `Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")`)
-2. Validate body with Zod (`contentId` UUID)
-3. Service-role client: `social_content.select('user_id').eq('id', contentId).single()`
-4. Service-role client: `youtube_connections.select('refresh_token, channel_id, channel_title').eq('user_id', userId).single()`
-5. POST to `https://oauth2.googleapis.com/token` with `refresh_token` grant
-6. Return access token + channel metadata
-7. **No fallback to `GOOGLE_OAUTH_REFRESH_TOKEN`.** Period.
+The fallback already points at the **Supabase functions URL** (not the Lovable frontend), which is correct and domain-independent. **No change needed.** Fly.io always calls Supabase directly, never `getflurra.com`.
 
-### 2. Rewrite `google-account-info`
+You can ignore `LOVABLE_FUNCTIONS_URL` as an env var entirely — the default is fine.
 
-Replace global-token flow with: validate caller JWT → look up `youtube_connections` for `auth.uid()` → return their `google_email`, `channel_title`, `channel_id`. Used by Settings page display.
+### 4. Email templates (Supabase Auth) — REQUIRED if you use confirmation/magic-link emails
 
-### 3. UI changes
-
-**New hook** `src/hooks/useYouTubeConnection.ts`:
-- Returns `{ connection, isLoading, isConnected }` for current user
-- Used by ScheduleDialog + Schedule banner + (eventually) elsewhere
-
-**`src/components/schedule/ScheduleDialog.tsx`**:
-- If `!isConnected`, show inline alert: "Connect your YouTube account to schedule posts" + button linking to `/connections`
-- Disable confirm button
-
-**`src/pages/Schedule.tsx`**:
-- Top dismissible alert when `!isConnected`: "Connect your YouTube account to start posting → [Connect]"
-- Use `sessionStorage` for dismissal (re-shows next session — this matters)
-
-### 4. Cleanup
-
-- Remove `[functions.publish-youtube]` block from `supabase/config.toml`
-- Add `[functions.youtube-get-access-token]` with `verify_jwt = false` (we validate the service role key in code)
-
-### 5. Fly.io diff (you apply manually)
-
-I'll provide the precise diff after Lovable side ships. Summary of what it does:
-- Remove `GOOGLE_OAUTH_REFRESH_TOKEN` env var usage
-- Before each upload: `POST $LOVABLE_URL/functions/v1/youtube-get-access-token` with `Bearer $SUPABASE_SERVICE_ROLE_KEY` + `{ contentId: row.id }`
-- Map response:
-  - `200` → use `accessToken` for upload
-  - `404 no_connection` → `youtube_status='failed'`, `youtube_error_detail='No YouTube account connected. Reconnect at /connections.'`
-  - `401 refresh_failed` → `youtube_status='failed'`, `youtube_error_detail='YouTube authorization expired. Reconnect at /connections.'`
-  - `5xx` → leave `queued`, retry on next cron tick (existing behavior)
+In Supabase Dashboard → Authentication → Email Templates, any hardcoded URLs should use `{{ .SiteURL }}` (which now resolves to `getflurra.com` after step 2). If you've customized templates with literal lovable.app URLs, update them.
 
 ---
 
-## Cutover sequence (strict order)
+## What does NOT need to change
 
-1. **Pre-flight SQL** (you run): verify admin has `youtube_connections` row
-   ```sql
-   SELECT yc.user_id, yc.google_email, yc.channel_title, yc.created_at
-   FROM youtube_connections yc
-   WHERE yc.user_id IN (SELECT user_id FROM user_roles WHERE role='admin');
-   ```
-   Must return ≥1 row before proceeding. **If empty, connect at `/connections` first.**
-
-2. **Deploy Lovable changes** (auto on save): edge functions + UI guards live. Fly.io still uses global token — uploads keep working.
-
-3. **Smoke test**: call `youtube-get-access-token` via curl with a known contentId. Confirm 200 + valid token. Confirm `google-account-info` returns admin's channel.
-
-4. **Update Fly.io service**: apply diff, deploy. Now per-user is live.
-
-5. **Verify**: schedule a test post owned by admin. Watch it upload to admin's channel via the new path.
-
-6. **+7 days**: delete `GOOGLE_OAUTH_REFRESH_TOKEN` Supabase secret.
-
----
-
-## Files changing
-
-| File | Change |
+| Item | Why |
 |---|---|
-| `supabase/functions/youtube-get-access-token/index.ts` | **New** |
-| `supabase/functions/google-account-info/index.ts` | Rewrite for per-user |
-| `supabase/config.toml` | Add new function entry, remove dead `publish-youtube` |
-| `src/hooks/useYouTubeConnection.ts` | **New** |
-| `src/components/schedule/ScheduleDialog.tsx` | Connection guard |
-| `src/pages/Schedule.tsx` | Connection banner |
+| Fly.io code diff | Calls Supabase functions URL directly, not the frontend |
+| `youtube-get-access-token` edge function | No CORS/origin coupling — service-role auth only |
+| `youtube-save-connection` edge function | CORS is `*` |
+| `Connections.tsx` redirect logic | Uses `window.location.origin` — auto-adapts |
+| `Login.tsx` / `Signup.tsx` redirects | Same — domain-agnostic |
+| Any DB schema | Domain-independent |
+| `SUPABASE_SERVICE_ROLE_KEY` on Fly | Same key works regardless of frontend domain |
 
-No DB migration needed — schema already supports this.
+---
 
-## Out of scope (Phase 1c, separate)
+## Updated cutover sequence
 
-- Login page "Sign up" link
-- Drop legacy `content_instructions` table
-- Per-user `platform_instructions`
+Insert these **before** the Fly.io deploy:
+
+1. **Google Cloud Console**: add `https://getflurra.com` to JavaScript origins
+2. **Supabase Auth URL Config**: set Site URL + add `getflurra.com/**` to allowlist
+3. **Connect custom domain in Lovable** (Project Settings → Domains → Connect `getflurra.com`)
+4. **Verify**: load `https://getflurra.com/connections`, click Connect YouTube, confirm round-trip works
+5. **Then** proceed with the Fly.io deploy from the previous plan
+
+---
+
+## One gotcha to watch
+
+If a user connected YouTube while the app was on `lovable.app` and later visits via `getflurra.com`, **their connection still works** — the refresh token is stored server-side in `youtube_connections`, not tied to a domain. Only the **OAuth handshake itself** is domain-sensitive.
 
