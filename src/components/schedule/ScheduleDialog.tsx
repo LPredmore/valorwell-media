@@ -28,7 +28,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
+import { Link } from "react-router-dom";
 import { usePlaylists } from "@/hooks/useSchedule";
+import { useYouTubeConnection } from "@/hooks/useYouTubeConnection";
 
 // Preferred times in America/Chicago (handles CST/CDT automatically)
 const SHORT_TIMES_CHICAGO = [
@@ -89,6 +93,7 @@ export function ScheduleDialog({
   const [selectedPrefTime, setSelectedPrefTime] = useState<string>("");
   const [playlistId, setPlaylistId] = useState<number | null>(initialPlaylistId ?? null);
   const { data: playlists } = usePlaylists();
+  const { isConnected, isLoading: ytLoading } = useYouTubeConnection();
 
   const prefOptions = postLength === "Long" ? LONG_TIMES_CHICAGO : SHORT_TIMES_CHICAGO;
 
@@ -109,7 +114,7 @@ export function ScheduleDialog({
     onConfirm(selectedAt, playlistId);
   };
 
-  const canConfirm = date && (usePrefTimes ? !!selectedPrefTime : true);
+  const canConfirm = date && (usePrefTimes ? !!selectedPrefTime : true) && isConnected;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -127,6 +132,18 @@ export function ScheduleDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {!ytLoading && !isConnected && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="flex items-center justify-between gap-3">
+                <span>Connect your YouTube account to schedule posts.</span>
+                <Link to="/connections">
+                  <Button size="sm" variant="outline">Connect</Button>
+                </Link>
+              </AlertDescription>
+            </Alert>
+          )}
+
           <div className="space-y-1.5">
             <Label className="font-medium">Date</Label>
             <Popover>

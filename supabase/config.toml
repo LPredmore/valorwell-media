@@ -12,10 +12,6 @@ verify_jwt = false
 [functions.r2-read-url]
 verify_jwt = false
 
-[functions.publish-youtube]
-verify_jwt = false
-
-
 [functions.google-account-info]
 verify_jwt = false
 
@@ -29,4 +25,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.extract-shorts]
+verify_jwt = false
+
+[functions.youtube-get-access-token]
 verify_jwt = false
