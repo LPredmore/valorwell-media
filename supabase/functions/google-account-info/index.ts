@@ -1,3 +1,5 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -9,63 +11,61 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const clientId = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID")!;
-    const clientSecret = Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET")!;
-    const refreshToken = Deno.env.get("GOOGLE_OAUTH_REFRESH_TOKEN")!;
-
-    // Exchange refresh token for access token
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken,
-        grant_type: "refresh_token",
-      }),
-    });
-
-    if (!tokenRes.ok) {
-      const text = await tokenRes.text();
-      return new Response(JSON.stringify({ error: `Token exchange failed: ${text}` }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { access_token } = await tokenRes.json();
-
-    // Get user info
-    const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-      headers: { Authorization: `Bearer ${access_token}` },
-    });
-    const userInfo = await userRes.json();
-
-    // Get YouTube channel info
-    const ytRes = await fetch(
-      "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
-      { headers: { Authorization: `Bearer ${access_token}` } },
-    );
-    const ytData = await ytRes.json();
-
-    const channel = ytData.items?.[0]?.snippet;
-
-    return new Response(
-      JSON.stringify({
-        email: userInfo.email || null,
-        name: userInfo.name || null,
-        channelTitle: channel?.title || "No channel found",
-        channelId: ytData.items?.[0]?.id || null,
-        _debug: { userInfo, ytData },
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
+  const json = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), {
+      status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return json(401, { error: "unauthorized" });
+    }
+
+    const userClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: claimsErr } = await userClient.auth.getClaims(token);
+    if (claimsErr || !claimsData?.claims?.sub) {
+      return json(401, { error: "unauthorized" });
+    }
+    const userId = claimsData.claims.sub;
+
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    );
+
+    const { data: conn, error: connErr } = await admin
+      .from("youtube_connections")
+      .select("google_email, channel_title, channel_id, created_at, updated_at")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (connErr) {
+      return json(500, { error: "db_error", detail: connErr.message });
+    }
+
+    if (!conn) {
+      return json(200, { connected: false });
+    }
+
+    return json(200, {
+      connected: true,
+      email: conn.google_email,
+      channelTitle: conn.channel_title,
+      channelId: conn.channel_id,
+      connectedAt: conn.created_at,
+      updatedAt: conn.updated_at,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return json(500, { error: "internal_error", detail: message });
   }
 });
