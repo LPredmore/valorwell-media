@@ -1,31 +1,52 @@
+import { useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Link2 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ProfileView } from "@/components/settings/ProfileView";
+import { InstructionsView } from "@/components/settings/InstructionsView";
+import { ConnectionsView } from "@/components/settings/ConnectionsView";
+
+const VALID_TABS = ["profile", "instructions", "connections"] as const;
+type TabValue = typeof VALID_TABS[number];
 
 export default function Settings() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const activeTab: TabValue = (VALID_TABS as readonly string[]).includes(tabParam || "")
+    ? (tabParam as TabValue)
+    : "profile";
+
+  const handleTabChange = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === "profile") {
+      next.delete("tab");
+    } else {
+      next.set("tab", value);
+    }
+    setSearchParams(next, { replace: true });
+  };
+
   return (
     <AppLayout>
-      <div className="max-w-2xl mx-auto space-y-6">
-        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+      <div className="max-w-3xl mx-auto space-y-6">
+        <h1 className="font-display text-3xl font-bold tracking-tight">Settings</h1>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Social Media Connections</CardTitle>
-            <CardDescription>
-              Manage your connected accounts on the dedicated Connections page.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link to="/connections">
-              <Button variant="outline" className="gap-2">
-                <Link2 className="h-4 w-4" />
-                Go to Connections
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
+          <TabsList>
+            <TabsTrigger value="profile">Profile</TabsTrigger>
+            <TabsTrigger value="instructions">Instructions</TabsTrigger>
+            <TabsTrigger value="connections">Connections</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="profile" className="mt-6">
+            <ProfileView />
+          </TabsContent>
+          <TabsContent value="instructions" className="mt-6">
+            <InstructionsView />
+          </TabsContent>
+          <TabsContent value="connections" className="mt-6">
+            <ConnectionsView />
+          </TabsContent>
+        </Tabs>
       </div>
     </AppLayout>
   );

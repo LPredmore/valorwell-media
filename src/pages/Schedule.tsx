@@ -1,32 +1,27 @@
-import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { AlertCircle, X } from "lucide-react";
-import { Link } from "react-router-dom";
-import { IncompleteTab } from "@/components/schedule/IncompleteTab";
-import { UnscheduledTab } from "@/components/schedule/UnscheduledTab";
-import { ScheduledTab } from "@/components/schedule/ScheduledTab";
-import { PastTab } from "@/components/schedule/PastTab";
-import { useYouTubeConnection } from "@/hooks/useYouTubeConnection";
+import { ScheduleView } from "@/components/schedule/ScheduleView";
+import { IdeasView } from "@/components/ideas/IdeasView";
 
-const DISMISS_KEY = "yt-connect-banner-dismissed";
+const VALID_TABS = ["content", "ideas"] as const;
+type TabValue = typeof VALID_TABS[number];
 
 export default function Schedule() {
-  const [lengthFilter, setLengthFilter] = useState<"Long" | "Short">("Long");
-  const { isConnected, isLoading: ytLoading } = useYouTubeConnection();
-  const [dismissed, setDismissed] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const activeTab: TabValue = (VALID_TABS as readonly string[]).includes(tabParam || "")
+    ? (tabParam as TabValue)
+    : "content";
 
-  useEffect(() => {
-    setDismissed(sessionStorage.getItem(DISMISS_KEY) === "1");
-  }, []);
-
-  const showBanner = !ytLoading && !isConnected && !dismissed;
-
-  const dismiss = () => {
-    sessionStorage.setItem(DISMISS_KEY, "1");
-    setDismissed(true);
+  const handleTabChange = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === "content") {
+      next.delete("tab");
+    } else {
+      next.set("tab", value);
+    }
+    setSearchParams(next, { replace: true });
   };
 
   return (
@@ -34,49 +29,17 @@ export default function Schedule() {
       <div className="space-y-6">
         <h1 className="font-display text-3xl font-bold tracking-tight">Content</h1>
 
-        {showBanner && (
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription className="flex items-center justify-between gap-3">
-              <span>Hook me up to YouTube so I can start publishing for you.</span>
-              <div className="flex items-center gap-2">
-                <Link to="/connections">
-                  <Button size="sm">Connect</Button>
-                </Link>
-                <Button size="sm" variant="ghost" onClick={dismiss} aria-label="Dismiss">
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        <Tabs value={lengthFilter} onValueChange={(v) => setLengthFilter(v as "Long" | "Short")}>
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList>
-            <TabsTrigger value="Long">Long</TabsTrigger>
-            <TabsTrigger value="Short">Short</TabsTrigger>
-          </TabsList>
-        </Tabs>
-
-        <Tabs defaultValue="incomplete">
-          <TabsList className="w-full sm:w-auto">
-            <TabsTrigger value="incomplete">Incomplete</TabsTrigger>
-            <TabsTrigger value="unscheduled">Unscheduled</TabsTrigger>
-            <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
-            <TabsTrigger value="past">Past</TabsTrigger>
+            <TabsTrigger value="content">Content</TabsTrigger>
+            <TabsTrigger value="ideas">General Ideas</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="incomplete">
-            <IncompleteTab postLength={lengthFilter} />
+          <TabsContent value="content" className="mt-6">
+            <ScheduleView />
           </TabsContent>
-          <TabsContent value="unscheduled">
-            <UnscheduledTab postLength={lengthFilter} />
-          </TabsContent>
-          <TabsContent value="scheduled">
-            <ScheduledTab postLength={lengthFilter} />
-          </TabsContent>
-          <TabsContent value="past">
-            <PastTab postLength={lengthFilter} />
+          <TabsContent value="ideas" className="mt-6">
+            <IdeasView />
           </TabsContent>
         </Tabs>
       </div>
