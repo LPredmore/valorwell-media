@@ -566,6 +566,7 @@ export type Database = {
           planned_date: string | null
           playlist_id: number | null
           topic: string | null
+          user_id: string
         }
         Insert: {
           avatar?: string | null
@@ -576,6 +577,7 @@ export type Database = {
           planned_date?: string | null
           playlist_id?: number | null
           topic?: string | null
+          user_id: string
         }
         Update: {
           avatar?: string | null
@@ -586,6 +588,7 @@ export type Database = {
           planned_date?: string | null
           playlist_id?: number | null
           topic?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -1076,6 +1079,7 @@ export type Database = {
           created_at: string
           email: string
           id: string
+          onboarding_completed: boolean
           password: string | null
           updated_at: string
         }
@@ -1083,6 +1087,7 @@ export type Database = {
           created_at?: string
           email: string
           id: string
+          onboarding_completed?: boolean
           password?: string | null
           updated_at?: string
         }
@@ -1090,6 +1095,7 @@ export type Database = {
           created_at?: string
           email?: string
           id?: string
+          onboarding_completed?: boolean
           password?: string | null
           updated_at?: string
         }
