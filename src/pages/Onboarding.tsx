@@ -89,11 +89,12 @@ export default function Onboarding() {
       <div className="mx-auto flex min-h-screen max-w-2xl flex-col px-4 py-8">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <img src={mascot} alt="Flurra" className="h-7 w-7 rounded-full ring-1 ring-border bg-brand-navy-2" />
-            <span className="font-display text-xl font-bold tracking-tight text-brand-gradient">
-              Flurra
-            </span>
+          <div className="flex items-center -my-6">
+            <img
+              src={mascot}
+              alt="Flurra"
+              className="h-[13rem] w-auto object-contain"
+            />
           </div>
           <div className="flex items-center gap-2">
             {[1, 2, 3].map((s) => (
