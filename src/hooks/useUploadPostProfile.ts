@@ -110,3 +110,29 @@ export function useRetryProvisioning() {
     },
   });
 }
+
+export type UploadPostDebugStatus = {
+  our_profile: UploadPostProfile;
+  provider_status: number;
+  provider_user: Record<string, unknown> | null;
+  provider_raw: unknown;
+  debug_log: Array<Record<string, unknown>>;
+  checked_at: string;
+};
+
+export function useUploadPostDebugStatus(enabled = false) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["upload-post-debug-status", user?.id],
+    enabled: !!user?.id && enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke(
+        "upload-post-debug-status",
+        { body: {} },
+      );
+      if (error) throw error;
+      return data as UploadPostDebugStatus;
+    },
+    staleTime: 10_000,
+  });
+}
