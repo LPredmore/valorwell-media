@@ -18,12 +18,13 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-function YtBadge({ status }: { status: string | null }) {
+function PostStatusBadge({ status }: { status: string | null }) {
   if (!status) return null;
   const colors: Record<string, string> = {
-    queued: "bg-amber-500/15 text-amber-700 border-amber-500/30",
+    pending: "bg-muted text-muted-foreground border-border",
     uploading: "bg-blue-500/15 text-blue-700 border-blue-500/30",
-    scheduled: "bg-green-500/15 text-green-700 border-green-500/30",
+    success: "bg-green-500/15 text-green-700 border-green-500/30",
+    partial: "bg-amber-500/15 text-amber-700 border-amber-500/30",
     failed: "bg-destructive/15 text-destructive border-destructive/30",
   };
   return <Badge variant="outline" className={`text-xs ${colors[status] ?? ""}`}>{status}</Badge>;
@@ -54,7 +55,7 @@ export function ContentTable({ items, onDelete, isDeleting }: Props) {
           <TableRow>
             <TableHead className="font-semibold">Title</TableHead>
             <TableHead className="font-semibold">Status</TableHead>
-            <TableHead className="font-semibold w-24">YouTube</TableHead>
+            <TableHead className="font-semibold w-24">Publish</TableHead>
             <TableHead className="font-semibold">Created</TableHead>
             <TableHead className="w-12" />
           </TableRow>
@@ -71,7 +72,7 @@ export function ContentTable({ items, onDelete, isDeleting }: Props) {
                 <StatusBadge status={item.status} />
               </TableCell>
               <TableCell>
-                <YtBadge status={item.youtube_status} />
+                <PostStatusBadge status={item.upload_post_status} />
               </TableCell>
               <TableCell className="text-muted-foreground">
                 {format(new Date(item.created_at), "MMM d, yyyy")}
