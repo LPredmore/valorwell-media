@@ -1,22 +1,24 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile, useCompleteOnboarding } from "@/hooks/useProfile";
 import { useCreateIdea } from "@/hooks/useIdeas";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import {
   Sparkles,
   Lightbulb,
   CalendarDays,
   Send,
-  Youtube,
   ArrowRight,
-  CheckCircle2,
+  ArrowLeft,
+  MessageSquareText,
 } from "lucide-react";
 import mascot from "@/assets/flurra-mascot.png";
+
+const CHANNEL_BRIEF_SCOPE = "channel_brief";
 
 export default function Onboarding() {
   const navigate = useNavigate();
@@ -26,10 +28,25 @@ export default function Onboarding() {
   const createIdea = useCreateIdea();
 
   const [step, setStep] = useState(1);
+  const [channelBrief, setChannelBrief] = useState("");
+  const [savingBrief, setSavingBrief] = useState(false);
   const [topic, setTopic] = useState("");
   const [savingIdea, setSavingIdea] = useState(false);
 
-  // Redirect logic
+  // Hydrate any existing channel brief
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const { data } = await supabase
+        .from("user_content_instructions")
+        .select("instruction")
+        .eq("user_id", user.id)
+        .eq("scope", CHANNEL_BRIEF_SCOPE)
+        .maybeSingle();
+      if (data?.instruction) setChannelBrief(data.instruction);
+    })();
+  }, [user]);
+
   if (!authLoading && !user) {
     navigate("/login", { replace: true });
     return null;
@@ -43,13 +60,52 @@ export default function Onboarding() {
     );
   }
 
-  // Already onboarded — go to app
+  // Already onboarded — go to subscribe (gating happens there)
   if (profile?.onboarding_completed) {
-    navigate("/schedule", { replace: true });
+    navigate("/onboarding/subscribe", { replace: true });
     return null;
   }
 
-  const finishOnboarding = async (destination: string = "/connections") => {
+  const saveChannelBrief = async (): Promise<boolean> => {
+    if (!user) return false;
+    setSavingBrief(true);
+    try {
+      const { error } = await supabase
+        .from("user_content_instructions")
+        .upsert(
+          {
+            user_id: user.id,
+            scope: CHANNEL_BRIEF_SCOPE,
+            instruction: channelBrief.trim() || "(No channel description provided yet.)",
+            is_active: true,
+          },
+          { onConflict: "user_id,scope" },
+        );
+      if (error) throw error;
+      return true;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Could not save your channel brief";
+      toast({ title: "Error", description: msg, variant: "destructive" });
+      return false;
+    } finally {
+      setSavingBrief(false);
+    }
+  };
+
+  const handleStep2Continue = async () => {
+    if (!channelBrief.trim()) {
+      toast({
+        title: "Tell me a little about your channel",
+        description: "Even a sentence or two helps me write better for you.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const ok = await saveChannelBrief();
+    if (ok) setStep(3);
+  };
+
+  const finishOnboarding = async (destination = "/onboarding/subscribe") => {
     try {
       await completeOnboarding.mutateAsync();
       navigate(destination, { replace: true });
@@ -59,11 +115,6 @@ export default function Onboarding() {
     }
   };
 
-  const handleConnectYouTube = async () => {
-    await completeOnboarding.mutateAsync().catch(() => {});
-    navigate("/connections");
-  };
-
   const handleCreateIdea = async () => {
     if (!topic.trim()) {
       toast({ title: "Please enter an idea topic", variant: "destructive" });
@@ -71,12 +122,9 @@ export default function Onboarding() {
     }
     setSavingIdea(true);
     try {
-      await createIdea.mutateAsync({
-        topic: topic.trim(),
-        length: "Both",
-      });
+      await createIdea.mutateAsync({ topic: topic.trim(), length: "Both" });
       toast({ title: "First idea saved!" });
-      await finishOnboarding("/connections");
+      await finishOnboarding();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Could not save idea";
       toast({ title: "Error", description: msg, variant: "destructive" });
@@ -140,7 +188,7 @@ export default function Onboarding() {
                 <FlowStep
                   icon={<Send className="h-5 w-5" />}
                   title="I'll publish for you"
-                  body="When the time comes, I push it live to YouTube and your channels."
+                  body="When the time comes, I push it live to all 10 of your channels."
                 />
               </div>
 
@@ -151,46 +199,59 @@ export default function Onboarding() {
             </div>
           )}
 
-          {/* Step 2: Connect YouTube */}
+          {/* Step 2: Channel brief */}
           {step === 2 && (
             <div className="space-y-8">
               <div className="space-y-3">
                 <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/15">
-                  <Youtube className="h-6 w-6 text-primary" />
+                  <MessageSquareText className="h-6 w-6 text-primary" />
                 </div>
-                <h2 className="font-display text-3xl font-bold tracking-tight">Hook me up to YouTube</h2>
+                <h2 className="font-display text-3xl font-bold tracking-tight">
+                  Tell me about your channel
+                </h2>
                 <p className="text-muted-foreground">
-                  Link your channel so I can publish videos for you when they're scheduled.
-                  Totally fine to do this later.
+                  The more I know about your channel, the better the ideas and scripts I'll write
+                  for you. Paste in anything that helps me get the vibe — your About page, brand
+                  guidelines, past video descriptions, whatever you've got.
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-border surface-elevated p-6 space-y-3">
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                  <p className="text-sm text-foreground">I'll auto-publish your scheduled videos</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                  <p className="text-sm text-foreground">I'll drop the first comment with your hashtags</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                  <p className="text-sm text-foreground">I never post anything without your schedule</p>
-                </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Channel brief</label>
+                <Textarea
+                  value={channelBrief}
+                  onChange={(e) => setChannelBrief(e.target.value)}
+                  rows={12}
+                  placeholder={`Try covering:
+• What your channel/business is about
+• Who it's for (your audience)
+• Tone, voice, and style
+• Topics you cover, things you avoid
+• Catchphrases, taglines, recurring formats`}
+                  className="resize-y"
+                />
+                <p className="text-xs text-muted-foreground">
+                  You can come back and edit this anytime in Settings → Instructions.
+                </p>
               </div>
 
               <div className="space-y-2">
-                <Button onClick={handleConnectYouTube} className="w-full gap-2" size="lg">
-                  <Youtube className="h-4 w-4" />
-                  Connect YouTube
+                <Button
+                  onClick={handleStep2Continue}
+                  disabled={savingBrief}
+                  className="w-full gap-2"
+                  size="lg"
+                >
+                  {savingBrief ? "Saving…" : "Continue"}
+                  <ArrowRight className="h-4 w-4" />
                 </Button>
                 <Button
-                  onClick={() => setStep(3)}
+                  onClick={() => setStep(1)}
                   variant="ghost"
-                  className="w-full"
+                  className="w-full gap-2"
                 >
-                  Skip for now
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
                 </Button>
               </div>
             </div>
@@ -231,7 +292,7 @@ export default function Onboarding() {
                   {savingIdea ? "Saving..." : "Save idea & finish"}
                 </Button>
                 <Button
-                  onClick={() => finishOnboarding("/connections")}
+                  onClick={() => finishOnboarding()}
                   variant="ghost"
                   className="w-full"
                   disabled={completeOnboarding.isPending}

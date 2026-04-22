@@ -7,8 +7,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { ProfileView } from "@/components/settings/ProfileView";
 import { InstructionsView } from "@/components/settings/InstructionsView";
 import { ConnectionsView } from "@/components/settings/ConnectionsView";
+import { BillingView } from "@/components/settings/BillingView";
 
-const VALID_TABS = ["profile", "instructions", "connections"] as const;
+const VALID_TABS = ["profile", "instructions", "connections", "billing"] as const;
 type TabValue = typeof VALID_TABS[number];
 
 export default function Settings() {
@@ -49,6 +50,7 @@ export default function Settings() {
             <TabsTrigger value="profile">Profile</TabsTrigger>
             <TabsTrigger value="instructions">Instructions</TabsTrigger>
             <TabsTrigger value="connections">Connections</TabsTrigger>
+            <TabsTrigger value="billing">Billing</TabsTrigger>
           </TabsList>
 
           <TabsContent value="profile" className="mt-6">
@@ -59,6 +61,9 @@ export default function Settings() {
           </TabsContent>
           <TabsContent value="connections" className="mt-6">
             <ConnectionsView />
+          </TabsContent>
+          <TabsContent value="billing" className="mt-6">
+            <BillingView />
           </TabsContent>
         </Tabs>
       </div>
