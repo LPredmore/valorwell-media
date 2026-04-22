@@ -9,7 +9,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { ExternalLink, Copy, AlertCircle, RefreshCw } from "lucide-react";
+import {
+  ExternalLink,
+  Copy,
+  RefreshCw,
+  CheckCircle2,
+  Loader2,
+  AlertTriangle,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 type LogEntry = {
@@ -17,6 +24,16 @@ type LogEntry = {
   level: "info" | "warn" | "error" | "success";
   message: string;
 };
+
+type FlowStatus =
+  | "idle"
+  | "opening"
+  | "open"
+  | "blocked"
+  | "closed"
+  | "syncing"
+  | "done"
+  | "error";
 
 interface ConnectFlowDialogProps {
   open: boolean;
@@ -34,12 +51,12 @@ export function ConnectFlowDialog({
   onClosed,
 }: ConnectFlowDialogProps) {
   const { toast } = useToast();
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const popupRef = useRef<Window | null>(null);
   const popupPollRef = useRef<number | null>(null);
+  const popupOpenedAtRef = useRef<number>(0);
+  const autoOpenedRef = useRef(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [mode, setMode] = useState<"iframe" | "popup" | "blocked">("iframe");
-  const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [status, setStatus] = useState<FlowStatus>("idle");
 
   const log = (level: LogEntry["level"], message: string) => {
     setLogs((prev) => [
@@ -52,8 +69,8 @@ export function ConnectFlowDialog({
   useEffect(() => {
     if (open) {
       setLogs([]);
-      setIframeLoaded(false);
-      setMode("iframe");
+      setStatus("idle");
+      autoOpenedRef.current = false;
       if (url) log("info", `Generated connect URL for ${platform}`);
     } else {
       // cleanup on close
@@ -62,28 +79,16 @@ export function ConnectFlowDialog({
         popupPollRef.current = null;
       }
       if (popupRef.current && !popupRef.current.closed) {
-        try { popupRef.current.close(); } catch { /* ignore */ }
+        try {
+          popupRef.current.close();
+        } catch {
+          /* ignore */
+        }
       }
       popupRef.current = null;
-      onClosed?.();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
-
-  // Iframe framing-block detection: if not loaded after 4s, fall back to popup
-  useEffect(() => {
-    if (!open || !url || mode !== "iframe") return;
-    const timer = window.setTimeout(() => {
-      if (!iframeLoaded) {
-        log(
-          "warn",
-          "Iframe didn't load within 4s — provider likely blocks framing. Falling back to popup.",
-        );
-        setMode("blocked");
-      }
-    }, 4000);
-    return () => clearTimeout(timer);
-  }, [open, url, mode, iframeLoaded]);
 
   const openPopup = () => {
     if (!url) return;
@@ -91,56 +96,71 @@ export function ConnectFlowDialog({
     const h = 720;
     const left = window.screenX + (window.outerWidth - w) / 2;
     const top = window.screenY + (window.outerHeight - h) / 2;
+    setStatus("opening");
+    log("info", "Opening popup window…");
     const popup = window.open(
       url,
       "uploadpost-connect",
       `width=${w},height=${h},left=${left},top=${top},noopener=no,noreferrer=no`,
     );
     if (!popup) {
+      setStatus("blocked");
       log("error", "Popup blocked by browser. Allow popups and try again.");
       toast({
         title: "Popup blocked",
-        description: "Allow popups for this site and try again.",
+        description: "Allow popups for this site and click 'Re-open popup'.",
         variant: "destructive",
       });
       return;
     }
     popupRef.current = popup;
-    setMode("popup");
+    popupOpenedAtRef.current = Date.now();
+    setStatus("open");
     log("success", "Popup window opened");
 
     // Poll until closed
     if (popupPollRef.current) clearInterval(popupPollRef.current);
     popupPollRef.current = window.setInterval(() => {
       if (popup.closed) {
-        log("info", "Popup window closed by user");
+        const elapsed = Date.now() - popupOpenedAtRef.current;
         if (popupPollRef.current) {
           clearInterval(popupPollRef.current);
           popupPollRef.current = null;
         }
+        // If it closed almost immediately, treat as blocked
+        if (elapsed < 500) {
+          setStatus("blocked");
+          log(
+            "error",
+            "Popup closed immediately — likely blocked. Click 'Re-open popup'.",
+          );
+          return;
+        }
+        setStatus("syncing");
+        log("info", "Popup closed — syncing connections…");
+        try {
+          onClosed?.();
+        } catch (e: unknown) {
+          const message = e instanceof Error ? e.message : "Sync failed";
+          setStatus("error");
+          log("error", `Sync error: ${message}`);
+          return;
+        }
+        // Mark as done; the parent's sync mutation will refresh state.
+        setStatus("done");
+        log("success", "Sync requested. Check Diagnostics for raw provider state.");
       }
     }, 500);
   };
 
-  // Auto-open popup when iframe is detected as blocked
+  // Auto-open popup once the dialog is open and we have a URL
   useEffect(() => {
-    if (mode === "blocked" && open && url) {
-      openPopup();
-    }
+    if (!open || !url) return;
+    if (autoOpenedRef.current) return;
+    autoOpenedRef.current = true;
+    openPopup();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, open, url]);
-
-  const handleIframeLoad = () => {
-    setIframeLoaded(true);
-    log("success", "Iframe loaded a page");
-    // Try to read URL — will throw on cross-origin (expected)
-    try {
-      const href = iframeRef.current?.contentWindow?.location.href;
-      if (href) log("info", `Iframe URL: ${href}`);
-    } catch {
-      log("info", "Iframe is on a cross-origin page (URL not readable, normal for OAuth)");
-    }
-  };
+  }, [open, url]);
 
   const copyUrl = async () => {
     if (!url) return;
@@ -161,28 +181,46 @@ export function ConnectFlowDialog({
   const reopenPopup = () => {
     if (popupRef.current && !popupRef.current.closed) {
       popupRef.current.focus();
+      log("info", "Focused existing popup");
     } else {
       openPopup();
     }
   };
 
+  const statusLabel: Record<FlowStatus, string> = {
+    idle: "idle",
+    opening: "opening",
+    open: "in progress",
+    blocked: "blocked",
+    closed: "closed",
+    syncing: "syncing",
+    done: "done",
+    error: "error",
+  };
+
+  const statusVariant = (s: FlowStatus) => {
+    if (s === "blocked" || s === "error") return "destructive" as const;
+    if (s === "done") return "default" as const;
+    return "outline" as const;
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl h-[80vh] flex flex-col p-0">
+      <DialogContent className="max-w-4xl h-[70vh] flex flex-col p-0">
         <DialogHeader className="px-6 pt-6 pb-3 border-b">
           <DialogTitle>Connect {platform}</DialogTitle>
           <DialogDescription>
-            Complete the connection in the embedded view. We'll log every event
-            on the right so we can see exactly what happens.
+            A separate window has opened to complete the connection. We'll log
+            every event on the right and sync your account when it closes.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_320px] min-h-0">
-          {/* Left: iframe / popup status */}
+          {/* Left: status panel */}
           <div className="flex flex-col min-h-0 border-r">
             <div className="flex items-center gap-2 px-4 py-2 bg-muted/40 border-b text-xs">
-              <Badge variant="outline" className="font-mono">
-                {mode}
+              <Badge variant={statusVariant(status)} className="font-mono">
+                {statusLabel[status]}
               </Badge>
               <div className="flex-1 truncate font-mono text-muted-foreground">
                 {url ?? "—"}
@@ -195,35 +233,86 @@ export function ConnectFlowDialog({
               </Button>
             </div>
 
-            <div className="flex-1 min-h-0 bg-muted/20 relative">
-              {mode === "iframe" && url && (
-                <iframe
-                  ref={iframeRef}
-                  src={url}
-                  onLoad={handleIframeLoad}
-                  className="w-full h-full border-0"
-                  title="Upload-Post connect"
-                  sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
-                />
-              )}
-              {mode !== "iframe" && (
-                <div className="h-full flex flex-col items-center justify-center gap-4 p-6 text-center">
-                  <AlertCircle className="h-10 w-10 text-muted-foreground" />
-                  <div>
-                    <p className="font-medium">
-                      The provider doesn't allow embedding.
+            <div className="flex-1 min-h-0 bg-muted/20 flex items-center justify-center p-6">
+              <div className="max-w-sm text-center space-y-4">
+                {status === "open" || status === "opening" ? (
+                  <>
+                    <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
+                    <div>
+                      <p className="font-medium">Connection window is open</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Complete the {platform} connection in the popup.
+                        We'll detect when you finish and sync automatically.
+                      </p>
+                    </div>
+                  </>
+                ) : status === "blocked" ? (
+                  <>
+                    <AlertTriangle className="h-10 w-10 text-destructive mx-auto" />
+                    <div>
+                      <p className="font-medium">Popup blocked</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Your browser blocked the connection window. Allow
+                        popups for this site, then click below.
+                      </p>
+                    </div>
+                  </>
+                ) : status === "syncing" ? (
+                  <>
+                    <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
+                    <div>
+                      <p className="font-medium">Syncing connections…</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Reading the latest state from Upload-Post.
+                      </p>
+                    </div>
+                  </>
+                ) : status === "done" ? (
+                  <>
+                    <CheckCircle2 className="h-10 w-10 text-primary mx-auto" />
+                    <div>
+                      <p className="font-medium">Sync complete</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Close this dialog to see updated status, or check
+                        Diagnostics if {platform} still shows as not connected.
+                      </p>
+                    </div>
+                  </>
+                ) : status === "error" ? (
+                  <>
+                    <AlertTriangle className="h-10 w-10 text-destructive mx-auto" />
+                    <div>
+                      <p className="font-medium">Something went wrong</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        See the event log on the right for details.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Loader2 className="h-10 w-10 animate-spin text-muted-foreground mx-auto" />
+                    <p className="text-sm text-muted-foreground">
+                      Preparing connection…
                     </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      A popup window has been opened. Complete the flow there;
-                      this panel will log when it closes.
-                    </p>
-                  </div>
-                  <Button onClick={reopenPopup} className="gap-2">
+                  </>
+                )}
+
+                <div className="flex flex-col gap-2 pt-2">
+                  <Button onClick={reopenPopup} className="gap-2" disabled={!url}>
                     <RefreshCw className="h-4 w-4" />
-                    Re-open popup
+                    {status === "blocked" ? "Re-open popup" : "Re-open / focus popup"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={openInNewTab}
+                    className="gap-2"
+                    disabled={!url}
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Open in new tab instead
                   </Button>
                 </div>
-              )}
+              </div>
             </div>
           </div>
 
