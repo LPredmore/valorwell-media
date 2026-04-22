@@ -312,6 +312,68 @@ export function ConnectionsView() {
           );
         })}
       </div>
+
+      {/* Diagnostics panel */}
+      <Collapsible open={diagnosticsOpen} onOpenChange={setDiagnosticsOpen}>
+        <CollapsibleTrigger asChild>
+          <Button variant="outline" size="sm" className="gap-2">
+            <Bug className="h-4 w-4" />
+            Diagnostics
+            <ChevronDown
+              className={`h-4 w-4 transition-transform ${diagnosticsOpen ? "rotate-180" : ""}`}
+            />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-3">
+          <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Upload-Post raw status</p>
+                <p className="text-xs text-muted-foreground">
+                  What the provider's API reports about your profile.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => debugStatus.refetch()}
+                disabled={debugStatus.isFetching}
+                className="gap-2"
+              >
+                {debugStatus.isFetching ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3 w-3" />
+                )}
+                Refresh
+              </Button>
+            </div>
+            {debugStatus.isLoading ? (
+              <div className="text-sm text-muted-foreground flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" /> Fetching diagnostics…
+              </div>
+            ) : debugStatus.error ? (
+              <p className="text-sm text-destructive">
+                {(debugStatus.error as Error).message}
+              </p>
+            ) : debugStatus.data ? (
+              <pre className="text-xs bg-background border rounded p-3 overflow-auto max-h-96">
+                {JSON.stringify(debugStatus.data, null, 2)}
+              </pre>
+            ) : null}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      <ConnectFlowDialog
+        open={connectDialog.open}
+        onOpenChange={(open) =>
+          setConnectDialog((prev) => ({ ...prev, open }))
+        }
+        url={connectDialog.url}
+        platform={connectDialog.platform}
+        onClosed={handleDialogClosed}
+      />
     </div>
   );
 }
