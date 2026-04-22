@@ -1,41 +1,48 @@
 
 
-## Plan: Sweep remaining "Content Creator Studio" references
+## Plan: Add Reddit + Bluesky to Connections (full Upload-Post platform list)
 
-### What I found
+### What's missing
+Upload-Post supports **10 platforms** total. Our app currently lists 8 — missing **Reddit** and **Bluesky**.
 
-Searched the entire codebase (source, edge functions, configs, memory files, HTML, READMEs) for "Content Creator Studio", "Creator Studio", and "Studio" — **zero matches**. All in-repo branding is already Flurra.
+### Changes
 
-The only remaining places that string can still appear are **Supabase-hosted resources outside the file tree**:
+**1. `src/hooks/useUploadPostProfile.ts`**
+Extend `ALL_PLATFORMS` to include the two new keys:
+```ts
+export const ALL_PLATFORMS = [
+  "tiktok", "instagram", "youtube", "linkedin",
+  "facebook", "x", "threads", "pinterest",
+  "reddit", "bluesky",
+] as const;
+```
 
-1. **Auth email templates** — Confirm signup, magic link, password reset, email change, reauthentication. These often default to the Supabase project name ("Content Creator Studio").
-2. **Supabase Auth "Site name"** in project settings — drives the `{{ .SiteName }}` token used in default email templates.
+**2. `src/components/settings/ConnectionsView.tsx`**
+Add `reddit` and `bluesky` entries to `PLATFORM_META`:
+- **Reddit** — icon: a Reddit-style mark. Since `lucide-react` doesn't ship a Reddit icon, use the `MessageCircle` icon (or import a small inline SVG) styled with Reddit orange (`text-[#FF4500]`). Description: "Share posts and videos to your Reddit communities."
+- **Bluesky** — icon: `Cloud` from lucide (closest available metaphor for the Bluesky butterfly/sky brand) styled with Bluesky blue (`text-[#0085FF]`). Description: "Post short updates and media to your Bluesky account."
 
-### What I'll change
+The existing render loop already iterates `ALL_PLATFORMS`, so both new platforms automatically get a Connect button, hosted-OAuth flow, connected handle, and Manage button — no view logic changes needed.
 
-**Rewrite all 5 Supabase Auth email templates** to use Flurra branding, first-person voice, and the brand mascot/colors. I'll write them in HTML matching the dark-navy `#101A2B` + cyan brand palette, using Space Grotesk for headings (with system-font fallback since custom fonts don't render reliably in email clients) and Inter for body.
+**3. `src/lib/platforms.ts`**
+Append to `PLATFORM_LABELS` so any badge / label lookup elsewhere (Schedule dialog, status pills) shows the proper name:
+```ts
+reddit: "Reddit",
+bluesky: "Bluesky",
+```
 
-Each template will:
-- Replace any "Content Creator Studio" wording with "Flurra"
-- Use first-person Flurra voice ("I sent you this link…", "Let's get you signed in…")
-- Include the wordmark in brand cyan and a clean CTA button
-- Keep all required Supabase tokens (`{{ .ConfirmationURL }}`, `{{ .Token }}`, etc.) intact
+**4. `src/components/schedule/ScheduleDialog.tsx`**
+No code change needed — it already filters platform checkboxes off `connected_platforms` returned by Upload-Post, so Reddit and Bluesky will appear automatically once a user connects them.
 
-Templates to rewrite:
-- **Confirm signup** — "Confirm your Flurra account"
-- **Magic Link** — "Your Flurra sign-in link"
-- **Reset Password** — "Reset your Flurra password"
-- **Change Email Address** — "Confirm your new Flurra email"
-- **Reauthentication** — "Confirm it's you on Flurra"
+### Backend
+No DB migration, no edge function changes, no new secrets. Upload-Post's `generate-link` and `submit` endpoints already accept `reddit` and `bluesky` as valid `platform` values — we just expose them in the UI.
 
-### Technical notes
+### Memory update
+Update `mem://integrations/upload-post-architecture.md` to reflect 10 platforms (add reddit, bluesky to the list under "Connection UX").
 
-- Templates are managed via the Supabase Auth admin API (not in `supabase/config.toml` for hosted projects). I'll apply them through the Cloud config tool.
-- I'll also set the Auth "Site name" / sender display name to **Flurra** so any fallback `{{ .SiteName }}` references render correctly.
-- No code changes, no migrations, no edge function deploys needed — this is purely Auth configuration.
-- After applying, you can verify by triggering a password reset on your own account and inspecting the email.
-
-### What you should do after
-
-If "Content Creator Studio" appears anywhere outside the app/emails (custom domain DNS records, Stripe receipts, third-party connectors, social profile bios), let me know — those are external systems I can't reach from here.
+### Files touched
+- `src/hooks/useUploadPostProfile.ts` (1 line in array)
+- `src/components/settings/ConnectionsView.tsx` (2 entries in `PLATFORM_META` + import 2 icons)
+- `src/lib/platforms.ts` (2 lines in `PLATFORM_LABELS`)
+- `.lovable/memory/integrations/upload-post-architecture.md` (platform count)
 
