@@ -32,7 +32,7 @@ type: feature
 - UI: Google sign-in on Login, `/connections` page (now redirects to `/settings?tab=connections`)
 
 ## Connection UX
-- 8 platforms: tiktok, instagram, youtube, linkedin, facebook, x, threads, pinterest
+- 10 platforms: tiktok, instagram, youtube, linkedin, facebook, x, threads, pinterest, reddit, bluesky
 - "Connect" → `upload-post-generate-link` → opens hosted page in new tab
 - On return, `?synced=1` query param triggers `upload-post-sync-profile`
 - Schedule dialog only shows actually-connected platforms as checkboxes

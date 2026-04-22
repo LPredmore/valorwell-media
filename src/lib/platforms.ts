@@ -29,4 +29,6 @@ export const PLATFORM_LABELS: Record<string, string> = {
   x: "X",
   threads: "Threads",
   pinterest: "Pinterest",
+  reddit: "Reddit",
+  bluesky: "Bluesky",
 };
