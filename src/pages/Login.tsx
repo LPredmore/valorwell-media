@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Separator } from "@/components/ui/separator";
-import mascot from "@/assets/flurra-mascot.png";
+import mascot from "@/assets/flurra-mascot-fairy.png";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -49,7 +49,7 @@ export default function Login() {
           <img
             src={mascot}
             alt="Flurra"
-            className="mx-auto h-20 w-20 rounded-2xl object-cover ring-1 ring-border bg-brand-navy-2 shadow-lg shadow-brand-cyan/10"
+            className="mx-auto h-32 w-32 object-contain"
           />
           <div>
             <h1 className="font-display text-4xl font-bold tracking-tight text-brand-gradient">
