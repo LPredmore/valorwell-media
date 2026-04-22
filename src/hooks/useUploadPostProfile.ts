@@ -22,6 +22,8 @@ export const ALL_PLATFORMS = [
   "x",
   "threads",
   "pinterest",
+  "reddit",
+  "bluesky",
 ] as const;
 export type PlatformKey = (typeof ALL_PLATFORMS)[number];
 
