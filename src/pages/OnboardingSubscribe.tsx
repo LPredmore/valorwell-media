@@ -58,15 +58,10 @@ const VALUE_PROPS = [
 export default function OnboardingSubscribe() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { data: subscription } = useSubscription();
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [opening, setOpening] = useState<"monthly" | "annual" | null>(null);
 
-  // Already subscribed → bounce them to the app
-  if (subscription?.subscribed) {
-    navigate("/schedule", { replace: true });
-    return null;
-  }
+  // AuthGuard handles redirecting users who become subscribed.
 
   const openCheckout = async (priceId: string, tier: "monthly" | "annual") => {
     if (!user) {
