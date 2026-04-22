@@ -205,8 +205,8 @@ async function sendScriptEmail(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "Valorwell <info@valorwell.org>",
-        to: "info@valorwell.org",
+        from: "Flurra <info@bestselfs.com>",
+        to: "info@bestselfs.com",
         subject: `${postLength} - ${postTitle}`,
         text: script,
       }),
@@ -389,7 +389,7 @@ Deno.serve(async (req) => {
 
       console.log("[generate-content] Step 2 complete: social copy saved");
 
-      // Fire-and-forget: email the script to info@valorwell.org
+      // Fire-and-forget: email the script to info@bestselfs.com
       const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
       if (RESEND_API_KEY && script) {
         sendScriptEmail(RESEND_API_KEY, postLength, generated.post_title || topic, script);
