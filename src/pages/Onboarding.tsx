@@ -113,11 +113,6 @@ export default function Onboarding() {
           {step === 1 && (
             <div className="space-y-8">
               <div className="space-y-4">
-                <img
-                  src={mascot}
-                  alt="Flurra mascot"
-                  className="h-[13rem] w-auto object-contain"
-                />
                 <h2 className="font-display text-4xl font-bold tracking-tight text-brand-gradient">
                   Hi, I'm Flurra
                 </h2>
