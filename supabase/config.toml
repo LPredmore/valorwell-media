@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.check-subscription]
 verify_jwt = false
+
+[functions.upload-post-debug-status]
+verify_jwt = true
