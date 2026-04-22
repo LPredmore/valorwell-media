@@ -114,24 +114,18 @@ export type Database = {
           scheduled_platforms: string[] | null
           source_content_id: string | null
           status: Database["public"]["Enums"]["post_status"]
-          tiktok_error: string | null
-          tiktok_job_id: string | null
-          tiktok_status: string | null
           topic: string
           updated_at: string
+          upload_post_request_id: string | null
+          upload_post_results: Json | null
+          upload_post_status: string | null
           user_id: string
           video_mime_type: string | null
           video_original_filename: string | null
           video_storage_path: string | null
           video_url: string | null
-          youtube_comment: string | null
-          youtube_comment_error_detail: string | null
-          youtube_comment_id: string | null
-          youtube_comment_posted_at: string | null
-          youtube_comment_status: string | null
           youtube_desc: string | null
           youtube_title: string | null
-          youtube_video_id: string | null
         }
         Insert: {
           created_at?: string
@@ -152,24 +146,18 @@ export type Database = {
           scheduled_platforms?: string[] | null
           source_content_id?: string | null
           status?: Database["public"]["Enums"]["post_status"]
-          tiktok_error?: string | null
-          tiktok_job_id?: string | null
-          tiktok_status?: string | null
           topic: string
           updated_at?: string
+          upload_post_request_id?: string | null
+          upload_post_results?: Json | null
+          upload_post_status?: string | null
           user_id: string
           video_mime_type?: string | null
           video_original_filename?: string | null
           video_storage_path?: string | null
           video_url?: string | null
-          youtube_comment?: string | null
-          youtube_comment_error_detail?: string | null
-          youtube_comment_id?: string | null
-          youtube_comment_posted_at?: string | null
-          youtube_comment_status?: string | null
           youtube_desc?: string | null
           youtube_title?: string | null
-          youtube_video_id?: string | null
         }
         Update: {
           created_at?: string
@@ -190,24 +178,18 @@ export type Database = {
           scheduled_platforms?: string[] | null
           source_content_id?: string | null
           status?: Database["public"]["Enums"]["post_status"]
-          tiktok_error?: string | null
-          tiktok_job_id?: string | null
-          tiktok_status?: string | null
           topic?: string
           updated_at?: string
+          upload_post_request_id?: string | null
+          upload_post_results?: Json | null
+          upload_post_status?: string | null
           user_id?: string
           video_mime_type?: string | null
           video_original_filename?: string | null
           video_storage_path?: string | null
           video_url?: string | null
-          youtube_comment?: string | null
-          youtube_comment_error_detail?: string | null
-          youtube_comment_id?: string | null
-          youtube_comment_posted_at?: string | null
-          youtube_comment_status?: string | null
           youtube_desc?: string | null
           youtube_title?: string | null
-          youtube_video_id?: string | null
         }
         Relationships: [
           {
@@ -270,23 +252,16 @@ export type Database = {
           status: Database["public"]["Enums"]["post_status"]
           topic: string
           updated_at: string
-          upload_at: string | null
+          upload_post_request_id: string | null
+          upload_post_results: Json | null
+          upload_post_status: string | null
           user_id: string
           video_mime_type: string | null
           video_original_filename: string | null
           video_size_bytes: number | null
           video_storage_path: string | null
           video_url: string | null
-          youtube_comment: string | null
-          youtube_comment_error_detail: string | null
-          youtube_comment_id: string | null
-          youtube_comment_posted_at: string | null
-          youtube_comment_status: string | null
           youtube_desc: string | null
-          youtube_error_detail: string | null
-          youtube_status: string | null
-          youtube_uploaded_at: string | null
-          youtube_video_id: string | null
         }
         Insert: {
           created_at?: string
@@ -308,23 +283,16 @@ export type Database = {
           status?: Database["public"]["Enums"]["post_status"]
           topic: string
           updated_at?: string
-          upload_at?: string | null
+          upload_post_request_id?: string | null
+          upload_post_results?: Json | null
+          upload_post_status?: string | null
           user_id: string
           video_mime_type?: string | null
           video_original_filename?: string | null
           video_size_bytes?: number | null
           video_storage_path?: string | null
           video_url?: string | null
-          youtube_comment?: string | null
-          youtube_comment_error_detail?: string | null
-          youtube_comment_id?: string | null
-          youtube_comment_posted_at?: string | null
-          youtube_comment_status?: string | null
           youtube_desc?: string | null
-          youtube_error_detail?: string | null
-          youtube_status?: string | null
-          youtube_uploaded_at?: string | null
-          youtube_video_id?: string | null
         }
         Update: {
           created_at?: string
@@ -346,23 +314,16 @@ export type Database = {
           status?: Database["public"]["Enums"]["post_status"]
           topic?: string
           updated_at?: string
-          upload_at?: string | null
+          upload_post_request_id?: string | null
+          upload_post_results?: Json | null
+          upload_post_status?: string | null
           user_id?: string
           video_mime_type?: string | null
           video_original_filename?: string | null
           video_size_bytes?: number | null
           video_storage_path?: string | null
           video_url?: string | null
-          youtube_comment?: string | null
-          youtube_comment_error_detail?: string | null
-          youtube_comment_id?: string | null
-          youtube_comment_posted_at?: string | null
-          youtube_comment_status?: string | null
           youtube_desc?: string | null
-          youtube_error_detail?: string | null
-          youtube_status?: string | null
-          youtube_uploaded_at?: string | null
-          youtube_video_id?: string | null
         }
         Relationships: [
           {
@@ -380,6 +341,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      upload_post_profiles: {
+        Row: {
+          connected_platforms: Json
+          created_at: string
+          last_synced_at: string | null
+          provisioning_error: string | null
+          provisioning_status: string
+          updated_at: string
+          user_id: string
+          username: string
+        }
+        Insert: {
+          connected_platforms?: Json
+          created_at?: string
+          last_synced_at?: string | null
+          provisioning_error?: string | null
+          provisioning_status?: string
+          updated_at?: string
+          user_id: string
+          username: string
+        }
+        Update: {
+          connected_platforms?: Json
+          created_at?: string
+          last_synced_at?: string | null
+          provisioning_error?: string | null
+          provisioning_status?: string
+          updated_at?: string
+          user_id?: string
+          username?: string
+        }
+        Relationships: []
       }
       user_content_instructions: {
         Row: {
@@ -423,39 +417,6 @@ export type Database = {
         }
         Relationships: []
       }
-      youtube_connections: {
-        Row: {
-          channel_id: string | null
-          channel_title: string | null
-          created_at: string
-          google_email: string | null
-          id: string
-          refresh_token: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          channel_id?: string | null
-          channel_title?: string | null
-          created_at?: string
-          google_email?: string | null
-          id?: string
-          refresh_token: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          channel_id?: string | null
-          channel_title?: string | null
-          created_at?: string
-          google_email?: string | null
-          id?: string
-          refresh_token?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
     }
     Views: {
       [_ in never]: never
@@ -467,10 +428,6 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
-      }
-      reset_stuck_youtube_uploads: {
-        Args: { minutes_stuck?: number }
-        Returns: number
       }
     }
     Enums: {
