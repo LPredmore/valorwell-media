@@ -1,54 +1,71 @@
 
 
-## Diagnosis
+## Plan: Make the Upload-Post connect flow visible & debuggable
 
-Your `info@bestselfs.com` row in the database is **already** `subscribed = true, tier = monthly, ends 2026-05-22`. The Stripe portal is right.
+Right now when you click "Connect YouTube", we open `https://app.upload-post.com/...` in a brand-new tab. Once you're over there, the browser has no link back to us — we can't see the network calls, the console errors, or which step actually failed. That's why the YouTube failure is so opaque.
 
-The bug isn't the data — it's that `check-subscription` is **erasing** that data every time the production site calls it, and then bouncing you to `/onboarding/subscribe`.
+There are three viable ways to get better visibility, in order from "lightest" to "fullest":
 
-### Why
+### Option A — Embed in a Lovable iframe modal (recommended primary)
 
-Your production build has **no** `VITE_PAYMENTS_CLIENT_TOKEN` set (only `.env.development` has the sandbox `pk_test_…` token). So in production:
+Replace the `window.open(...)` call with an in-app dialog that loads the Upload-Post `access_url` inside an `<iframe>`. We control the surrounding chrome, so we can:
 
-1. `getStripeEnvironment()` sees `undefined` → falls through to **`"live"`**
-2. The frontend asks `check-subscription` for **live** Stripe data
-3. Live Stripe has no customer for `info@bestselfs.com` (the subscription was made in sandbox/test)
-4. The edge function does `customers.data.length === 0` → **upserts `subscribed: false`** into your `subscribers` row
-5. `useRegistrationStatus` sees `subscribed: false` → guard sends you to `/onboarding/subscribe`
+- Show the URL bar (read-only) so you always see exactly which Upload-Post page you're on
+- Render a side panel with **live log streaming** of every relevant event:
+  - When the iframe navigates (we can read `iframe.contentWindow.location.href` only on same-origin, but we *can* always observe `load` events and the `referrer` of the next request)
+  - When our backend gets a callback ping
+  - When the post-flow `?synced=1` lands back on Flurra
+- Provide an "Open in new tab" escape hatch in case the provider blocks framing
 
-Meanwhile the preview environment (which DOES have the sandbox token) writes `subscribed: true` back. So the row is flipping every time either environment polls.
+**Important caveat:** Upload-Post may send `X-Frame-Options: DENY` or `Content-Security-Policy: frame-ancestors`, which would prevent embedding entirely. We won't know until we try. The plan handles that:
 
-This is a real production correctness bug — not just a one-user issue. Anyone subscribing via the live site once you go live will have their status wiped if any sandbox/preview call ever runs against their email.
+1. First render the iframe.
+2. Attach a 4-second timeout — if the iframe never fires `load`, or if it loads to `about:blank`, we detect the framing block and automatically fall back to Option B.
 
-### The fix (4 small changes)
+### Option B — Popup window with `window.open` + a status channel
 
-**1. `src/lib/stripe.ts` — fail loudly instead of silently defaulting to "live"**
-If `VITE_PAYMENTS_CLIENT_TOKEN` is missing, `getStripeEnvironment()` should throw, and `useSubscription` should treat that as "no payments configured" instead of guessing "live". Removes the silent wrong-environment guess.
+If iframing is blocked (likely for an OAuth provider), open the connect URL in a **sized popup window** instead of a new tab, and:
 
-**2. `supabase/functions/check-subscription/index.ts` — never demote on a 0-customer result**
-Today, when Stripe returns no customer, the function writes `subscribed: false`. That's destructive when called from the wrong environment. New behavior:
-- If we find a customer + active sub → upsert `true` (as today)
-- If we find a customer with NO active sub → upsert `false` (cancel detection)
-- If we find **no customer at all** → **return the existing DB row unchanged**, do not upsert
+- Keep a polling loop on our side that checks `popup.closed` so we know exactly when the user finishes or bails
+- Immediately fire `upload-post-sync-profile` on close and surface the result inline ("YouTube: connected" / "YouTube: failed — last error: …")
+- Show a live activity log next to the popup with timestamped events: link generated, popup opened, popup closed, sync started, sync result
 
-This makes the function idempotent and safe to call from the wrong env. The `subscribers` table becomes the source of truth for "have we ever confirmed this user is subscribed", and only a real cancellation in the matching environment can flip it back to false.
+This is what most OAuth integrations do (Stripe Connect, Google sign-in popups, etc.). It gives a focused window the user can't lose, and our app stays "live" next to it.
 
-**3. `src/hooks/useRegistrationStatus.ts` — read straight from the DB row, don't depend on `check-subscription` succeeding**
-Replace the `useSubscription` hook's edge-function call with a direct `supabase.from("subscribers").select(...)` query for the current user. The Stripe sync still runs (via the billing portal flow, the success page, and an optional background refresh) but routing decisions are made off the DB row, not a live Stripe call. RLS already restricts users to their own row.
+### Option C — Server-side debug endpoint (the diagnostic boost)
 
-**4. One-time DB correction for `info@bestselfs.com`**
-Run a single update via migration to set the row back to `subscribed: true, tier: monthly, end: 2026-05-22` so you stop bouncing immediately. (Without #1–#3, the next `check-subscription` would just wipe it again — so this update is the *last* step, after the other three ship.)
+Independent of A/B, add a small **debug-mode** for the connect flow that captures more from our side:
+
+1. **`upload-post-generate-link`** — log the full request payload + the full Upload-Post response (including any error body) to `console`, viewable in edge function logs
+2. **New edge function `upload-post-debug-status`** — calls Upload-Post's user info endpoint for the current user's profile and returns the raw response. We render this in a "Diagnostics" expandable section under each platform card so you can see what Upload-Post thinks the state is, even when its UI silently 401s
+3. **In the ConnectionsView**, after a connect attempt, automatically call the debug endpoint and show:
+   - Profile status from Upload-Post
+   - List of connected platforms per Upload-Post (vs. our cache)
+   - Most recent error timestamps if they expose any
+
+### What we'll actually build (combined)
+
+1. **`ConnectFlowDialog.tsx`** — new component. Tries iframe first, auto-falls back to sized popup if framing is blocked. Shows a live event log on the right.
+2. **Update `ConnectionsView.tsx`** — `handleConnect` opens the dialog instead of `window.open`.
+3. **`upload-post-generate-link`** — add verbose logging of request/response.
+4. **`upload-post-debug-status`** (new edge function) — fetches `/api/uploadposts/users?username=...` from Upload-Post and returns the raw JSON. Render in a "Diagnostics" panel.
+5. **Auto-sync on dialog close** — already works via `?synced=1`; we'll also trigger sync from the dialog's `onClose` so popup-mode works too.
+
+### What this gives you for the YouTube failure
+
+- You'll see the actual Upload-Post page in-app (or at minimum in a bounded popup) instead of losing your tab context
+- The event log will show exactly when the 401 from `api.upload-post.com/api/youtube/callback` happens
+- The debug panel will show what Upload-Post's own API says about your profile's YouTube connection state — which will tell us whether it's a YouTube-app config issue on their side, a JWT expiration, or something else
 
 ### What this does NOT change
-- Onboarding flow, subscription gating logic, billing tab, Stripe products, edge function `verify_jwt` settings — all unchanged.
-- No new tables, no new env vars required, no new Stripe configuration.
+
+- The underlying Upload-Post integration, the database schema, the existing sync flow, or any other platform connections. Pure observability/UX layer.
 
 ### Files touched
-- `src/lib/stripe.ts` — strict env detection
-- `src/hooks/useSubscription.ts` — query DB row directly instead of invoking edge function
-- `supabase/functions/check-subscription/index.ts` — non-destructive when customer not found
-- One migration: `UPDATE subscribers SET subscribed = true, ... WHERE email = 'info@bestselfs.com'`
-
-### Note on going fully live later
-Once you finish Stripe go-live and have a `pk_live_…` token, you'll want to add `VITE_PAYMENTS_CLIENT_TOKEN` to `.env.production` so the live site actually talks to live Stripe. Until then, the changes above keep both environments coexisting safely.
+- `src/components/connections/ConnectFlowDialog.tsx` — **new**
+- `src/components/settings/ConnectionsView.tsx` — wire up the dialog + diagnostics panel
+- `src/hooks/useUploadPostProfile.ts` — add `useUploadPostDebugStatus` hook
+- `supabase/functions/upload-post-generate-link/index.ts` — verbose logging
+- `supabase/functions/upload-post-debug-status/index.ts` — **new**
+- `supabase/config.toml` — register new function with `verify_jwt = true`
 
