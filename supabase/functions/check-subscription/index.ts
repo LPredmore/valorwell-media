@@ -1,4 +1,10 @@
 // Reads live Stripe subscription state and upserts the local `subscribers` row.
+//
+// IMPORTANT: This function is non-destructive when no Stripe customer is found.
+// It can be called from either Stripe environment (sandbox or live), and a
+// "customer not found" result in one environment must NOT wipe a valid
+// subscription created in the other. Only a real cancellation (customer
+// exists but no active sub) downgrades the row.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
@@ -38,23 +44,26 @@ serve(async (req) => {
     const env = (environment || "sandbox") as StripeEnv;
     const stripe = createStripeClient(env);
 
-    // Find the Stripe customer by email
+    // Read existing DB row up-front. We use this as a fallback whenever
+    // Stripe has no record of this customer in the requested environment.
+    const { data: existing } = await supabase
+      .from("subscribers")
+      .select("subscribed, subscription_tier, subscription_end, stripe_customer_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
     const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+
     if (customers.data.length === 0) {
-      await supabase.from("subscribers").upsert(
-        {
-          user_id: user.id,
-          email: user.email,
-          stripe_customer_id: null,
-          subscribed: false,
-          subscription_tier: null,
-          subscription_end: null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" },
-      );
+      // No customer in THIS Stripe environment. The user may have a valid
+      // subscription in the other environment — do NOT overwrite the row.
       return new Response(
-        JSON.stringify({ subscribed: false, subscription_tier: null, subscription_end: null }),
+        JSON.stringify({
+          subscribed: existing?.subscribed ?? false,
+          subscription_tier: (existing?.subscription_tier as "monthly" | "annual" | null) ?? null,
+          subscription_end: existing?.subscription_end ?? null,
+          source: "db_unchanged_no_customer_in_env",
+        }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -84,6 +93,9 @@ serve(async (req) => {
       tier = interval === "year" ? "annual" : "monthly";
     }
 
+    // Customer exists in this environment — safe to upsert authoritative state.
+    // (If subscribed=false here it means they cancelled in this env, which is
+    // a real downgrade signal we want to record.)
     await supabase.from("subscribers").upsert(
       {
         user_id: user.id,
@@ -98,7 +110,12 @@ serve(async (req) => {
     );
 
     return new Response(
-      JSON.stringify({ subscribed, subscription_tier: tier, subscription_end: endIso }),
+      JSON.stringify({
+        subscribed,
+        subscription_tier: tier,
+        subscription_end: endIso,
+        source: "stripe",
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error) {
