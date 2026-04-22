@@ -1,7 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import {
   Loader2,
@@ -19,13 +24,17 @@ import {
   Plug,
   MessageCircle,
   Cloud,
+  ChevronDown,
+  Bug,
 } from "lucide-react";
 import { ConnectionCard } from "@/components/connections/ConnectionCard";
+import { ConnectFlowDialog } from "@/components/connections/ConnectFlowDialog";
 import {
   useUploadPostProfile,
   useSyncUploadPostProfile,
   useGenerateConnectLink,
   useRetryProvisioning,
+  useUploadPostDebugStatus,
   isPlatformConnected,
   ALL_PLATFORMS,
   type PlatformKey,
