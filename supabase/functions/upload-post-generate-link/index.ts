@@ -79,6 +79,8 @@ Deno.serve(async (req) => {
     if (platforms && platforms.length) payload.platforms = platforms;
     if (logoImage) payload.logo_image = logoImage;
 
+    console.log("[upload-post-generate-link] request payload:", JSON.stringify(payload));
+
     const resp = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/users/generate-jwt`, {
       method: "POST",
       headers: {
@@ -92,6 +94,13 @@ Deno.serve(async (req) => {
     let data: any = null;
     try { data = JSON.parse(text); } catch { /* ignore */ }
 
+    console.log(
+      "[upload-post-generate-link] response status:",
+      resp.status,
+      "body:",
+      text.slice(0, 2000),
+    );
+
     if (!resp.ok) {
       return new Response(
         JSON.stringify({ error: data?.message ?? text ?? `HTTP ${resp.status}` }),
@@ -100,7 +109,13 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ access_url: data?.access_url, duration: data?.duration }),
+      JSON.stringify({
+        access_url: data?.access_url,
+        duration: data?.duration,
+        username: profileRow.username,
+        request_payload: payload,
+        provider_response: data,
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err: unknown) {
