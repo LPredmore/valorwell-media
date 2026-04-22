@@ -1,70 +1,54 @@
 
 
-## Plan: Centralize registration-state routing
+## Diagnosis
 
-### The state machine
+Your `info@bestselfs.com` row in the database is **already** `subscribed = true, tier = monthly, ends 2026-05-22`. The Stripe portal is right.
 
-Every authenticated user is in exactly **one** of three states, derived on the fly from `profiles.onboarding_completed` + `subscribers.subscribed`:
+The bug isn't the data — it's that `check-subscription` is **erasing** that data every time the production site calls it, and then bouncing you to `/onboarding/subscribe`.
 
-| State | Condition | Allowed routes |
-|---|---|---|
-| **`needs_onboarding`** | `onboarding_completed = false` | `/onboarding` only |
-| **`needs_subscription`** | onboarded, not subscribed | `/onboarding/subscribe`, `/subscription/success`, `/settings?tab=billing` |
-| **`active`** | onboarded + subscribed | All app routes |
+### Why
 
-Unauthenticated → `/login` (or `/signup`).
+Your production build has **no** `VITE_PAYMENTS_CLIENT_TOKEN` set (only `.env.development` has the sandbox `pk_test_…` token). So in production:
 
-### Implementation
+1. `getStripeEnvironment()` sees `undefined` → falls through to **`"live"`**
+2. The frontend asks `check-subscription` for **live** Stripe data
+3. Live Stripe has no customer for `info@bestselfs.com` (the subscription was made in sandbox/test)
+4. The edge function does `customers.data.length === 0` → **upserts `subscribed: false`** into your `subscribers` row
+5. `useRegistrationStatus` sees `subscribed: false` → guard sends you to `/onboarding/subscribe`
 
-**1. New hook `src/hooks/useRegistrationStatus.ts`**
-Single source of truth. Combines `useAuth` + `useProfile` + `useSubscription` and returns:
-```ts
-{ status: 'loading' | 'unauthenticated' | 'needs_onboarding' | 'needs_subscription' | 'active', user, profile, subscription }
-```
+Meanwhile the preview environment (which DOES have the sandbox token) writes `subscribed: true` back. So the row is flipping every time either environment polls.
 
-**2. Rewrite `src/components/AuthGuard.tsx` as the single router-level gate**
-Drop the separate `SubscriptionGuard`. AuthGuard now takes an optional `requires` prop: `'auth' | 'onboarded' | 'subscribed'` (default `'subscribed'`). It reads `useRegistrationStatus` and:
-- `loading` → spinner
-- `unauthenticated` → redirect `/login`
-- `needs_onboarding` and current path ≠ `/onboarding` → redirect `/onboarding`
-- `needs_subscription` and not on `/onboarding/subscribe`, `/subscription/success`, or `/settings` → redirect `/onboarding/subscribe`
-- `active` and on `/onboarding` or `/onboarding/subscribe` → redirect `/schedule` (prevents re-entry)
+This is a real production correctness bug — not just a one-user issue. Anyone subscribing via the live site once you go live will have their status wiped if any sandbox/preview call ever runs against their email.
 
-**3. Update `src/App.tsx`**
-- Remove all `<SubscriptionGuard>` wrappers — AuthGuard handles everything now.
-- Wrap **every** authenticated route (including `/onboarding`, `/onboarding/subscribe`, `/subscription/success`, `/settings`) in `<AuthGuard>`.
-- Delete `src/components/SubscriptionGuard.tsx`.
+### The fix (4 small changes)
 
-**4. Fix `Login.tsx` and `Signup.tsx` post-auth redirects**
-- Login: navigate to `/` (root). The root route renders `<AuthGuard>` which routes the user to the correct state (`/onboarding`, `/onboarding/subscribe`, or `/schedule`). No more hardcoded `/schedule` that gets bounced through three guards.
-- Signup `useEffect`: same — go to `/` and let the guard route.
+**1. `src/lib/stripe.ts` — fail loudly instead of silently defaulting to "live"**
+If `VITE_PAYMENTS_CLIENT_TOKEN` is missing, `getStripeEnvironment()` should throw, and `useSubscription` should treat that as "no payments configured" instead of guessing "live". Removes the silent wrong-environment guess.
 
-**5. `Settings.tsx` — billing-only mode for unsubscribed users**
-When status is `needs_subscription`:
-- Force `activeTab = 'billing'`
-- Hide the Profile / Instructions / Connections tab triggers
-- Show a banner at the top: *"Your subscription is paused. Restart it below to get back to posting."*
-This keeps the "users can manage billing without a sub" requirement while preventing them from poking around the rest of the app.
+**2. `supabase/functions/check-subscription/index.ts` — never demote on a 0-customer result**
+Today, when Stripe returns no customer, the function writes `subscribed: false`. That's destructive when called from the wrong environment. New behavior:
+- If we find a customer + active sub → upsert `true` (as today)
+- If we find a customer with NO active sub → upsert `false` (cancel detection)
+- If we find **no customer at all** → **return the existing DB row unchanged**, do not upsert
 
-**6. `Onboarding.tsx` — finish-step routing**
-`finishOnboarding()` already navigates to `/onboarding/subscribe`. Keep, but also let the AuthGuard be the safety net (so if someone manually hits `/onboarding` after completing it, they get sent forward correctly).
+This makes the function idempotent and safe to call from the wrong env. The `subscribers` table becomes the source of truth for "have we ever confirmed this user is subscribed", and only a real cancellation in the matching environment can flip it back to false.
 
-**7. `OnboardingSubscribe.tsx` — remove the manual `subscription?.subscribed → /schedule` redirect**
-The guard handles it now. Removing the in-component navigate avoids race conditions during the post-checkout refresh.
+**3. `src/hooks/useRegistrationStatus.ts` — read straight from the DB row, don't depend on `check-subscription` succeeding**
+Replace the `useSubscription` hook's edge-function call with a direct `supabase.from("subscribers").select(...)` query for the current user. The Stripe sync still runs (via the billing portal flow, the success page, and an optional background refresh) but routing decisions are made off the DB row, not a live Stripe call. RLS already restricts users to their own row.
 
-### Why this fixes the reported issue
+**4. One-time DB correction for `info@bestselfs.com`**
+Run a single update via migration to set the row back to `subscribed: true, tier: monthly, end: 2026-05-22` so you stop bouncing immediately. (Without #1–#3, the next `check-subscription` would just wipe it again — so this update is the *last* step, after the other three ship.)
 
-Today the redirect logic is split across `AuthGuard` (onboarding only), `SubscriptionGuard` (subscription only, applied to *some* routes), and three different `useEffect`s in Login/Signup/OnboardingSubscribe — they can disagree. After this change, **one hook + one guard** decide where any user can be at any moment, evaluated on every navigation.
+### What this does NOT change
+- Onboarding flow, subscription gating logic, billing tab, Stripe products, edge function `verify_jwt` settings — all unchanged.
+- No new tables, no new env vars required, no new Stripe configuration.
 
 ### Files touched
-- `src/hooks/useRegistrationStatus.ts` — **new**
-- `src/components/AuthGuard.tsx` — rewrite
-- `src/components/SubscriptionGuard.tsx` — **delete**
-- `src/App.tsx` — simplify route guards
-- `src/pages/Login.tsx` — redirect to `/`
-- `src/pages/Signup.tsx` — redirect to `/`
-- `src/pages/Settings.tsx` — billing-only mode when unsubscribed
-- `src/pages/OnboardingSubscribe.tsx` — drop manual redirect
+- `src/lib/stripe.ts` — strict env detection
+- `src/hooks/useSubscription.ts` — query DB row directly instead of invoking edge function
+- `supabase/functions/check-subscription/index.ts` — non-destructive when customer not found
+- One migration: `UPDATE subscribers SET subscribed = true, ... WHERE email = 'info@bestselfs.com'`
 
-No DB changes, no edge function changes.
+### Note on going fully live later
+Once you finish Stripe go-live and have a `pk_live_…` token, you'll want to add `VITE_PAYMENTS_CLIENT_TOKEN` to `.env.production` so the live site actually talks to live Stripe. Until then, the changes above keep both environments coexisting safely.
 
