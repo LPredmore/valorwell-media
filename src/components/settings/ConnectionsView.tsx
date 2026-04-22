@@ -17,6 +17,8 @@ import {
   AtSign,
   Image as PinIcon,
   Plug,
+  MessageCircle,
+  Cloud,
 } from "lucide-react";
 import { ConnectionCard } from "@/components/connections/ConnectionCard";
 import {
