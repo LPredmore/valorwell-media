@@ -123,10 +123,19 @@ function getHandle(platformValue: unknown): string | null {
 export function ConnectionsView() {
   const { toast } = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data: profile, isLoading, refetch } = useUploadPostProfile();
+  const { data: profile, isLoading } = useUploadPostProfile();
   const syncMutation = useSyncUploadPostProfile();
   const linkMutation = useGenerateConnectLink();
   const retryMutation = useRetryProvisioning();
+
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const debugStatus = useUploadPostDebugStatus(diagnosticsOpen);
+
+  const [connectDialog, setConnectDialog] = useState<{
+    open: boolean;
+    url: string | null;
+    platform: string;
+  }>({ open: false, url: null, platform: "" });
 
   // Auto-sync on returning from hosted OAuth
   useEffect(() => {
@@ -148,15 +157,19 @@ export function ConnectionsView() {
       const data = await linkMutation.mutateAsync(platform);
       const url = data?.access_url ?? data?.url;
       if (!url) throw new Error("No connection link returned");
-      window.open(url, "_blank", "noopener,noreferrer");
-      toast({
-        title: "Opening connection page",
-        description: "Finish the connection in the new tab, then come back and refresh.",
-      });
+      setConnectDialog({ open: true, url, platform: PLATFORM_META[platform].label });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to start connection";
       toast({ title: "Connection error", description: message, variant: "destructive" });
     }
+  };
+
+  const handleDialogClosed = () => {
+    // Auto-sync after the user closes the connect dialog/popup.
+    syncMutation.mutate(undefined, {
+      onSuccess: () => toast({ title: "Connections refreshed" }),
+    });
+    if (diagnosticsOpen) debugStatus.refetch();
   };
 
   const handleRefresh = () => {
@@ -165,6 +178,7 @@ export function ConnectionsView() {
       onError: (err: any) =>
         toast({ title: "Refresh failed", description: err?.message, variant: "destructive" }),
     });
+    if (diagnosticsOpen) debugStatus.refetch();
   };
 
   const handleRetryProvisioning = () => {
