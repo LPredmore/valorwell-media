@@ -165,9 +165,33 @@ export function ConnectionsView() {
   };
 
   const handleDialogClosed = () => {
+    // Capture which platform we just attempted to connect, before the dialog state resets.
+    const attemptedLabel = connectDialog.platform;
+    const attemptedKey = (Object.keys(PLATFORM_META) as PlatformKey[]).find(
+      (k) => PLATFORM_META[k].label === attemptedLabel,
+    );
+
     // Auto-sync after the user closes the connect dialog/popup.
     syncMutation.mutate(undefined, {
-      onSuccess: () => toast({ title: "Connections refreshed" }),
+      onSuccess: (updated: any) => {
+        toast({ title: "Connections refreshed" });
+        // If the attempted platform is still not connected, surface diagnostics.
+        const updatedConnected = (updated?.connected_platforms ?? {}) as Record<
+          string,
+          unknown
+        >;
+        if (attemptedKey && !isPlatformConnected(updatedConnected, attemptedKey)) {
+          setDiagnosticsOpen(true);
+          // Refetch will run automatically via the `enabled` flag, but force it.
+          setTimeout(() => debugStatus.refetch(), 0);
+          toast({
+            title: `${attemptedLabel} not connected yet`,
+            description:
+              "Opened Diagnostics so you can see the raw provider state.",
+            variant: "destructive",
+          });
+        }
+      },
     });
     if (diagnosticsOpen) debugStatus.refetch();
   };
