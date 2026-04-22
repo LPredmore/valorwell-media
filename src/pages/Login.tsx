@@ -15,7 +15,7 @@ export default function Login() {
   const { user } = useAuth();
 
   useEffect(() => {
-    if (user) navigate("/schedule", { replace: true });
+    if (user) navigate("/", { replace: true });
   }, [user, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -27,7 +27,7 @@ export default function Login() {
     if (error) {
       setError(error.message);
     } else {
-      navigate("/schedule", { replace: true });
+      navigate("/", { replace: true });
     }
     setLoading(false);
   };
