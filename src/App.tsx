@@ -13,7 +13,6 @@ import ContentDetail from "./pages/ContentDetail";
 import Instructions from "./pages/Instructions";
 import Schedule from "./pages/Schedule";
 import Settings from "./pages/Settings";
-import Connections from "./pages/Connections";
 import Ideas from "./pages/Ideas";
 import NotFound from "./pages/NotFound";
 
@@ -37,8 +36,8 @@ const App = () => (
           <Route path="/ideas" element={<AuthGuard><Ideas /></AuthGuard>} />
           <Route path="/instructions" element={<AuthGuard><Instructions /></AuthGuard>} />
           <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
-          <Route path="/connections" element={<AuthGuard><Connections /></AuthGuard>} />
           {/* Redirect old routes */}
+          <Route path="/connections" element={<Navigate to="/settings?tab=connections" replace />} />
           <Route path="/jobs" element={<Navigate to="/schedule" replace />} />
           <Route path="/jobs/new" element={<Navigate to="/content/new" replace />} />
           <Route path="/jobs/:id" element={<Navigate to="/schedule" replace />} />

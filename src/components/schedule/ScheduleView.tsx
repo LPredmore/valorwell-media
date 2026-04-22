@@ -1,48 +1,57 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, X } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { IncompleteTab } from "@/components/schedule/IncompleteTab";
 import { UnscheduledTab } from "@/components/schedule/UnscheduledTab";
 import { ScheduledTab } from "@/components/schedule/ScheduledTab";
 import { PastTab } from "@/components/schedule/PastTab";
-import { useYouTubeConnection } from "@/hooks/useYouTubeConnection";
-
-const DISMISS_KEY = "yt-connect-banner-dismissed";
+import { useUploadPostProfile, isPlatformConnected, ALL_PLATFORMS } from "@/hooks/useUploadPostProfile";
 
 export function ScheduleView() {
   const [lengthFilter, setLengthFilter] = useState<"Long" | "Short">("Long");
-  const { isConnected, isLoading: ytLoading } = useYouTubeConnection();
-  const [dismissed, setDismissed] = useState(false);
+  const { data: profile, isLoading } = useUploadPostProfile();
 
-  useEffect(() => {
-    setDismissed(sessionStorage.getItem(DISMISS_KEY) === "1");
-  }, []);
+  const status = profile?.provisioning_status ?? "pending";
+  const connectedCount = profile
+    ? ALL_PLATFORMS.filter((p) => isPlatformConnected(profile.connected_platforms, p)).length
+    : 0;
 
-  const showBanner = !ytLoading && !isConnected && !dismissed;
-
-  const dismiss = () => {
-    sessionStorage.setItem(DISMISS_KEY, "1");
-    setDismissed(true);
-  };
+  const showProvisioning = !isLoading && status !== "ready";
+  const showNoConnections = !isLoading && status === "ready" && connectedCount === 0;
 
   return (
     <div className="space-y-6">
-      {showBanner && (
+      {showProvisioning && (
+        <Alert>
+          {status === "pending" ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <AlertCircle className="h-4 w-4" />
+          )}
+          <AlertDescription className="flex items-center justify-between gap-3">
+            <span>
+              {status === "pending"
+                ? "I'm finishing your workspace setup — almost ready."
+                : "Workspace setup needs attention."}
+            </span>
+            <Link to="/settings?tab=connections">
+              <Button size="sm" variant="outline">Open Connections</Button>
+            </Link>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {showNoConnections && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="flex items-center justify-between gap-3">
-            <span>Hook me up to YouTube so I can start publishing for you.</span>
-            <div className="flex items-center gap-2">
-              <Link to="/settings?tab=connections">
-                <Button size="sm">Connect</Button>
-              </Link>
-              <Button size="sm" variant="ghost" onClick={dismiss} aria-label="Dismiss">
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
+            <span>Connect at least one social account so I can start publishing for you.</span>
+            <Link to="/settings?tab=connections">
+              <Button size="sm">Connect</Button>
+            </Link>
           </AlertDescription>
         </Alert>
       )}

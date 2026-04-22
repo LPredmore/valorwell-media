@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { format } from "date-fns";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -29,12 +30,15 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { usePlaylists } from "@/hooks/useSchedule";
-import { useYouTubeConnection } from "@/hooks/useYouTubeConnection";
+import {
+  useUploadPostProfile,
+  isPlatformConnected,
+  ALL_PLATFORMS,
+} from "@/hooks/useUploadPostProfile";
+import { PLATFORM_LABELS } from "@/lib/platforms";
 
-// Preferred times in America/Chicago (handles CST/CDT automatically)
 const SHORT_TIMES_CHICAGO = [
   { label: "11 AM", chicagoHour: 11 },
   { label: "1 PM", chicagoHour: 13 },
@@ -46,20 +50,15 @@ const LONG_TIMES_CHICAGO = [
   { label: "8 AM", chicagoHour: 8 },
 ];
 
-/** Convert a Chicago-time hour to a UTC Date for the given date */
 function chicagoHourToUTC(date: Date, chicagoHour: number): Date {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   const hour = String(chicagoHour).padStart(2, "0");
-
-  // Create a probe date to discover Chicago's actual UTC offset on that day
   const probe = new Date(`${year}-${month}-${day}T${hour}:00:00`);
   const chicagoStr = probe.toLocaleString("en-US", { timeZone: "America/Chicago" });
   const chicagoDate = new Date(chicagoStr);
   const offsetMs = probe.getTime() - chicagoDate.getTime();
-
-  // The real UTC time = Chicago wall-clock time + offset
   const utcMs = new Date(year, date.getMonth(), date.getDate(), chicagoHour, 0, 0).getTime() + offsetMs;
   return new Date(utcMs);
 }
@@ -67,11 +66,12 @@ function chicagoHourToUTC(date: Date, chicagoHour: number): Date {
 interface ScheduleDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (scheduledAt: Date, playlistId: number | null) => void;
+  onConfirm: (scheduledAt: Date, playlistId: number | null, platforms: string[]) => void;
   loading?: boolean;
   initialDate?: Date;
   initialTime?: string;
   initialPlaylistId?: number | null;
+  initialPlatforms?: string[] | null;
   postLength?: string | null;
   title?: string;
 }
@@ -84,6 +84,7 @@ export function ScheduleDialog({
   initialDate,
   initialTime,
   initialPlaylistId,
+  initialPlatforms,
   postLength,
   title = "Schedule Post",
 }: ScheduleDialogProps) {
@@ -93,51 +94,68 @@ export function ScheduleDialog({
   const [selectedPrefTime, setSelectedPrefTime] = useState<string>("");
   const [playlistId, setPlaylistId] = useState<number | null>(initialPlaylistId ?? null);
   const { data: playlists } = usePlaylists();
-  const { isConnected, isLoading: ytLoading } = useYouTubeConnection();
+  const { data: profile, isLoading: profileLoading } = useUploadPostProfile();
+
+  const connectedPlatforms = profile
+    ? ALL_PLATFORMS.filter((p) => isPlatformConnected(profile.connected_platforms, p))
+    : [];
+
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+
+  // Default platform selection: existing scheduled_platforms (filtered to still-connected) or all connected
+  useEffect(() => {
+    if (!open) return;
+    if (initialPlatforms && initialPlatforms.length) {
+      setSelectedPlatforms(initialPlatforms.filter((p) => connectedPlatforms.includes(p as any)));
+    } else {
+      setSelectedPlatforms(connectedPlatforms);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, profile?.user_id]);
+
+  const togglePlatform = (p: string) => {
+    setSelectedPlatforms((prev) =>
+      prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p],
+    );
+  };
 
   const prefOptions = postLength === "Long" ? LONG_TIMES_CHICAGO : SHORT_TIMES_CHICAGO;
 
   const handleConfirm = () => {
     if (!date) return;
-
     let selectedAt: Date;
     if (usePrefTimes && selectedPrefTime) {
-      // Convert Chicago wall-clock hour → UTC, DST-aware
       selectedAt = chicagoHourToUTC(date, Number(selectedPrefTime));
     } else {
-      // Manual time input is in the user's local browser timezone
       const [hours, minutes] = time.split(":").map(Number);
       selectedAt = new Date(date);
       selectedAt.setHours(hours, minutes, 0, 0);
     }
-
-    onConfirm(selectedAt, playlistId);
+    onConfirm(selectedAt, playlistId, selectedPlatforms);
   };
 
-  const canConfirm = date && (usePrefTimes ? !!selectedPrefTime : true) && isConnected;
+  const noConnections = !profileLoading && connectedPlatforms.length === 0;
+  const canConfirm =
+    date &&
+    (usePrefTimes ? !!selectedPrefTime : true) &&
+    selectedPlatforms.length > 0 &&
+    !noConnections;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            Choose a date and time.
-            {postLength && (
-              <span className="block text-xs mt-1">
-                {postLength === "Short" ? "Upload begins 2h before broadcast." : "Upload begins 6h before broadcast."}
-              </span>
-            )}
-          </DialogDescription>
+          <DialogDescription>Choose a date, time, and platforms.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {!ytLoading && !isConnected && (
+          {noConnections && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription className="flex items-center justify-between gap-3">
-                <span>Connect your YouTube account to schedule posts.</span>
-                <Link to="/connections">
+                <span>No social accounts connected yet.</span>
+                <Link to="/settings?tab=connections">
                   <Button size="sm" variant="outline">Connect</Button>
                 </Link>
               </AlertDescription>
@@ -210,6 +228,30 @@ export function ScheduleDialog({
               </ToggleGroup>
             ) : (
               <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label className="font-medium">Platforms</Label>
+            {profileLoading ? (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : connectedPlatforms.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No connected platforms.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {connectedPlatforms.map((p) => (
+                  <label
+                    key={p}
+                    className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm cursor-pointer"
+                  >
+                    <Checkbox
+                      checked={selectedPlatforms.includes(p)}
+                      onCheckedChange={() => togglePlatform(p)}
+                    />
+                    {PLATFORM_LABELS[p] ?? p}
+                  </label>
+                ))}
+              </div>
             )}
           </div>
 
