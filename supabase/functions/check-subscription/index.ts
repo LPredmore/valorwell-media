@@ -73,7 +73,13 @@ serve(async (req) => {
     if (subs.data.length > 0) {
       const sub = subs.data[0];
       subscribed = true;
-      endIso = new Date(sub.current_period_end * 1000).toISOString();
+      const periodEnd =
+        (sub as any).current_period_end ??
+        sub.items?.data?.[0]?.current_period_end;
+      if (typeof periodEnd === "number" && Number.isFinite(periodEnd)) {
+        const d = new Date(periodEnd * 1000);
+        if (!Number.isNaN(d.getTime())) endIso = d.toISOString();
+      }
       const interval = sub.items.data[0]?.price?.recurring?.interval;
       tier = interval === "year" ? "annual" : "monthly";
     }
