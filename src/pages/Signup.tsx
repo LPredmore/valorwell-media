@@ -17,7 +17,7 @@ export default function Signup() {
   const { user } = useAuth();
 
   useEffect(() => {
-    if (user) navigate("/onboarding", { replace: true });
+    if (user) navigate("/", { replace: true });
   }, [user, navigate]);
 
   const handleSignup = async (e: React.FormEvent) => {
