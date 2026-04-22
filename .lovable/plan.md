@@ -1,114 +1,126 @@
 
 
-## Plan: Migrate Flurra to a fresh dedicated Supabase backend
+## Plan: Pure Upload-Post architecture, multi-tenant (1 user = 1 tenant = 1 Upload-Post profile)
 
-### Goal
-Move Flurra off the current shared Supabase project (which carries leftover tables from other apps — Valorwell, influencers, donations, Helpscout, ad campaigns, etc.) and onto a brand-new dedicated Lovable Cloud Supabase project that contains **only** what Flurra actually uses. Media stays out (you'll re-upload). Make.com stays out (replaced by n8n later).
+### What this is
 
-### What carries over (keep)
+Every Flurra signup automatically gets their own Upload-Post profile created via API. That profile holds their connected social accounts (TikTok, Instagram, YouTube, LinkedIn, Facebook, X, Threads, Pinterest). All posting goes through Upload-Post — no Fly.io, no per-user Google OAuth, no Publer, no Make.com.
 
-**Tables Flurra actively reads/writes:**
-- `profiles`
-- `user_roles` + `app_role` enum + `has_role()` function
-- `content_ideas` + `video_length` enum
-- `social_content` + `post_status` enum
-- `posted_content`
-- `content_instruction_defaults`
-- `user_content_instructions`
-- `youtube_connections`
-- `playlists`
+### What gets deleted
 
-**Database functions / triggers in active use:**
-- `has_role(uuid, app_role)`
-- `handle_new_user()` + trigger on `auth.users` (creates profile + assigns 'user' role)
-- `seed_user_instructions()` + trigger on `profiles` insert (seeds defaults into `user_content_instructions`)
-- `set_updated_at()` + triggers wherever `updated_at` exists
-- `auto_promote_incomplete()` + trigger on `social_content` (promotes incomplete → unscheduled)
-- `enforce_youtube_schedule_requirements()` + trigger on `social_content` (validation before scheduling)
-- `set_youtube_upload_at_and_queue()` + trigger on `social_content` (computes `upload_at`, queues YouTube)
-- `sync_youtube_video_id_to_posted()` + trigger (mirrors `youtube_video_id` to `posted_content`)
-- `reset_stuck_youtube_uploads()` (utility for stuck uploads)
+**Edge functions (5 removed):**
+- `youtube-save-connection`
+- `youtube-get-access-token`
+- `google-account-info`
+- `extract-shorts` (kept — unrelated to posting)
+- Old `post-scheduled-content` body (rewritten in place)
 
-**Edge functions (all 9 redeploy as-is):**
-- `extract-shorts`, `generate-content`, `google-account-info`
-- `post-scheduled-content`, `r2-multipart-upload`, `r2-read-url`, `r2-upload-url`
-- `youtube-get-access-token`, `youtube-save-connection`
+**Database tables/columns:**
+- DROP `youtube_connections` table entirely
+- DROP from `social_content` and `posted_content`: `youtube_status`, `youtube_uploaded_at`, `youtube_error_detail`, `youtube_video_id`, `tiktok_status`, `tiktok_error`, `tiktok_job_id`, `upload_at`, `youtube_comment_*` (all comment fields)
+- DROP triggers/functions: `set_youtube_upload_at_and_queue()`, `sync_youtube_video_id_to_posted()`, `reset_stuck_youtube_uploads()`
+- RENAME `enforce_youtube_schedule_requirements()` → `enforce_schedule_requirements()` with simpler rules (just video + title + post_length required)
 
-**Storage buckets to recreate empty:**
-- `avatars` (public)
-- `content-media` (private)
+**Secrets removed:** `PUBLER_API_KEY`, `PUBLER_WORKSPACE_ID`, `PUBLER_TIKTOK_ACCOUNT_ID`
 
-**Secrets actually referenced by edge function code:**
-- `OPENROUTER_API_KEY`
-- `RESEND_API_KEY`
-- `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`
-- `PUBLER_API_KEY`, `PUBLER_WORKSPACE_ID`, `PUBLER_TIKTOK_ACCOUNT_ID`
-- `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_DATA_API_KEY`
-- (Auto-injected by Supabase: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`)
+**External services:** Delete the Fly.io app + Google Cloud OAuth client (manual, by you, after validation)
 
-### What gets dropped (NOT migrated)
+**Auth changes:** Remove "Sign in with Google" from Login/Signup — pure email/password only (since Google sign-in's only purpose was the YouTube OAuth piggyback)
 
-**Tables (other apps' leftovers):**
-`app_activity_events`, `app_bulk_send_logs`, `app_bulk_send_recipients`, `app_bulk_sms_logs`, `app_bulk_sms_recipients`, `app_campaign_enrollments`, `app_campaign_step_logs`, `app_campaign_steps`, `app_campaign_triggers`, `app_campaigns`, `app_email_signatures`, `app_helpscout_settings`, `app_kanban_config`, `app_notes`, `current_competitors`, `donation_attribution`, `givebutter_donations`, `influencer_platforms`, `influencers`, `platform_instructions`, `sm_platforms`, `content_instructions` (old single-row table — superseded by `_defaults` + `user_content_instructions`), `role_options`, `site_config`, `support_session_inquiries`, `therapist_applications`, `youtube_cron_http_log`
+**Existing data:** Wipe all rows in `profiles`, `user_roles`, `social_content`, `posted_content`, `content_ideas`, `user_content_instructions`, `youtube_connections`. Auth users wiped via Lovable Cloud user management.
 
-**Functions/triggers tied to dropped tables:**
-`handle_entity_status_change`, `schedule_first_campaign_step`, `notify_make_youtube_published`, `kick_youtube_run_due` (Fly.io cron kicker — replaced below), `sync_is_competing_on_insert`, `sync_is_competing_on_delete`
+### What gets added
 
-**Secrets to drop:**
-Make.com (`MAKE_WEBHOOK_URL`), Helpscout (`HELPSCOUT_*`), Google Ads (`GOOGLE_ADS_*`), Givebutter feed (`ADS_FEED_*`), `GOOGLE_OAUTH_*` (separate Google Ads OAuth, distinct from YouTube), `ACTIONS_API_KEY`, plus duplicated `CUSTOM_SERVICE_ROLE_KEY` / `SERVICE_ROLE_KEY` / `SUPABASE_DB_URL` / `PROJECT_URL` (clean Supabase auto-injects what's needed)
+**1 new secret:** `UPLOAD_POST_API_KEY`
 
-**Code to remove from `post-scheduled-content`:** the `MAKE_WEBHOOK_URL` block (you're replacing this with n8n)
+**1 new database table:**
+```text
+upload_post_profiles
+  user_id              uuid PK FK auth.users
+  username             text UNIQUE  (= 'flurra_' || short_uuid, sent to Upload-Post)
+  connected_platforms  jsonb        (cached: {tiktok:{...}, instagram:{...}, youtube:{...}, ...})
+  last_synced_at       timestamptz
+  created_at           timestamptz
+```
 
-### What changes outside Supabase
+**2 new columns on `social_content`:**
+- `upload_post_request_id` text
+- `upload_post_results` jsonb — per-platform `{tiktok: {status, post_url, error}, instagram: {...}}`
+- `upload_post_status` text — overall: `pending` | `uploading` | `partial` | `success` | `failed`
 
-1. **Fly.io YouTube uploader service** — update its env vars to point at the new Supabase URL + service role key. No code change. You'll do this in the Fly dashboard once.
-2. **Cron schedule for `youtube-uploader-service.fly.dev/youtube/run-due`** — currently triggered by `kick_youtube_run_due` (pg_cron + pg_net). On the new project we'll recreate this as a `pg_cron` job that does the same `net.http_post` call (no separate logging table needed unless you want it).
-3. **Cron schedule for `post-scheduled-content` edge function** — recreate the 1-minute pg_cron job that calls this edge function.
-4. **Google Cloud Console** — add the new Supabase project's `/auth/v1/callback` URL to YouTube OAuth client's authorized redirect URIs.
-5. **R2 / Cloudflare** — no change. New project uses same bucket via the same secrets.
-6. **getflurra.com / Lovable hosting** — unchanged.
+**Same 3 columns mirrored on `posted_content`** for archive
 
-### Step-by-step execution order
+**6 new edge functions:**
+
+| Function | Purpose |
+|---|---|
+| `upload-post-create-profile` | Called from `handle_new_user` flow on signup. Creates Upload-Post profile via `POST /api/uploadposts/users`, inserts row in `upload_post_profiles`. Returns error if profile slots exhausted. |
+| `upload-post-generate-link` | Called when user clicks "Connect [Platform]". Generates JWT URL via `POST /api/uploadposts/users/generate-jwt` with redirect back to `/settings?tab=connections&synced=1`. |
+| `upload-post-sync-profile` | Polls `GET /api/uploadposts/users/{username}` and updates `connected_platforms` cache. Called on Connections page load and after redirect. |
+| `upload-post-submit` | New posting function. Takes `social_content.id`, fetches R2 signed URL, calls `POST /api/upload` with multipart form for selected platforms, stores `request_id` + `upload_post_status='uploading'`. |
+| `upload-post-status-poll` | Cron-driven (every 2 min). Finds `social_content` where `upload_post_status='uploading'`, calls Upload-Post status endpoint, updates per-platform results, archives to `posted_content` when all platforms complete. |
+| `post-scheduled-content` | Rewritten: cron-driven (every 1 min). Finds rows where `scheduled_at <= now()` and `status='scheduled'`, invokes `upload-post-submit` for each. |
+
+**Trigger update:** `handle_new_user()` extended to also enqueue Upload-Post profile creation (via `pg_net` async call to `upload-post-create-profile`, so signup never blocks on Upload-Post latency). If creation fails, profile row gets a `provisioning_error` and user sees a banner asking them to retry.
+
+### Connections UI rewrite
+
+`src/components/settings/ConnectionsView.tsx` becomes:
+
+- Header: "Connect your social accounts" with `connected_platforms` synced status
+- Grid of 8 platform cards (TikTok, Instagram, YouTube, LinkedIn, Facebook, X, Threads, Pinterest)
+- Each card shows: platform icon, connection status (Connected ✅ with handle / Not connected), action button
+- "Connect [Platform]" button → calls `upload-post-generate-link` → opens Upload-Post hosted OAuth in new tab (Flurra branding) → on return, auto-syncs
+- "Refresh" button → calls `upload-post-sync-profile`
+- "Disconnect" → calls Upload-Post disconnect endpoint per platform
+
+### Schedule/Content UI updates
+
+- Remove all references to `youtube_status`, `tiktok_status`, `youtube_video_id` from list/detail views
+- Replace with single `upload_post_status` badge + per-platform mini-status row (TT ✅ IG ⏳ YT ❌)
+- Remove "Retry YouTube upload" action; replace with "Retry post" that re-invokes `upload-post-submit`
+- Schedule dialog: replace "platforms" checkboxes with checkboxes that map to user's actually-connected platforms (read from `upload_post_profiles.connected_platforms`)
+
+### Order of execution
 
 ```text
-PHASE 1 — Provision (you + me)
-  1. You enable Lovable Cloud on this project → new Supabase project provisioned
-  2. I run ONE consolidated migration creating:
-     - enums (app_role, post_status, video_length)
-     - 9 tables with full RLS policies (mirrored exactly from current)
-     - 9 functions + triggers listed above
-     - storage buckets (avatars public, content-media private) + storage policies
-  3. I redeploy all 9 edge functions to the new project (automatic on push)
+PHASE 0 — You provide
+  1. UPLOAD_POST_API_KEY (when I prompt)
 
-PHASE 2 — Secrets & external wiring (you, guided by me)
-  4. You add the 12 runtime secrets above in the new project
-  5. You enable pg_cron + pg_net extensions, I add the 2 cron jobs
-  6. You update Fly.io service env vars → new SUPABASE_URL + SERVICE_ROLE_KEY
-  7. You add new auth callback URL to YouTube OAuth in Google Cloud Console
+PHASE 1 — Wipe + schema
+  2. Wipe data from all 9 tables + auth users
+  3. Migration: create upload_post_profiles, add 3 columns to social_content
+     + posted_content, drop youtube_connections + obsolete columns + triggers
+  4. Update handle_new_user trigger
+  5. Drop PUBLER_* secrets
 
-PHASE 3 — Code cleanup (me)
-  8. Remove MAKE_WEBHOOK_URL block from post-scheduled-content
-  9. Confirm src/integrations/supabase/client.ts auto-updated to new URL/key
-  10. Regenerate src/integrations/supabase/types.ts against new schema
+PHASE 2 — Edge functions
+  6. Build the 6 new/rewritten functions above
+  7. Create pg_cron jobs: post-scheduled-content (1 min), upload-post-status-poll (2 min)
 
-PHASE 4 — Cutover (you)
-  11. First admin signs up on new project → I promote them via SQL
-  12. Smoke test: create an idea → generate content → upload video →
-      schedule → confirm YouTube upload fires → confirm pg_cron runs
-  13. Once happy, archive/disconnect the old Supabase project
+PHASE 3 — UI
+  8. Rewrite ConnectionsView.tsx (no Google OAuth code anywhere)
+  9. Strip Google sign-in from Login.tsx + Signup.tsx
+  10. Delete src/pages/Connections.tsx redirect
+  11. Update Schedule tabs + ContentDetail to use upload_post_status
+  12. Update ScheduleDialog platform selector
+
+PHASE 4 — Validation
+  13. You sign up fresh → tenant + Upload-Post profile auto-created
+  14. You connect TikTok → verify hosted flow + redirect + cache sync
+  15. We post one real test video end-to-end
+  16. Once green: you delete Fly.io app + Google Cloud OAuth client
 ```
 
 ### Honest caveats
 
-1. **All users start fresh.** Auth users don't migrate. You and any test users re-sign up. First signup = manual admin promotion via SQL on the new project.
-2. **All content data starts empty.** You said this is fine — confirming.
-3. **R2 bucket is shared** between old and new during transition. Old content URLs in the dropped database become orphaned R2 objects; you may want to wipe the bucket separately.
-4. **Fly.io service downtime window** = the few minutes between updating its env vars and the new cron firing. Negligible.
-5. **n8n integration** from the previous approved plan gets built **on the new project** afterward. The schema for `user_n8n_workflows` + `user_social_credentials` is added in a separate follow-up migration so this migration stays focused on parity.
+1. **Profile slot exhaustion is a hard ceiling.** When Upload-Post returns `PROFILE_LIMIT_REACHED`, signup fails for that user. UI will show: "We're at capacity — please contact support." You'll get an email alert so you can buy more slots. Acceptable for an admin-managed beta; would need a Stripe paywall before public launch.
+2. **Profile creation is async.** If `upload-post-create-profile` fails after signup (network blip), the user lands in a "provisioning" state with a retry button. They can't post until provisioned.
+3. **YouTube via Upload-Post may still be in audit.** I'll surface a "Pending Upload-Post audit" badge on the YouTube card if their API returns that flag, instead of pretending it works.
+4. **No password protection on Upload-Post hosted OAuth pages.** The hosted connect flow opens in a new tab — anyone with that link could attempt to attach an account. We'll generate single-use JWTs with short TTL (Upload-Post supports this) and only generate them server-side after auth check.
+5. **All existing users + content are wiped.** Confirmed.
 
 ### What I need from you to start
 
-- Confirm: enable Lovable Cloud on this project (provisions the new Supabase backend)
-- Confirm: you'll re-add the 12 runtime secrets and update Fly.io env vars when prompted
-- Confirm: you accept losing all current users + content + media references
+- `UPLOAD_POST_API_KEY` ready to paste when prompted
 
