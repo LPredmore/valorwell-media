@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -28,7 +28,6 @@ import {
   Bug,
 } from "lucide-react";
 import { ConnectionCard } from "@/components/connections/ConnectionCard";
-import { ConnectFlowDialog } from "@/components/connections/ConnectFlowDialog";
 import {
   useUploadPostProfile,
   useSyncUploadPostProfile,
@@ -131,11 +130,18 @@ export function ConnectionsView() {
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const debugStatus = useUploadPostDebugStatus(diagnosticsOpen);
 
-  const [connectDialog, setConnectDialog] = useState<{
-    open: boolean;
-    url: string | null;
-    platform: string;
-  }>({ open: false, url: null, platform: "" });
+  const pollRef = useRef<number | null>(null);
+  const popupRef = useRef<Window | null>(null);
+
+  // Cleanup poll interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, []);
 
   // Auto-sync on returning from hosted OAuth
   useEffect(() => {
@@ -152,48 +158,119 @@ export function ConnectionsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleConnect = async (platform: PlatformKey) => {
-    try {
-      const data = await linkMutation.mutateAsync(platform);
-      const url = data?.access_url ?? data?.url;
-      if (!url) throw new Error("No connection link returned");
-      setConnectDialog({ open: true, url, platform: PLATFORM_META[platform].label });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to start connection";
-      toast({ title: "Connection error", description: message, variant: "destructive" });
-    }
-  };
-
-  const handleDialogClosed = () => {
-    // Capture which platform we just attempted to connect, before the dialog state resets.
-    const attemptedLabel = connectDialog.platform;
-    const attemptedKey = (Object.keys(PLATFORM_META) as PlatformKey[]).find(
-      (k) => PLATFORM_META[k].label === attemptedLabel,
-    );
-
-    // Auto-sync after the user closes the connect dialog/popup.
+  const runPostConnectSync = (attemptedKey: PlatformKey) => {
+    const attemptedLabel = PLATFORM_META[attemptedKey].label;
     syncMutation.mutate(undefined, {
       onSuccess: (updated: any) => {
-        toast({ title: "Connections refreshed" });
-        // If the attempted platform is still not connected, surface diagnostics.
         const updatedConnected = (updated?.connected_platforms ?? {}) as Record<
           string,
           unknown
         >;
-        if (attemptedKey && !isPlatformConnected(updatedConnected, attemptedKey)) {
-          setDiagnosticsOpen(true);
-          // Refetch will run automatically via the `enabled` flag, but force it.
-          setTimeout(() => debugStatus.refetch(), 0);
+        if (isPlatformConnected(updatedConnected, attemptedKey)) {
+          const handle = getHandle(updatedConnected[attemptedKey]);
           toast({
-            title: `${attemptedLabel} not connected yet`,
-            description:
-              "Opened Diagnostics so you can see the raw provider state.",
+            title: handle
+              ? `${attemptedLabel} connected as ${handle}`
+              : `${attemptedLabel} connected`,
+          });
+        } else {
+          toast({
+            title: `${attemptedLabel} didn't connect`,
+            description: "Open Diagnostics to see the raw provider state.",
             variant: "destructive",
+            action: (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setDiagnosticsOpen(true);
+                  setTimeout(() => debugStatus.refetch(), 0);
+                }}
+              >
+                View diagnostics
+              </Button>
+            ) as any,
           });
         }
       },
+      onError: (err: any) =>
+        toast({
+          title: "Sync failed",
+          description: err?.message,
+          variant: "destructive",
+        }),
     });
-    if (diagnosticsOpen) debugStatus.refetch();
+  };
+
+  const handleConnect = async (platform: PlatformKey) => {
+    const label = PLATFORM_META[platform].label;
+    try {
+      const data = await linkMutation.mutateAsync(platform);
+      const url = data?.access_url ?? data?.url;
+      if (!url) throw new Error("No connection link returned");
+
+      // Open popup directly from user gesture
+      const w = 600;
+      const h = 720;
+      const left = window.screenX + (window.outerWidth - w) / 2;
+      const top = window.screenY + (window.outerHeight - h) / 2;
+      const popup = window.open(
+        url,
+        "uploadpost-connect",
+        `width=${w},height=${h},left=${left},top=${top}`,
+      );
+
+      if (!popup) {
+        toast({
+          title: "Popup blocked",
+          description: "Allow popups for this site, then try again.",
+          variant: "destructive",
+          action: (
+            <Button size="sm" variant="outline" onClick={() => handleConnect(platform)}>
+              Retry
+            </Button>
+          ) as any,
+        });
+        return;
+      }
+
+      popupRef.current = popup;
+      toast({ title: `Opening ${label} connection…` });
+
+      // Clear any prior poll
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+
+      const openedAt = Date.now();
+      pollRef.current = window.setInterval(() => {
+        if (popup.closed) {
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+          const elapsed = Date.now() - openedAt;
+          if (elapsed < 500) {
+            toast({
+              title: "Popup blocked",
+              description: "Allow popups for this site, then try again.",
+              variant: "destructive",
+              action: (
+                <Button size="sm" variant="outline" onClick={() => handleConnect(platform)}>
+                  Retry
+                </Button>
+              ) as any,
+            });
+            return;
+          }
+          runPostConnectSync(platform);
+        }
+      }, 500);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to start connection";
+      toast({ title: "Connection error", description: message, variant: "destructive" });
+    }
   };
 
   const handleRefresh = () => {
@@ -389,15 +466,6 @@ export function ConnectionsView() {
         </CollapsibleContent>
       </Collapsible>
 
-      <ConnectFlowDialog
-        open={connectDialog.open}
-        onOpenChange={(open) =>
-          setConnectDialog((prev) => ({ ...prev, open }))
-        }
-        url={connectDialog.url}
-        platform={connectDialog.platform}
-        onClosed={handleDialogClosed}
-      />
     </div>
   );
 }
