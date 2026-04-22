@@ -15,4 +15,18 @@ export const SHORT_FIELDS = {
   ig_tiktok_desc: "Instagram + TikTok Caption",
 } as const;
 
-export type ContentFieldKey = keyof typeof COMMON_FIELDS | keyof typeof LONG_FIELDS | keyof typeof SHORT_FIELDS;
+export type ContentFieldKey =
+  | keyof typeof COMMON_FIELDS
+  | keyof typeof LONG_FIELDS
+  | keyof typeof SHORT_FIELDS;
+
+export const PLATFORM_LABELS: Record<string, string> = {
+  tiktok: "TikTok",
+  instagram: "Instagram",
+  youtube: "YouTube",
+  linkedin: "LinkedIn",
+  facebook: "Facebook",
+  x: "X",
+  threads: "Threads",
+  pinterest: "Pinterest",
+};

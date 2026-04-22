@@ -4,7 +4,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { useContent } from "@/hooks/useContent";
 import { useDeleteContent } from "@/hooks/useContents";
 import { useAutosave } from "@/hooks/useAutosave";
-import { useRetryYouTubeUpload } from "@/hooks/useSchedule";
+import { useRetryUploadPost } from "@/hooks/useSchedule";
 import { StatusBadge } from "@/components/content/StatusBadge";
 import { VideoSection } from "@/components/content/VideoSection";
 import { ImageSection } from "@/components/content/ImageSection";
@@ -18,7 +18,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ArrowLeft, Trash2, Loader2, RefreshCw, RotateCcw, ExternalLink } from "lucide-react";
-import { COMMON_FIELDS, LONG_FIELDS, SHORT_FIELDS } from "@/lib/platforms";
+import { COMMON_FIELDS, LONG_FIELDS, SHORT_FIELDS, PLATFORM_LABELS } from "@/lib/platforms";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,24 +33,48 @@ import {
 
 const CHAR_TARGETS: Record<string, string> = {
   post_title: "≤60",
-  
   youtube_desc: "1,800–2,500",
   facebook_desc: "600–1,200",
   linkedin_desc: "900–1,600",
   ig_tiktok_desc: "200–300",
 };
 
-function YouTubeStatusBadge({ status }: { status: string | null }) {
+function PostStatusBadge({ status }: { status: string | null }) {
   if (!status) return null;
   const variants: Record<string, string> = {
-    queued: "bg-amber-500/15 text-amber-700 border-amber-500/30",
+    pending: "bg-muted text-muted-foreground border-border",
     uploading: "bg-blue-500/15 text-blue-700 border-blue-500/30",
-    scheduled: "bg-green-500/15 text-green-700 border-green-500/30",
+    success: "bg-green-500/15 text-green-700 border-green-500/30",
+    partial: "bg-amber-500/15 text-amber-700 border-amber-500/30",
     failed: "bg-destructive/15 text-destructive border-destructive/30",
   };
   return (
     <Badge variant="outline" className={variants[status] ?? ""}>{status}</Badge>
   );
+}
+
+function getResultPostUrl(result: unknown): string | null {
+  if (!result || typeof result !== "object") return null;
+  const r = result as Record<string, unknown>;
+  const candidates = ["post_url", "url", "permalink", "video_url"];
+  for (const k of candidates) {
+    const v = r[k];
+    if (typeof v === "string" && v.length > 0) return v;
+  }
+  return null;
+}
+
+function getResultStatus(result: unknown): "success" | "failed" | "pending" {
+  if (!result || typeof result !== "object") return "pending";
+  const r = result as Record<string, unknown>;
+  if (r.success === true) return "success";
+  if (r.success === false) return "failed";
+  if (typeof r.status === "string") {
+    const s = r.status.toLowerCase();
+    if (["success", "completed", "complete", "done", "finished"].includes(s)) return "success";
+    if (["failed", "error"].includes(s)) return "failed";
+  }
+  return "pending";
 }
 
 export default function ContentDetail() {
@@ -59,7 +83,7 @@ export default function ContentDetail() {
   const queryClient = useQueryClient();
   const { data: content, isLoading, error } = useContent(id);
   const deleteContent = useDeleteContent();
-  const retryMutation = useRetryYouTubeUpload();
+  const retryMutation = useRetryUploadPost();
   const [topic, setTopic] = useState("");
   const [topicInit, setTopicInit] = useState(false);
   const [videoUploading, setVideoUploading] = useState(false);
@@ -96,21 +120,9 @@ export default function ContentDetail() {
     const ext = file.name.split(".").pop();
     const storagePath = `content/${id}/video.${ext}`;
 
-    console.log("[ContentDetail] Starting video replace", {
-      contentId: id,
-      fileName: file.name,
-      fileSize: file.size,
-      fileSizeHuman: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-      storagePath,
-    });
-
     try {
-      await uploadVideoToR2(storagePath, file, (pct) => {
-        setVideoProgress(pct);
-      });
-      console.log("[ContentDetail] Video upload succeeded, updating DB...");
+      await uploadVideoToR2(storagePath, file, (pct) => setVideoProgress(pct));
     } catch (uploadError: any) {
-      console.error("[ContentDetail] Video upload failed", uploadError);
       toast({ title: "Upload failed", description: uploadError?.message, variant: "destructive" });
       setVideoUploading(false);
       return;
@@ -153,14 +165,14 @@ export default function ContentDetail() {
 
   const handleDelete = () => {
     if (!id) return;
-    deleteContent.mutate(id, { onSuccess: () => navigate("/content") });
+    deleteContent.mutate(id, { onSuccess: () => navigate("/schedule") });
   };
 
   const handleRetry = () => {
     if (!id) return;
     retryMutation.mutate(id, {
       onSuccess: () => {
-        toast({ title: "Upload re-queued" });
+        toast({ title: "Post re-queued" });
         queryClient.invalidateQueries({ queryKey: ["content", id] });
       },
       onError: (err: any) => {
@@ -184,7 +196,7 @@ export default function ContentDetail() {
       <AppLayout>
         <div className="py-16 text-center">
           <p className="text-lg text-muted-foreground">Content not found</p>
-          <Link to="/content">
+          <Link to="/schedule">
             <Button variant="link" className="mt-2">Back to Content</Button>
           </Link>
         </div>
@@ -192,13 +204,16 @@ export default function ContentDetail() {
     );
   }
 
+  const results = (content.upload_post_results ?? {}) as Record<string, unknown>;
+  const platformResultEntries = Object.entries(results);
+
   return (
     <AppLayout>
       <div className="mx-auto max-w-3xl space-y-8">
         {/* Header */}
         <div className="space-y-4">
           <div className="flex items-center gap-3">
-            <Link to="/content">
+            <Link to="/schedule">
               <Button variant="ghost" size="icon">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
@@ -266,80 +281,49 @@ export default function ContentDetail() {
           )}
         </div>
 
-        {/* YouTube Status Panel */}
-        {content.youtube_status && (
+        {/* Upload-Post Status Panel */}
+        {content.upload_post_status && (
           <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">YouTube Upload</h3>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="text-muted-foreground">Status</span>
-                <div className="mt-1"><YouTubeStatusBadge status={content.youtube_status} /></div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Upload At</span>
-                <div className="mt-1 font-medium">
-                  {content.upload_at ? format(new Date(content.upload_at), "MMM d, yyyy h:mm a") : "—"}
-                </div>
-              </div>
-              {content.youtube_video_id && (
-                <div>
-                  <span className="text-muted-foreground">YouTube Video</span>
-                  <div className="mt-1">
-                    <a
-                      href={`https://youtu.be/${content.youtube_video_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-primary hover:underline font-medium"
-                    >
-                      {content.youtube_video_id}
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </div>
-                </div>
-              )}
-              {content.youtube_uploaded_at && (
-                <div>
-                  <span className="text-muted-foreground">Uploaded At</span>
-                  <div className="mt-1 font-medium">
-                    {format(new Date(content.youtube_uploaded_at), "MMM d, yyyy h:mm a")}
-                  </div>
-                </div>
-              )}
-              {(content as any).youtube_comment_status && (
-                <div>
-                  <span className="text-muted-foreground">Comment Status</span>
-                  <div className="mt-1"><YouTubeStatusBadge status={(content as any).youtube_comment_status} /></div>
-                </div>
-              )}
-              {(content as any).youtube_comment_id && (
-                <div>
-                  <span className="text-muted-foreground">Comment ID</span>
-                  <div className="mt-1 font-medium">{(content as any).youtube_comment_id}</div>
-                </div>
-              )}
-              {(content as any).youtube_comment_posted_at && (
-                <div>
-                  <span className="text-muted-foreground">Comment Posted At</span>
-                  <div className="mt-1 font-medium">
-                    {format(new Date((content as any).youtube_comment_posted_at), "MMM d, yyyy h:mm a")}
-                  </div>
-                </div>
-              )}
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                Publishing Status
+              </h3>
+              <PostStatusBadge status={content.upload_post_status} />
             </div>
 
-            {content.youtube_status === "failed" && content.youtube_error_detail && (
-              <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-                {content.youtube_error_detail}
+            {platformResultEntries.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {platformResultEntries.map(([platform, result]) => {
+                  const status = getResultStatus(result);
+                  const url = getResultPostUrl(result);
+                  return (
+                    <div
+                      key={platform}
+                      className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2"
+                    >
+                      <span className="text-sm font-medium">
+                        {PLATFORM_LABELS[platform] ?? platform}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <PostStatusBadge status={status} />
+                        {url && (
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
-            {(content as any).youtube_comment_status === "failed" && (content as any).youtube_comment_error_detail && (
-              <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-                <span className="font-medium">Comment Error: </span>{(content as any).youtube_comment_error_detail}
-              </div>
-            )}
-
-            {content.youtube_status === "failed" && (
+            {(content.upload_post_status === "failed" || content.upload_post_status === "partial") && (
               <Button
                 variant="outline"
                 size="sm"
@@ -352,23 +336,11 @@ export default function ContentDetail() {
                 ) : (
                   <RotateCcw className="h-4 w-4" />
                 )}
-                Retry Upload
+                Retry Post
               </Button>
             )}
           </div>
         )}
-
-        {/* YouTube First Comment */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">YouTube First Comment</h3>
-          <ContentFieldCard
-            contentId={content.id}
-            fieldKey="youtube_comment"
-            label="YouTube First Comment"
-            value={(content as any).youtube_comment}
-            charTarget="≤300"
-          />
-        </div>
 
         {/* Video */}
         <VideoSection

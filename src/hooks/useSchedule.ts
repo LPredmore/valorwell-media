@@ -14,7 +14,6 @@ export function useIncompleteContent(postLength?: "Long" | "Short") {
       if (postLength) query = query.eq("post_length", postLength);
       const { data, error } = await query;
       if (error) throw error;
-
       return (data as unknown as SocialContent[]) ?? [];
     },
   });
@@ -76,18 +75,22 @@ export function useScheduleContent() {
       id,
       scheduledAt,
       playlistId,
+      platforms,
     }: {
       id: string;
       scheduledAt: Date;
       playlistId: number | null;
+      platforms?: string[];
     }) => {
+      const update: Record<string, unknown> = {
+        status: "scheduled",
+        scheduled_at: scheduledAt.toISOString(),
+        playlist_id: playlistId,
+      };
+      if (platforms) update.scheduled_platforms = platforms;
       const { error } = await supabase
         .from("social_content")
-        .update({
-          status: "scheduled",
-          scheduled_at: scheduledAt.toISOString(),
-          playlist_id: playlistId,
-        } as any)
+        .update(update as any)
         .eq("id", id);
       if (error) throw error;
     },
@@ -106,17 +109,21 @@ export function useUpdateSchedule() {
       id,
       scheduledAt,
       playlistId,
+      platforms,
     }: {
       id: string;
       scheduledAt: Date;
       playlistId: number | null;
+      platforms?: string[];
     }) => {
+      const update: Record<string, unknown> = {
+        scheduled_at: scheduledAt.toISOString(),
+        playlist_id: playlistId,
+      };
+      if (platforms) update.scheduled_platforms = platforms;
       const { error } = await supabase
         .from("social_content")
-        .update({
-          scheduled_at: scheduledAt.toISOString(),
-          playlist_id: playlistId,
-        } as any)
+        .update(update as any)
         .eq("id", id);
       if (error) throw error;
     },
@@ -133,24 +140,28 @@ export function usePostNow() {
     mutationFn: async ({
       contentId,
       playlistId,
+      platforms,
     }: {
       contentId: string;
       playlistId: number | null;
+      platforms?: string[];
     }) => {
       const now = new Date().toISOString();
+      const update: Record<string, unknown> = {
+        playlist_id: playlistId,
+        status: "scheduled",
+        scheduled_at: now,
+      };
+      if (platforms) update.scheduled_platforms = platforms;
       const { error } = await supabase
         .from("social_content")
-        .update({
-          playlist_id: playlistId,
-          status: "scheduled",
-          scheduled_at: now,
-        } as any)
+        .update(update as any)
         .eq("id", contentId);
       if (error) throw error;
 
-      // Invoke edge function immediately so content posts without waiting for cron
-      await supabase.functions.invoke("post-scheduled-content", {
-        body: { contentId },
+      // Fire submit immediately so user doesn't wait for cron
+      await supabase.functions.invoke("upload-post-submit", {
+        body: { content_id: contentId },
       });
     },
     onSuccess: () => {
@@ -160,22 +171,25 @@ export function usePostNow() {
   });
 }
 
-export function useRetryYouTubeUpload() {
+export function useRetryUploadPost() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (id: string) => {
+      // Reset status then re-invoke submit
       const { error } = await supabase
         .from("social_content")
         .update({
-          youtube_status: "queued",
-          upload_at: new Date().toISOString(),
-          youtube_error_detail: null,
-          youtube_video_id: null,
-          youtube_uploaded_at: null,
+          upload_post_status: "pending",
+          upload_post_results: {},
+          error: null,
         } as any)
         .eq("id", id);
       if (error) throw error;
+
+      await supabase.functions.invoke("upload-post-submit", {
+        body: { content_id: id },
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["schedule"] });

@@ -47,17 +47,17 @@ export function UnscheduledTab({ postLength }: { postLength?: "Long" | "Short" }
     setSelectedItem(item);
   };
 
-  const handleConfirm = (scheduledAt: Date, playlistId: number | null) => {
+  const handleConfirm = (scheduledAt: Date, playlistId: number | null, platforms: string[]) => {
     if (!selectedItem) return;
 
     const now = new Date();
     if (scheduledAt.getTime() <= now.getTime() + 60000) {
-      postNowMutation.mutate({ contentId: selectedItem.id, playlistId }, {
+      postNowMutation.mutate({ contentId: selectedItem.id, playlistId, platforms }, {
         onSuccess: () => { toast({ title: "Post queued for immediate upload" }); setSelectedItem(null); },
         onError: (err: any) => { toast({ title: "Failed to post", description: err.message, variant: "destructive" }); },
       });
     } else {
-      scheduleMutation.mutate({ id: selectedItem.id, scheduledAt, playlistId }, {
+      scheduleMutation.mutate({ id: selectedItem.id, scheduledAt, playlistId, platforms }, {
         onSuccess: () => { toast({ title: "Post scheduled" }); setSelectedItem(null); },
         onError: (err: any) => { toast({ title: "Failed to schedule", description: err.message, variant: "destructive" }); },
       });
@@ -133,6 +133,7 @@ export function UnscheduledTab({ postLength }: { postLength?: "Long" | "Short" }
         onConfirm={handleConfirm}
         loading={scheduleMutation.isPending || postNowMutation.isPending}
         postLength={selectedItem?.post_length}
+        initialPlatforms={selectedItem?.scheduled_platforms ?? null}
       />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>

@@ -22,12 +22,13 @@ import { toast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import type { SocialContent } from "@/hooks/useContents";
 
-function YtBadge({ status }: { status: string | null }) {
+function PostStatusBadge({ status }: { status: string | null }) {
   if (!status) return <span className="text-xs text-muted-foreground">—</span>;
   const colors: Record<string, string> = {
-    queued: "bg-amber-500/15 text-amber-700 border-amber-500/30",
+    pending: "bg-muted text-muted-foreground border-border",
     uploading: "bg-blue-500/15 text-blue-700 border-blue-500/30",
-    scheduled: "bg-green-500/15 text-green-700 border-green-500/30",
+    success: "bg-green-500/15 text-green-700 border-green-500/30",
+    partial: "bg-amber-500/15 text-amber-700 border-amber-500/30",
     failed: "bg-destructive/15 text-destructive border-destructive/30",
   };
   return <Badge variant="outline" className={`text-xs ${colors[status] ?? ""}`}>{status}</Badge>;
@@ -43,10 +44,10 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
   const [editItem, setEditItem] = useState<SocialContent | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  const handleUpdate = (scheduledAt: Date, playlistId: number | null) => {
+  const handleUpdate = (scheduledAt: Date, playlistId: number | null, platforms: string[]) => {
     if (!editItem) return;
     updateMutation.mutate(
-      { id: editItem.id, scheduledAt, playlistId },
+      { id: editItem.id, scheduledAt, playlistId, platforms },
       {
         onSuccess: () => { toast({ title: "Schedule updated" }); setEditItem(null); },
         onError: (err: any) => { toast({ title: "Failed to update", description: err.message, variant: "destructive" }); },
@@ -90,7 +91,7 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
               <TableHead className="w-14 hidden sm:table-cell">Image</TableHead>
               <TableHead>Topic</TableHead>
               <TableHead className="w-44">Scheduled Date</TableHead>
-              <TableHead className="w-24 hidden sm:table-cell">YouTube</TableHead>
+              <TableHead className="w-28 hidden sm:table-cell">Status</TableHead>
               <TableHead className="w-14 text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
@@ -102,7 +103,7 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
                 <TableCell className="text-muted-foreground">
                   {item.scheduled_at ? format(new Date(item.scheduled_at), "MMM d, yyyy h:mm a") : "—"}
                 </TableCell>
-                <TableCell className="hidden sm:table-cell"><YtBadge status={item.youtube_status} /></TableCell>
+                <TableCell className="hidden sm:table-cell"><PostStatusBadge status={item.upload_post_status} /></TableCell>
                 <TableCell className="text-right">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -137,6 +138,7 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
           initialDate={editItem.scheduled_at ? new Date(editItem.scheduled_at) : undefined}
           initialTime={editItem.scheduled_at ? format(new Date(editItem.scheduled_at), "HH:mm") : undefined}
           initialPlaylistId={(editItem as any).playlist_id ?? null}
+          initialPlatforms={editItem.scheduled_platforms ?? null}
           postLength={editItem.post_length}
         />
       )}

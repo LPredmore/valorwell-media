@@ -6,7 +6,6 @@ export type SocialContent = {
   user_id: string;
   topic: string;
   status: string;
-  youtube_comment: string | null;
   youtube_desc: string | null;
   facebook_desc: string | null;
   linkedin_desc: string | null;
@@ -23,11 +22,9 @@ export type SocialContent = {
   scheduled_platforms: string[] | null;
   playlist_id: number | null;
   post_length: string | null;
-  youtube_status: string | null;
-  upload_at: string | null;
-  youtube_video_id: string | null;
-  youtube_error_detail: string | null;
-  youtube_uploaded_at: string | null;
+  upload_post_request_id: string | null;
+  upload_post_status: string | null;
+  upload_post_results: Record<string, unknown> | null;
   video_size_bytes: number | null;
   script: string | null;
   planned_date: string | null;
