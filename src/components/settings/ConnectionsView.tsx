@@ -83,6 +83,18 @@ const PLATFORM_META: Record<
     icon: PinIcon,
     iconClassName: "h-6 w-6 text-destructive",
   },
+  reddit: {
+    label: "Reddit",
+    description: "Share posts and videos to your Reddit communities.",
+    icon: MessageCircle,
+    iconClassName: "h-6 w-6 text-[#FF4500]",
+  },
+  bluesky: {
+    label: "Bluesky",
+    description: "Post short updates and media to your Bluesky account.",
+    icon: Cloud,
+    iconClassName: "h-6 w-6 text-[#0085FF]",
+  },
 };
 
 function getHandle(platformValue: unknown): string | null {
