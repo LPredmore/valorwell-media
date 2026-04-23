@@ -21,6 +21,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import type { SocialContent } from "@/hooks/useContents";
+import { ContentCsvUpload } from "./ContentCsvUpload";
 
 export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" }) {
   const { data: items, isLoading } = useIncompleteContent(postLength);
