@@ -29,7 +29,10 @@ export default function SubscriptionSuccess() {
   }, [qc, sessionId]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="relative flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="absolute right-4 top-4">
+        <OnboardingLogoutButton />
+      </div>
       <div className="w-full max-w-lg space-y-6 text-center animate-fade-in-up">
         <img src={mascot} alt="Flurra" className="mx-auto h-32 w-auto object-contain" />
         <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-primary/15">
