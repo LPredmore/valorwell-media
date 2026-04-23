@@ -76,11 +76,13 @@ export function useScheduleContent() {
       scheduledAt,
       playlistId,
       platforms,
+      youtubeVia,
     }: {
       id: string;
       scheduledAt: Date;
       playlistId: number | null;
       platforms?: string[];
+      youtubeVia?: string | null;
     }) => {
       const update: Record<string, unknown> = {
         status: "scheduled",
@@ -88,6 +90,7 @@ export function useScheduleContent() {
         playlist_id: playlistId,
       };
       if (platforms) update.scheduled_platforms = platforms;
+      if (youtubeVia !== undefined) update.youtube_via = youtubeVia;
       const { error } = await supabase
         .from("social_content")
         .update(update as any)
@@ -110,17 +113,20 @@ export function useUpdateSchedule() {
       scheduledAt,
       playlistId,
       platforms,
+      youtubeVia,
     }: {
       id: string;
       scheduledAt: Date;
       playlistId: number | null;
       platforms?: string[];
+      youtubeVia?: string | null;
     }) => {
       const update: Record<string, unknown> = {
         scheduled_at: scheduledAt.toISOString(),
         playlist_id: playlistId,
       };
       if (platforms) update.scheduled_platforms = platforms;
+      if (youtubeVia !== undefined) update.youtube_via = youtubeVia;
       const { error } = await supabase
         .from("social_content")
         .update(update as any)
@@ -141,10 +147,12 @@ export function usePostNow() {
       contentId,
       playlistId,
       platforms,
+      youtubeVia,
     }: {
       contentId: string;
       playlistId: number | null;
       platforms?: string[];
+      youtubeVia?: string | null;
     }) => {
       const now = new Date().toISOString();
       const update: Record<string, unknown> = {
@@ -153,16 +161,26 @@ export function usePostNow() {
         scheduled_at: now,
       };
       if (platforms) update.scheduled_platforms = platforms;
+      if (youtubeVia !== undefined) update.youtube_via = youtubeVia;
       const { error } = await supabase
         .from("social_content")
         .update(update as any)
         .eq("id", contentId);
       if (error) throw error;
 
-      // Fire submit immediately so user doesn't wait for cron
-      await supabase.functions.invoke("upload-post-submit", {
-        body: { content_id: contentId },
-      });
+      // Fire submit(s) immediately so user doesn't wait for cron
+      const wantsYoutube = (platforms ?? []).includes("youtube");
+      const useNative = youtubeVia === "native" && wantsYoutube;
+      const others = (platforms ?? []).filter((p) => p !== "youtube");
+
+      if (useNative) {
+        await supabase.functions.invoke("youtube-native-submit", { body: { content_id: contentId } });
+        if (others.length > 0) {
+          await supabase.functions.invoke("upload-post-submit", { body: { content_id: contentId } });
+        }
+      } else {
+        await supabase.functions.invoke("upload-post-submit", { body: { content_id: contentId } });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["schedule"] });
