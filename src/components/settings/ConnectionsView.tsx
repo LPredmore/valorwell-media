@@ -493,3 +493,119 @@ export function ConnectionsView() {
     </div>
   );
 }
+
+function YoutubeNativeCard() {
+  const { toast } = useToast();
+  const { data: connection, isLoading } = useYoutubeNativeConnection();
+  const connectMutation = useConnectYoutubeNative();
+  const disconnectMutation = useDisconnectYoutubeNative();
+
+  const handleConnect = () => {
+    connectMutation.mutate(undefined, {
+      onError: (err: any) =>
+        toast({
+          title: "Couldn't start connection",
+          description: err?.message ?? String(err),
+          variant: "destructive",
+        }),
+    });
+  };
+
+  const handleDisconnect = () => {
+    disconnectMutation.mutate(undefined, {
+      onSuccess: () => toast({ title: "YouTube disconnected" }),
+      onError: (err: any) =>
+        toast({
+          title: "Disconnect failed",
+          description: err?.message ?? String(err),
+          variant: "destructive",
+        }),
+    });
+  };
+
+  const isConnected = !!connection;
+
+  return (
+    <ConnectionCard
+      icon={Youtube}
+      iconClassName="h-6 w-6 text-destructive"
+      title="YouTube (Native)"
+      description="Direct upload from your own Google account."
+      status={isConnected ? "connected" : "available"}
+    >
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading…
+        </div>
+      ) : isConnected ? (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-sm min-w-0">
+            <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
+            <div className="min-w-0">
+              {connection.channel_title ? (
+                <div className="truncate">
+                  Connected as{" "}
+                  <span className="font-medium text-foreground">
+                    {connection.channel_title}
+                  </span>
+                  {connection.channel_handle ? (
+                    <span className="text-muted-foreground"> · {connection.channel_handle}</span>
+                  ) : null}
+                </div>
+              ) : (
+                <div>Connected</div>
+              )}
+              {connection.google_account_email && (
+                <div className="text-xs text-muted-foreground truncate">
+                  {connection.google_account_email}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={handleConnect}
+              disabled={connectMutation.isPending}
+            >
+              {connectMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Plug className="h-4 w-4" />
+              )}
+              Reconnect
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDisconnect}
+              disabled={disconnectMutation.isPending}
+            >
+              {disconnectMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Disconnect"
+              )}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button
+          className="gap-2"
+          onClick={handleConnect}
+          disabled={connectMutation.isPending}
+        >
+          {connectMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Plug className="h-4 w-4" />
+          )}
+          Connect YouTube
+        </Button>
+      )}
+    </ConnectionCard>
+  );
+}
