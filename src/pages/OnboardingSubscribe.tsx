@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import mascot from "@/assets/flurra-mascot.png";
+import { OnboardingLogoutButton } from "@/components/OnboardingLogoutButton";
 
 const PLATFORM_ICONS = [
   { Icon: Music2, label: "TikTok", color: "text-foreground" },
