@@ -1,95 +1,60 @@
 
 
-## Next: add secrets, then run DB migration + build OAuth flow
+## Plan: confirm OAuth flow is fine, then move forward
 
-You have the three values. I'll request them via the secure secret form, then proceed.
+**Diagnosis recap:** The native YouTube connection is working. The console errors are cosmetic — they come from a sandboxed-iframe restriction in the Lovable preview that blocks the success page's auto-close script. The token exchange and DB save happen server-side before that page ever renders, and our popup-close polling fallback already handles UI refresh. In production (custom domain / published URL), the popup opens as a real window and these errors don't appear.
 
-### Step 2a — Request secrets (immediately on approval)
+### Recommendation: do nothing, move to Step 5
 
-Pop the secure form for these three secret names:
-- `GOOGLE_OAUTH_CLIENT_ID`
-- `GOOGLE_OAUTH_CLIENT_SECRET`
-- `YOUTUBE_REFRESH_TOKEN_ENCRYPTION_KEY`
+The flow works end-to-end:
+- Google OAuth completes
+- Refresh token is encrypted and stored in `youtube_connections`
+- UI shows ValorWell channel as connected
+- Disconnect works (verified in your network log: `POST youtube-native-disconnect → {"ok":true}`)
 
-You paste the values, they get stored as runtime secrets accessible to edge functions only — never exposed to the browser.
+The console warnings are preview-only artifacts and will not appear for users on the published site. No code change is justified to suppress them.
 
-### Step 2b — Database migration
+### Optional polish (only if you want to silence preview noise)
 
-Create `supabase/migrations/<timestamp>_youtube_native.sql`:
+If the console errors bother you during dev, we could add a server-rendered "Click to close" button on the callback HTML as a manual fallback for sandboxed environments. This would let you click instead of waiting for the auto-close that's being blocked. Tiny UX win in preview, zero impact in production. **Not recommended unless it actively annoys you.**
 
-- New table `public.youtube_connections`:
-  - `user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE`
-  - `google_account_email text`
-  - `channel_id text`
-  - `channel_title text`
-  - `channel_handle text`
-  - `refresh_token_encrypted text NOT NULL` (AES-GCM ciphertext, base64)
-  - `access_token text` · `access_token_expires_at timestamptz` (short-lived cache)
-  - `scopes text[] NOT NULL DEFAULT '{}'`
-  - `connected_at timestamptz NOT NULL DEFAULT now()`
-  - `updated_at timestamptz NOT NULL DEFAULT now()` (with `set_updated_at` trigger)
-- Enable RLS. Policies:
-  - Users can `SELECT` their own row (so the UI can show channel name/handle/connected status — no token columns exposed via a view, see below)
-  - No `INSERT`/`UPDATE`/`DELETE` from clients — only edge functions (service role) write
-  - Admins full access via `has_role(auth.uid(), 'admin')`
-- Create a safe view `public.youtube_connections_public` exposing only `user_id, google_account_email, channel_title, channel_handle, channel_id, scopes, connected_at, updated_at` — the UI reads from this so refresh tokens are never selectable client-side.
-- New columns on `social_content` and `posted_content`:
-  - `youtube_native_status text` (values: `pending` | `uploading` | `success` | `failed`)
-  - `youtube_native_video_id text`
-  - `youtube_native_uploaded_at timestamptz`
-  - `youtube_native_error_detail text`
-  - `youtube_via text` — `'native'` or `'upload_post'`, default `null`
+### Proposed next step: Step 5 — Fly.io upload worker
 
-### Step 3 — OAuth edge functions
+Per the master plan, the next milestone is the actual upload pipeline. We'd build:
 
-Three new functions, all with `verify_jwt = false` (validated in code):
+1. **Fly.io worker service** (separate repo, you deploy):
+   - Endpoint `POST /upload-youtube` accepting `{ content_id, user_id, video_url, title, description, tags, privacy }`
+   - Decrypts refresh token (calls Supabase to fetch encrypted token, decrypts with `YOUTUBE_REFRESH_TOKEN_ENCRYPTION_KEY`)
+   - Exchanges refresh token for fresh access token
+   - Streams video from R2 → YouTube Data API v3 resumable upload
+   - On success/failure, calls back to Supabase edge function with result
 
-1. **`youtube-native-oauth-start`** — POST. Authenticated. Generates a short-lived signed `state` token (JWT signed with `YOUTUBE_REFRESH_TOKEN_ENCRYPTION_KEY` derivative, includes `user_id` + nonce + 10-min expiry). Returns the Google OAuth URL with `access_type=offline`, `prompt=consent` (forces refresh token), scopes for `youtube.upload` + `youtube.readonly` + email/profile, and the `state` value.
+2. **`youtube-native-submit` edge function**:
+   - Called from `post-scheduled-content` when `youtube_via = 'native'`
+   - Generates short-lived signed R2 read URL
+   - POSTs job to Fly worker
+   - Marks `youtube_native_status = 'uploading'`
 
-2. **`youtube-native-oauth-callback`** — GET. Public. Receives `code` + `state` from Google's redirect. Verifies state token, exchanges code for tokens, calls YouTube `channels.list?mine=true` to get channel id/title/handle and userinfo for email. Encrypts refresh token with AES-GCM using `YOUTUBE_REFRESH_TOKEN_ENCRYPTION_KEY`. Upserts into `youtube_connections`. Returns a small HTML page that posts a message to the opener (`{type: 'youtube_connected'}`) and closes itself.
+3. **`youtube-native-callback` edge function**:
+   - Receives result from Fly worker (HMAC-signed payload)
+   - Updates `social_content` / `posted_content` with `youtube_native_status`, `youtube_native_video_id`, `youtube_native_uploaded_at`, or `youtube_native_error_detail`
 
-3. **`youtube-native-disconnect`** — POST. Authenticated. Revokes refresh token at `https://oauth2.googleapis.com/revoke`, deletes the row.
+4. **`ScheduleDialog` toggle**:
+   - When YouTube is selected and a native connection exists, show a switch: **"Post via Native (beta) / Upload-Post"**
+   - Stores choice in `youtube_via` column
 
-Add these blocks to `supabase/config.toml`:
-```toml
-[functions.youtube-native-oauth-start]
-verify_jwt = false
-
-[functions.youtube-native-oauth-callback]
-verify_jwt = false
-
-[functions.youtube-native-disconnect]
-verify_jwt = false
-```
-
-### Step 4 — Wire up the Connections UI
-
-- New hook `src/hooks/useYoutubeNativeConnection.ts` — reads from `youtube_connections_public` view, exposes `connect()` (calls oauth-start, opens popup, listens for `youtube_connected` postMessage) and `disconnect()`.
-- `src/components/settings/ConnectionsView.tsx`:
-  - Add a new section header **"Native connections (beta)"** above the existing Upload-Post grid.
-  - Render a YouTube card showing channel handle + email when connected, "Connect YouTube" button when not.
-  - Add subtitle "via Upload-Post" to the existing Upload-Post YouTube card so users can tell them apart.
-
-### Stopping point for verification
-
-Per the approved master plan, we stop here. You'll be able to:
-- Click "Connect YouTube (Native)"
-- Complete Google OAuth
-- See your channel name + email appear in the Connections page
-- Click Disconnect and see it cleared
-
-Once that flow works end-to-end with your Google account, we move to Steps 5–7 (Fly worker + submit/callback + ScheduleDialog toggle).
-
-### Files in this batch
+### Files in next batch
 
 **New:**
-- `supabase/migrations/<timestamp>_youtube_native.sql`
-- `supabase/functions/youtube-native-oauth-start/index.ts`
-- `supabase/functions/youtube-native-oauth-callback/index.ts`
-- `supabase/functions/youtube-native-disconnect/index.ts`
-- `src/hooks/useYoutubeNativeConnection.ts`
+- `supabase/functions/youtube-native-submit/index.ts`
+- `supabase/functions/youtube-native-callback/index.ts`
+- Fly worker repo (separate, instructions provided)
 
 **Modified:**
-- `supabase/config.toml` (3 new function blocks)
-- `src/components/settings/ConnectionsView.tsx` (Native section + subtitle on Upload-Post YouTube card)
+- `src/components/schedule/ScheduleDialog.tsx` — add native/upload-post toggle
+- `supabase/functions/post-scheduled-content/index.ts` — route YouTube to native when `youtube_via='native'`
+
+### Stopping point
+
+After Step 5 you'll be able to schedule a YouTube post via the native path and watch it upload directly through your own Google credentials, bypassing Upload-Post entirely.
 
