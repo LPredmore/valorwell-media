@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.youtube-native-disconnect]
 verify_jwt = false
+
+[functions.youtube-native-callback]
+verify_jwt = false
