@@ -52,6 +52,20 @@ serve(async (req) => {
       .eq("user_id", user.id)
       .maybeSingle();
 
+    // Complimentary accounts: skip Stripe entirely. These are manually granted
+    // permanent free access and must never be downgraded by Stripe lookups.
+    if (existing?.subscription_tier === "comp") {
+      return new Response(
+        JSON.stringify({
+          subscribed: true,
+          subscription_tier: "comp",
+          subscription_end: null,
+          source: "comp",
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const customers = await stripe.customers.list({ email: user.email, limit: 1 });
 
     if (customers.data.length === 0) {

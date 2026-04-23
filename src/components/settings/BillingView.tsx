@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { getStripeEnvironment } from "@/lib/stripe";
 import { toast } from "@/hooks/use-toast";
-import { CreditCard, ExternalLink, Sparkles } from "lucide-react";
+import { CreditCard, ExternalLink, Sparkles, Gift } from "lucide-react";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -51,6 +51,8 @@ export function BillingView() {
     );
   }
 
+  const isComp = data?.subscription_tier === "comp";
+
   const tierLabel =
     data?.subscription_tier === "annual"
       ? "Annual ($9.99/mo, billed yearly)"
@@ -67,7 +69,23 @@ export function BillingView() {
         </p>
       </div>
 
-      {data?.subscribed ? (
+      {isComp ? (
+        <div className="rounded-2xl border border-primary/30 bg-primary/5 p-6 space-y-4">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/15 text-primary">
+              <Gift className="h-5 w-5" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm text-muted-foreground">Current plan</p>
+              <p className="text-lg font-semibold">Complimentary access</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                You have complimentary access to Flurra. No payment method or subscription required —
+                everything is unlocked, with no expiration.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : data?.subscribed ? (
         <div className="rounded-2xl border border-border surface-elevated p-6 space-y-5">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/15 text-primary">
