@@ -17,6 +17,7 @@ import {
   MessageSquareText,
 } from "lucide-react";
 import mascot from "@/assets/flurra-mascot.png";
+import { OnboardingLogoutButton } from "@/components/OnboardingLogoutButton";
 
 const CHANNEL_BRIEF_SCOPE = "channel_brief";
 
@@ -144,15 +145,18 @@ export default function Onboarding() {
               className="h-[13rem] w-auto object-contain"
             />
           </div>
-          <div className="flex items-center gap-2">
-            {[1, 2, 3].map((s) => (
-              <div
-                key={s}
-                className={`h-2 w-8 rounded-full transition-colors ${
-                  s <= step ? "bg-primary" : "bg-muted"
-                }`}
-              />
-            ))}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              {[1, 2, 3].map((s) => (
+                <div
+                  key={s}
+                  className={`h-2 w-8 rounded-full transition-colors ${
+                    s <= step ? "bg-primary" : "bg-muted"
+                  }`}
+                />
+              ))}
+            </div>
+            <OnboardingLogoutButton />
           </div>
         </div>
 

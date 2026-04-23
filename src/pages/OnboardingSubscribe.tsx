@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import mascot from "@/assets/flurra-mascot.png";
+import { OnboardingLogoutButton } from "@/components/OnboardingLogoutButton";
 
 const PLATFORM_ICONS = [
   { Icon: Music2, label: "TikTok", color: "text-foreground" },
@@ -108,7 +109,10 @@ export default function OnboardingSubscribe() {
             <ArrowLeft className="h-4 w-4" />
             Back
           </Button>
-          <img src={mascot} alt="Flurra" className="h-16 w-auto object-contain" />
+          <div className="flex items-center gap-3">
+            <img src={mascot} alt="Flurra" className="h-16 w-auto object-contain" />
+            <OnboardingLogoutButton />
+          </div>
         </div>
 
         {/* Hero */}
