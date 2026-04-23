@@ -76,6 +76,45 @@ export type Database = {
         }
         Relationships: []
       }
+      linkedin_connections: {
+        Row: {
+          access_token: string | null
+          access_token_expires_at: string | null
+          account_email: string | null
+          account_name: string | null
+          connected_at: string
+          member_urn: string | null
+          refresh_token_encrypted: string
+          scopes: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          account_email?: string | null
+          account_name?: string | null
+          connected_at?: string
+          member_urn?: string | null
+          refresh_token_encrypted: string
+          scopes?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          account_email?: string | null
+          account_name?: string | null
+          connected_at?: string
+          member_urn?: string | null
+          refresh_token_encrypted?: string
+          scopes?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       playlists: {
         Row: {
           created_at: string
@@ -104,12 +143,21 @@ export type Database = {
           image: string | null
           image_url: string | null
           linkedin_desc: string | null
+          linkedin_native_error_detail: string | null
+          linkedin_native_post_urn: string | null
+          linkedin_native_status: string | null
+          linkedin_via: string | null
           parent_content_id: string | null
           planned_date: string | null
           playlist_id: number | null
           post_length: Database["public"]["Enums"]["video_length"] | null
           post_title: string | null
           posted_at: string | null
+          reddit_native_error_detail: string | null
+          reddit_native_post_id: string | null
+          reddit_native_status: string | null
+          reddit_subreddit: string | null
+          reddit_via: string | null
           scheduled_at: string | null
           scheduled_platforms: string[] | null
           source_content_id: string | null
@@ -141,12 +189,21 @@ export type Database = {
           image?: string | null
           image_url?: string | null
           linkedin_desc?: string | null
+          linkedin_native_error_detail?: string | null
+          linkedin_native_post_urn?: string | null
+          linkedin_native_status?: string | null
+          linkedin_via?: string | null
           parent_content_id?: string | null
           planned_date?: string | null
           playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
           post_title?: string | null
           posted_at?: string | null
+          reddit_native_error_detail?: string | null
+          reddit_native_post_id?: string | null
+          reddit_native_status?: string | null
+          reddit_subreddit?: string | null
+          reddit_via?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
           source_content_id?: string | null
@@ -178,12 +235,21 @@ export type Database = {
           image?: string | null
           image_url?: string | null
           linkedin_desc?: string | null
+          linkedin_native_error_detail?: string | null
+          linkedin_native_post_urn?: string | null
+          linkedin_native_status?: string | null
+          linkedin_via?: string | null
           parent_content_id?: string | null
           planned_date?: string | null
           playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
           post_title?: string | null
           posted_at?: string | null
+          reddit_native_error_detail?: string | null
+          reddit_native_post_id?: string | null
+          reddit_native_status?: string | null
+          reddit_subreddit?: string | null
+          reddit_via?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
           source_content_id?: string | null
@@ -246,6 +312,42 @@ export type Database = {
         }
         Relationships: []
       }
+      reddit_connections: {
+        Row: {
+          access_token: string | null
+          access_token_expires_at: string | null
+          connected_at: string
+          default_subreddit: string | null
+          reddit_username: string | null
+          refresh_token_encrypted: string
+          scopes: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          connected_at?: string
+          default_subreddit?: string | null
+          reddit_username?: string | null
+          refresh_token_encrypted: string
+          scopes?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          connected_at?: string
+          default_subreddit?: string | null
+          reddit_username?: string | null
+          refresh_token_encrypted?: string
+          scopes?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       social_content: {
         Row: {
           created_at: string
@@ -255,12 +357,21 @@ export type Database = {
           ig_tiktok_desc: string | null
           image: string | null
           linkedin_desc: string | null
+          linkedin_native_error_detail: string | null
+          linkedin_native_post_urn: string | null
+          linkedin_native_status: string | null
+          linkedin_via: string | null
           parent_content_id: string | null
           planned_date: string | null
           playlist_id: number | null
           post_length: Database["public"]["Enums"]["video_length"] | null
           post_title: string | null
           posted_at: string | null
+          reddit_native_error_detail: string | null
+          reddit_native_post_id: string | null
+          reddit_native_status: string | null
+          reddit_subreddit: string | null
+          reddit_via: string | null
           scheduled_at: string | null
           scheduled_platforms: string[] | null
           script: string | null
@@ -291,12 +402,21 @@ export type Database = {
           ig_tiktok_desc?: string | null
           image?: string | null
           linkedin_desc?: string | null
+          linkedin_native_error_detail?: string | null
+          linkedin_native_post_urn?: string | null
+          linkedin_native_status?: string | null
+          linkedin_via?: string | null
           parent_content_id?: string | null
           planned_date?: string | null
           playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
           post_title?: string | null
           posted_at?: string | null
+          reddit_native_error_detail?: string | null
+          reddit_native_post_id?: string | null
+          reddit_native_status?: string | null
+          reddit_subreddit?: string | null
+          reddit_via?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
           script?: string | null
@@ -327,12 +447,21 @@ export type Database = {
           ig_tiktok_desc?: string | null
           image?: string | null
           linkedin_desc?: string | null
+          linkedin_native_error_detail?: string | null
+          linkedin_native_post_urn?: string | null
+          linkedin_native_status?: string | null
+          linkedin_via?: string | null
           parent_content_id?: string | null
           planned_date?: string | null
           playlist_id?: number | null
           post_length?: Database["public"]["Enums"]["video_length"] | null
           post_title?: string | null
           posted_at?: string | null
+          reddit_native_error_detail?: string | null
+          reddit_native_post_id?: string | null
+          reddit_native_status?: string | null
+          reddit_subreddit?: string | null
+          reddit_via?: string | null
           scheduled_at?: string | null
           scheduled_platforms?: string[] | null
           script?: string | null
@@ -524,6 +653,63 @@ export type Database = {
       }
     }
     Views: {
+      linkedin_connections_public: {
+        Row: {
+          account_email: string | null
+          account_name: string | null
+          connected_at: string | null
+          member_urn: string | null
+          scopes: string[] | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          account_email?: string | null
+          account_name?: string | null
+          connected_at?: string | null
+          member_urn?: string | null
+          scopes?: string[] | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          account_email?: string | null
+          account_name?: string | null
+          connected_at?: string | null
+          member_urn?: string | null
+          scopes?: string[] | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      reddit_connections_public: {
+        Row: {
+          connected_at: string | null
+          default_subreddit: string | null
+          reddit_username: string | null
+          scopes: string[] | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          connected_at?: string | null
+          default_subreddit?: string | null
+          reddit_username?: string | null
+          scopes?: string[] | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          connected_at?: string | null
+          default_subreddit?: string | null
+          reddit_username?: string | null
+          scopes?: string[] | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       youtube_connections_public: {
         Row: {
           channel_handle: string | null
