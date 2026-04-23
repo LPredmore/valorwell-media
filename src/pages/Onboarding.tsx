@@ -17,6 +17,7 @@ import {
   MessageSquareText,
 } from "lucide-react";
 import mascot from "@/assets/flurra-mascot.png";
+import { OnboardingLogoutButton } from "@/components/OnboardingLogoutButton";
 
 const CHANNEL_BRIEF_SCOPE = "channel_brief";
 
