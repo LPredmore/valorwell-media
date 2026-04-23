@@ -591,6 +591,51 @@ export type Database = {
         }
         Relationships: []
       }
+      user_knowledge_files: {
+        Row: {
+          created_at: string
+          error: string | null
+          extracted_text: string | null
+          file_name: string
+          id: string
+          is_active: boolean
+          mime_type: string
+          size_bytes: number
+          status: string
+          storage_path: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          extracted_text?: string | null
+          file_name: string
+          id?: string
+          is_active?: boolean
+          mime_type: string
+          size_bytes?: number
+          status?: string
+          storage_path: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          extracted_text?: string | null
+          file_name?: string
+          id?: string
+          is_active?: boolean
+          mime_type?: string
+          size_bytes?: number
+          status?: string
+          storage_path?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           id: string
