@@ -6,6 +6,7 @@ import { getStripeEnvironment } from "@/lib/stripe";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, Sparkles } from "lucide-react";
 import mascot from "@/assets/flurra-mascot.png";
+import { OnboardingLogoutButton } from "@/components/OnboardingLogoutButton";
 
 export default function SubscriptionSuccess() {
   const navigate = useNavigate();
