@@ -37,6 +37,7 @@ import {
   isPlatformConnected,
   ALL_PLATFORMS,
 } from "@/hooks/useUploadPostProfile";
+import { useYoutubeNativeConnection } from "@/hooks/useYoutubeNativeConnection";
 import { PLATFORM_LABELS } from "@/lib/platforms";
 
 const SHORT_TIMES_CHICAGO = [
@@ -66,12 +67,18 @@ function chicagoHourToUTC(date: Date, chicagoHour: number): Date {
 interface ScheduleDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (scheduledAt: Date, playlistId: number | null, platforms: string[]) => void;
+  onConfirm: (
+    scheduledAt: Date,
+    playlistId: number | null,
+    platforms: string[],
+    youtubeVia: string | null,
+  ) => void;
   loading?: boolean;
   initialDate?: Date;
   initialTime?: string;
   initialPlaylistId?: number | null;
   initialPlatforms?: string[] | null;
+  initialYoutubeVia?: string | null;
   postLength?: string | null;
   title?: string;
 }
