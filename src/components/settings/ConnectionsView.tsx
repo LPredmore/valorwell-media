@@ -62,7 +62,7 @@ const PLATFORM_META: Record<
   },
   youtube: {
     label: "YouTube",
-    description: "Publish videos and Shorts directly to your channel.",
+    description: "Publish via Upload-Post (legacy path).",
     icon: Youtube,
     iconClassName: "h-6 w-6 text-destructive",
   },
@@ -331,6 +331,25 @@ export function ConnectionsView() {
           )}
           Refresh
         </Button>
+      </div>
+
+      {/* Native connections (beta) */}
+      <div className="space-y-3">
+        <div>
+          <h3 className="font-display text-lg font-semibold tracking-tight">
+            Native connections <span className="text-xs font-normal text-muted-foreground ml-1">(beta)</span>
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Direct OAuth to your account — more reliable, no third-party.
+          </p>
+        </div>
+        <YoutubeNativeCard />
+      </div>
+
+      <div>
+        <h3 className="font-display text-lg font-semibold tracking-tight">
+          Via Upload-Post
+        </h3>
       </div>
 
       {status === "pending" && (
