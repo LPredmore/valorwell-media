@@ -109,7 +109,10 @@ export default function OnboardingSubscribe() {
             <ArrowLeft className="h-4 w-4" />
             Back
           </Button>
-          <img src={mascot} alt="Flurra" className="h-16 w-auto object-contain" />
+          <div className="flex items-center gap-3">
+            <img src={mascot} alt="Flurra" className="h-16 w-auto object-contain" />
+            <OnboardingLogoutButton />
+          </div>
         </div>
 
         {/* Hero */}
