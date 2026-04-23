@@ -294,25 +294,6 @@ Deno.serve(async (req) => {
       instructions[row.scope] = row.instruction;
     }
 
-    // Fetch this user's active knowledge files and append to the channel_brief context
-    const { data: knowledgeRows } = await adminClient
-      .from("user_knowledge_files")
-      .select("file_name, extracted_text")
-      .eq("user_id", content.user_id)
-      .eq("is_active", true)
-      .eq("status", "ready");
-
-    if (knowledgeRows && knowledgeRows.length > 0) {
-      const knowledgeBlock = knowledgeRows
-        .filter((k) => k.extracted_text && k.extracted_text.trim().length > 0)
-        .map((k) => `### ${k.file_name}\n${k.extracted_text}`)
-        .join("\n\n---\n\n");
-      if (knowledgeBlock.length > 0) {
-        const existing = instructions["channel_brief"] || "";
-        instructions["channel_brief"] = `${existing}\n\n# Reference knowledge files\n${knowledgeBlock}`.trim();
-      }
-    }
-
     const topic = content.topic;
     const postLength = content.post_length; // "Long" or "Short"
 

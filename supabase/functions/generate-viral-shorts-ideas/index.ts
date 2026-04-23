@@ -46,26 +46,8 @@ Deno.serve(async (req) => {
       .eq("user_id", userId)
       .in("scope", ["channel_brief", "global"]);
 
-    let channelBrief = instructions?.find((i) => i.scope === "channel_brief")?.instruction || "";
+    const channelBrief = instructions?.find((i) => i.scope === "channel_brief")?.instruction || "";
     const globalInstr = instructions?.find((i) => i.scope === "global" && i.is_active)?.instruction || "";
-
-    // Append active knowledge files to channel brief
-    const { data: knowledgeRows } = await supabase
-      .from("user_knowledge_files")
-      .select("file_name, extracted_text")
-      .eq("user_id", userId)
-      .eq("is_active", true)
-      .eq("status", "ready");
-
-    if (knowledgeRows && knowledgeRows.length > 0) {
-      const knowledgeBlock = knowledgeRows
-        .filter((k) => k.extracted_text && k.extracted_text.trim().length > 0)
-        .map((k) => `### ${k.file_name}\n${k.extracted_text}`)
-        .join("\n\n---\n\n");
-      if (knowledgeBlock.length > 0) {
-        channelBrief = `${channelBrief}\n\n# Reference knowledge files\n${knowledgeBlock}`.trim();
-      }
-    }
 
     // Recent topics to avoid
     const [{ data: recentIdeas }, { data: recentContent }] = await Promise.all([

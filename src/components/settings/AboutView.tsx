@@ -6,7 +6,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import { Save, RotateCcw } from "lucide-react";
-import { KnowledgeFiles } from "./KnowledgeFiles";
 
 const SCOPE = "channel_brief";
 
@@ -141,8 +140,6 @@ export function AboutView() {
           Restore default
         </Button>
       </div>
-
-      <KnowledgeFiles />
     </div>
   );
 }
