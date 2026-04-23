@@ -92,6 +92,7 @@ export function ScheduleDialog({
   initialTime,
   initialPlaylistId,
   initialPlatforms,
+  initialYoutubeVia,
   postLength,
   title = "Schedule Post",
 }: ScheduleDialogProps) {
@@ -102,12 +103,14 @@ export function ScheduleDialog({
   const [playlistId, setPlaylistId] = useState<number | null>(initialPlaylistId ?? null);
   const { data: playlists } = usePlaylists();
   const { data: profile, isLoading: profileLoading } = useUploadPostProfile();
+  const { data: nativeYt } = useYoutubeNativeConnection();
 
   const connectedPlatforms = profile
     ? ALL_PLATFORMS.filter((p) => isPlatformConnected(profile.connected_platforms, p))
     : [];
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  const [useNativeYoutube, setUseNativeYoutube] = useState<boolean>(initialYoutubeVia === "native");
 
   // Default platform selection: existing scheduled_platforms (filtered to still-connected) or all connected
   useEffect(() => {
@@ -117,6 +120,7 @@ export function ScheduleDialog({
     } else {
       setSelectedPlatforms(connectedPlatforms);
     }
+    setUseNativeYoutube(initialYoutubeVia === "native");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, profile?.user_id]);
 
@@ -127,6 +131,8 @@ export function ScheduleDialog({
   };
 
   const prefOptions = postLength === "Long" ? LONG_TIMES_CHICAGO : SHORT_TIMES_CHICAGO;
+  const youtubeSelected = selectedPlatforms.includes("youtube");
+  const showNativeToggle = youtubeSelected && !!nativeYt;
 
   const handleConfirm = () => {
     if (!date) return;
@@ -138,7 +144,8 @@ export function ScheduleDialog({
       selectedAt = new Date(date);
       selectedAt.setHours(hours, minutes, 0, 0);
     }
-    onConfirm(selectedAt, playlistId, selectedPlatforms);
+    const youtubeVia = showNativeToggle && useNativeYoutube ? "native" : null;
+    onConfirm(selectedAt, playlistId, selectedPlatforms, youtubeVia);
   };
 
   const noConnections = !profileLoading && connectedPlatforms.length === 0;
