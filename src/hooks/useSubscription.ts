@@ -2,9 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
 
+export type SubscriptionTier = "monthly" | "annual" | "comp" | null;
+
 export type SubscriptionStatus = {
   subscribed: boolean;
-  subscription_tier: "monthly" | "annual" | null;
+  subscription_tier: SubscriptionTier;
   subscription_end: string | null;
 };
 
@@ -39,7 +41,7 @@ export function useSubscription() {
       }
       return {
         subscribed: !!data.subscribed,
-        subscription_tier: (data.subscription_tier as "monthly" | "annual" | null) ?? null,
+        subscription_tier: (data.subscription_tier as SubscriptionTier) ?? null,
         subscription_end: data.subscription_end ?? null,
       };
     },

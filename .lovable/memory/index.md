@@ -25,6 +25,7 @@ Updated: today
 - [Prompts & Instructions](mem://features/prompts-and-instructions) — Scoped prompts in content_instructions table
 - [Channel Brief](mem://features/channel-brief) — Onboarding step 2 saves to user_content_instructions scope=channel_brief
 - [Subscription Billing](mem://features/subscription-billing) — Stripe paywall, gating, billing tab, edge functions
+- [Comp Accounts](mem://operations/comp-accounts) — SQL templates to grant/revoke permanent free access via subscribers.tier='comp'
 - [Media Lightbox](mem://ui/media-lightbox) — Global ImageLightbox with blob conversion for safe downloads
 - [Upload-Post Architecture](mem://integrations/upload-post-architecture) — Multi-tenant 10-platform posting via Upload-Post hosted OAuth + 6 edge fns + 2 cron jobs
 - [Mobile Responsiveness](mem://ui/mobile-responsiveness) — Single-line truncation, hidden secondary columns
