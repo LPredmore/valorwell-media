@@ -102,10 +102,15 @@ Deno.serve(async (req) => {
       : Object.keys(profile.connected_platforms ?? {});
 
     const connected = profile.connected_platforms ?? {};
-    const platforms = requested.filter((p: string) => {
+    let platforms = requested.filter((p: string) => {
       const v = connected[p];
       return v && (typeof v === "object" || (typeof v === "string" && v.length > 0));
     });
+
+    // If user opted into native YouTube for this content, don't double-post via Upload-Post
+    if (row.youtube_via === "native") {
+      platforms = platforms.filter((p) => p !== "youtube");
+    }
 
     if (platforms.length === 0) {
       const errMsg = "No connected platforms to post to";
