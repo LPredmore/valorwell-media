@@ -7,11 +7,12 @@ import { LogOut, AlertCircle } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useRegistrationStatus } from "@/hooks/useRegistrationStatus";
 import { ProfileView } from "@/components/settings/ProfileView";
+import { AboutView } from "@/components/settings/AboutView";
 import { InstructionsView } from "@/components/settings/InstructionsView";
 import { ConnectionsView } from "@/components/settings/ConnectionsView";
 import { BillingView } from "@/components/settings/BillingView";
 
-const VALID_TABS = ["profile", "instructions", "connections", "billing"] as const;
+const VALID_TABS = ["profile", "about", "instructions", "connections", "billing"] as const;
 type TabValue = typeof VALID_TABS[number];
 
 export default function Settings() {
@@ -81,6 +82,7 @@ export default function Settings() {
           {!billingOnly && (
             <TabsList>
               <TabsTrigger value="profile">Profile</TabsTrigger>
+              <TabsTrigger value="about">About</TabsTrigger>
               <TabsTrigger value="instructions">Instructions</TabsTrigger>
               <TabsTrigger value="connections">Connections</TabsTrigger>
               <TabsTrigger value="billing">Billing</TabsTrigger>
@@ -91,6 +93,9 @@ export default function Settings() {
             <>
               <TabsContent value="profile" className="mt-6">
                 <ProfileView />
+              </TabsContent>
+              <TabsContent value="about" className="mt-6">
+                <AboutView />
               </TabsContent>
               <TabsContent value="instructions" className="mt-6">
                 <InstructionsView />

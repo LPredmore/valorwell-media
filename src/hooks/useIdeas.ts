@@ -88,3 +88,27 @@ export function useDeleteIdeas() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["content_ideas"] }),
   });
 }
+
+export function useGenerateViralShortsIdeas() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ count, theme }: { count: number; theme: string }) => {
+      const { data, error } = await supabase.functions.invoke("generate-viral-shorts-ideas", {
+        body: { count, theme },
+      });
+      if (error) {
+        // Try to extract structured error from edge function response
+        const ctx = (error as any).context;
+        if (ctx?.body) {
+          try {
+            const parsed = typeof ctx.body === "string" ? JSON.parse(ctx.body) : ctx.body;
+            if (parsed?.error) throw new Error(parsed.error);
+          } catch (_) { /* fallthrough */ }
+        }
+        throw error;
+      }
+      return data as { count: number; ideas: Array<{ topic: string }> };
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["content_ideas"] }),
+  });
+}
