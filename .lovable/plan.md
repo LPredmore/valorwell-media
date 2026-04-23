@@ -1,81 +1,93 @@
 
 
-## Plan: About tab in Settings + AI viral-shorts idea generator
+## Plan: Comp all existing accounts + reusable "comp" mechanism
 
-Two related features. Both leverage the existing `channel_brief` instruction (the "what is this channel/app about" text) — the About tab edits it with a roomier UI, and the new generator uses it as context to invent viral Shorts topics.
+Make every existing account permanently paid (no Stripe charges, no expiration), and give you a clean way to do the same for any account in the future via the cloud database.
 
-### Part 1 — About tab in Settings
+### Approach
 
-**Storage:** No new table. The `channel_brief` scope already exists in `user_content_instructions` and `content_instruction_defaults` and is seeded for every user. The About tab is just a focused, larger editor for that one row — same Save / Restore default behavior as the Instructions tab.
+I'll introduce a **"complimentary" tier** — a new value for `subscription_tier` (`'comp'`) that means "permanently paid, never expires, not tied to Stripe." The frontend treats it exactly like a paid subscriber (full access, no paywall), and the Billing tab shows a friendly "Complimentary access" card instead of a Stripe-managed plan.
 
-**Why reuse `channel_brief`:** The AI generation pipeline already pulls this into every prompt (script, titles, descriptions, hashtags). If we made a separate "about" table, we'd have to wire it into every prompt all over again. One source of truth.
+This is cleaner than fake-Stripe rows because:
+- No `subscription_end` to keep extending
+- `check-subscription` won't accidentally downgrade comp users (it only writes when a real Stripe customer is found)
+- Easy to filter / report on (`WHERE subscription_tier = 'comp'`)
 
-**UI changes:**
-- Add an `About` tab to `src/pages/Settings.tsx` (between Profile and Instructions)
-- New `src/components/settings/AboutView.tsx`:
-  - Large textarea (16 rows, monospace-friendly), generous max-width
-  - Header: "About your channel / application"
-  - Helper copy: "Tell me everything — who you are, what you make, your audience, your tone, your rules. I use this on every piece of content I write for you."
-  - Save button + Restore default button (same mutations as `InstructionsView`)
-  - Character count
-- In `InstructionsView`, hide the `channel_brief` row from the field list (it now lives in About) — keep it accessible to admins in the System defaults tab
+### Part 1 — Backfill existing 5 accounts
 
-**Settings tab order:** Profile · About · Instructions · Connections · Billing
+One INSERT to upsert all current profiles into `subscribers` as comp:
 
-### Part 2 — Generate viral Shorts ideas
+```sql
+INSERT INTO subscribers (user_id, email, subscribed, subscription_tier, subscription_end, stripe_customer_id)
+SELECT p.id, p.email, true, 'comp', NULL, NULL
+FROM profiles p
+ON CONFLICT (user_id) DO UPDATE
+SET subscribed = true,
+    subscription_tier = 'comp',
+    subscription_end = NULL,
+    updated_at = now();
+```
 
-A button on the Ideas tab (`/schedule?tab=ideas`) that calls AI to invent N viral Shorts topics tailored to the user's channel, then inserts them as new rows in `content_ideas` (length = "Short").
+This grants permanent paid access to all 5 existing users (the 2 already on `monthly` get converted to `comp` so they stop being billed/expiring, and the 3 with no row get a fresh comp row).
 
-**UI:**
-- New button in `IdeasView` header next to "Add Idea" / "CSV": **"Generate Ideas"** (Sparkles icon)
-- Opens a small dialog:
-  - Slider / number input: "How many ideas?" (default 10, range 5–25)
-  - Optional text input: "Theme or angle (optional)" — e.g. "holiday season", "beginner tips"
-  - Generate button
-- On submit: shows progress, then closes and the new ideas appear in the table (existing query invalidation)
+### Part 2 — Reusable cloud DB workflow for future comps
 
-**New edge function: `generate-viral-shorts-ideas`**
-- Auth: verify JWT, get user_id
-- Reads from DB:
-  - User's `channel_brief` from `user_content_instructions`
-  - User's `global` instruction (tone/style)
-  - Last 30 ideas + last 30 pieces of content (topic only) — to avoid repeats
-- Calls Lovable AI Gateway (`google/gemini-3-flash-preview`) with structured tool-calling output:
-  ```
-  ideas: [{ topic, category, avatar, hook_reason }]
-  ```
-  System prompt explains: "You are a viral Shorts strategist for this creator. Use their channel brief to invent N short-form video ideas with strong hooks, scroll-stopping angles, and platform-native framing (TikTok/Reels/Shorts). Avoid these recent topics: [...]."
-- Inserts the returned ideas into `content_ideas` server-side (length = `Short`, `user_id` = caller, `category`/`avatar` from AI suggestion if provided)
-- Returns `{ count, ideas }`
-- Handles 429 (rate limit) and 402 (credits) cleanly with friendly error messages
+Document and standardize the SQL you'll run from the cloud database whenever you want to comp someone:
 
-**Frontend hook:** Add `useGenerateViralShortsIdeas` mutation in `src/hooks/useIdeas.ts` that invokes the edge function and invalidates `["content_ideas"]` on success.
+**Comp a single user by email:**
+```sql
+INSERT INTO subscribers (user_id, email, subscribed, subscription_tier, subscription_end)
+SELECT p.id, p.email, true, 'comp', NULL FROM profiles p WHERE p.email = 'someone@example.com'
+ON CONFLICT (user_id) DO UPDATE
+SET subscribed = true, subscription_tier = 'comp', subscription_end = NULL, updated_at = now();
+```
 
-### Files to create / modify
+**Revoke a comp:**
+```sql
+UPDATE subscribers SET subscribed = false, subscription_tier = NULL WHERE user_id = '...' AND subscription_tier = 'comp';
+```
 
-**New:**
-- `src/components/settings/AboutView.tsx`
-- `src/components/ideas/GenerateIdeasDialog.tsx`
-- `supabase/functions/generate-viral-shorts-ideas/index.ts`
+I'll save these as a memory file (`mem://operations/comp-accounts.md`) so they're always available when you ask.
 
-**Modified:**
-- `src/pages/Settings.tsx` — add About tab, route, and `VALID_TABS` entry
-- `src/components/settings/InstructionsView.tsx` — exclude `channel_brief` from the user field list (it now lives on the About tab)
-- `src/components/ideas/IdeasView.tsx` — add "Generate Ideas" button + dialog wiring
-- `src/hooks/useIdeas.ts` — add `useGenerateViralShortsIdeas` mutation
+### Part 3 — Code updates
 
-**No DB migration needed** — `channel_brief` already exists and is seeded.
+**`src/hooks/useSubscription.ts`** — widen the type:
+```ts
+subscription_tier: "monthly" | "annual" | "comp" | null
+```
+No logic change — `subscribed: true` already drives `AuthGuard` and gating.
 
-### Behavior summary
+**`src/components/settings/BillingView.tsx`** — when `subscription_tier === 'comp'`:
+- Show a green "Complimentary access" card with a Gift icon
+- Copy: "You have complimentary access to Flurra. No payment method or subscription required."
+- Hide the "Manage subscription" / Stripe portal button (no Stripe customer to manage)
+- Hide the renewal date row
 
-- User opens **Settings → About** → sees their seeded channel brief in a roomy textarea → edits and saves → it's now used in every AI generation
-- User clicks **Restore default** → reverts to the system default
-- Admins editing the system default in Instructions still works as before
-- User clicks **Generate Ideas** on the Ideas tab → picks count (default 10) → AI invents Shorts ideas tailored to their channel brief → ideas drop into the table → user selects + clicks Generate Content as usual
+**`supabase/functions/check-subscription/index.ts`** — add a guard at the top: if the existing row's tier is `'comp'`, return it unchanged and skip Stripe entirely. Prevents any future accidental overwrite if this function ever gets called for a comp user.
+
+### Files touched
+
+**Data ops (insert tool, no schema change — `subscription_tier` is already `text`):**
+- Backfill all profiles to `subscribers` with `subscription_tier = 'comp'`
+
+**Code:**
+- `src/hooks/useSubscription.ts` — extend tier type
+- `src/components/settings/BillingView.tsx` — render comp state
+- `supabase/functions/check-subscription/index.ts` — early-return for comp tier
+
+**Memory:**
+- `mem://operations/comp-accounts.md` — copy-paste SQL for future comps
+
+### Behavior after this runs
+
+- All 5 existing users: full app access, no paywall, no Stripe billing, no expiration
+- Their Settings → Billing tab shows a friendly "Complimentary access" card
+- New signups: still go through the normal Stripe paywall
+- You comp a future user: run one INSERT in the cloud database (template above) → they're in immediately
+- Stripe webhooks / `check-subscription` will never overwrite or downgrade a comp row
 
 ### Out of scope
 
-- Generating Long-form ideas (this button is specifically Shorts; Long-form can be a future toggle)
-- Auto-running script generation on the AI-generated ideas (user reviews them first, then clicks Generate Content)
+- Admin UI for comping users (could be added later under Settings → Admin if you want a button instead of SQL)
 - LinkedIn/Reddit native connections — still paused awaiting credentials
 
