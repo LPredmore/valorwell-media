@@ -38,6 +38,11 @@ import {
   ALL_PLATFORMS,
   type PlatformKey,
 } from "@/hooks/useUploadPostProfile";
+import {
+  useYoutubeNativeConnection,
+  useConnectYoutubeNative,
+  useDisconnectYoutubeNative,
+} from "@/hooks/useYoutubeNativeConnection";
 
 const PLATFORM_META: Record<
   PlatformKey,
