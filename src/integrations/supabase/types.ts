@@ -125,7 +125,12 @@ export type Database = {
           video_storage_path: string | null
           video_url: string | null
           youtube_desc: string | null
+          youtube_native_error_detail: string | null
+          youtube_native_status: string | null
+          youtube_native_uploaded_at: string | null
+          youtube_native_video_id: string | null
           youtube_title: string | null
+          youtube_via: string | null
         }
         Insert: {
           created_at?: string
@@ -157,7 +162,12 @@ export type Database = {
           video_storage_path?: string | null
           video_url?: string | null
           youtube_desc?: string | null
+          youtube_native_error_detail?: string | null
+          youtube_native_status?: string | null
+          youtube_native_uploaded_at?: string | null
+          youtube_native_video_id?: string | null
           youtube_title?: string | null
+          youtube_via?: string | null
         }
         Update: {
           created_at?: string
@@ -189,7 +199,12 @@ export type Database = {
           video_storage_path?: string | null
           video_url?: string | null
           youtube_desc?: string | null
+          youtube_native_error_detail?: string | null
+          youtube_native_status?: string | null
+          youtube_native_uploaded_at?: string | null
+          youtube_native_video_id?: string | null
           youtube_title?: string | null
+          youtube_via?: string | null
         }
         Relationships: [
           {
@@ -262,6 +277,11 @@ export type Database = {
           video_storage_path: string | null
           video_url: string | null
           youtube_desc: string | null
+          youtube_native_error_detail: string | null
+          youtube_native_status: string | null
+          youtube_native_uploaded_at: string | null
+          youtube_native_video_id: string | null
+          youtube_via: string | null
         }
         Insert: {
           created_at?: string
@@ -293,6 +313,11 @@ export type Database = {
           video_storage_path?: string | null
           video_url?: string | null
           youtube_desc?: string | null
+          youtube_native_error_detail?: string | null
+          youtube_native_status?: string | null
+          youtube_native_uploaded_at?: string | null
+          youtube_native_video_id?: string | null
+          youtube_via?: string | null
         }
         Update: {
           created_at?: string
@@ -324,6 +349,11 @@ export type Database = {
           video_storage_path?: string | null
           video_url?: string | null
           youtube_desc?: string | null
+          youtube_native_error_detail?: string | null
+          youtube_native_status?: string | null
+          youtube_native_uploaded_at?: string | null
+          youtube_native_video_id?: string | null
+          youtube_via?: string | null
         }
         Relationships: [
           {
@@ -450,9 +480,83 @@ export type Database = {
         }
         Relationships: []
       }
+      youtube_connections: {
+        Row: {
+          access_token: string | null
+          access_token_expires_at: string | null
+          channel_handle: string | null
+          channel_id: string | null
+          channel_title: string | null
+          connected_at: string
+          google_account_email: string | null
+          refresh_token_encrypted: string
+          scopes: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          channel_handle?: string | null
+          channel_id?: string | null
+          channel_title?: string | null
+          connected_at?: string
+          google_account_email?: string | null
+          refresh_token_encrypted: string
+          scopes?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string | null
+          access_token_expires_at?: string | null
+          channel_handle?: string | null
+          channel_id?: string | null
+          channel_title?: string | null
+          connected_at?: string
+          google_account_email?: string | null
+          refresh_token_encrypted?: string
+          scopes?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
-      [_ in never]: never
+      youtube_connections_public: {
+        Row: {
+          channel_handle: string | null
+          channel_id: string | null
+          channel_title: string | null
+          connected_at: string | null
+          google_account_email: string | null
+          scopes: string[] | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          channel_handle?: string | null
+          channel_id?: string | null
+          channel_title?: string | null
+          connected_at?: string | null
+          google_account_email?: string | null
+          scopes?: string[] | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          channel_handle?: string | null
+          channel_id?: string | null
+          channel_title?: string | null
+          connected_at?: string | null
+          google_account_email?: string | null
+          scopes?: string[] | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       has_role: {
