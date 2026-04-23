@@ -267,6 +267,26 @@ export function ScheduleDialog({
                 ))}
               </div>
             )}
+
+            {showNativeToggle && (
+              <div className="mt-2 flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2">
+                <div className="flex flex-col">
+                  <Label htmlFor="native-yt-toggle" className="text-sm font-medium cursor-pointer">
+                    Post YouTube via Native (beta)
+                  </Label>
+                  <span className="text-xs text-muted-foreground">
+                    {nativeYt?.channel_title
+                      ? `Uploads directly to ${nativeYt.channel_title}`
+                      : "Uploads directly via your Google account"}
+                  </span>
+                </div>
+                <Switch
+                  id="native-yt-toggle"
+                  checked={useNativeYoutube}
+                  onCheckedChange={setUseNativeYoutube}
+                />
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
