@@ -214,7 +214,7 @@ export function InstructionsView() {
       );
     }
     const globalRow = userInstructions.find((r) => r.scope === "global");
-    const fieldRows = userInstructions.filter((r) => r.scope !== "global");
+    const fieldRows = userInstructions.filter((r) => r.scope !== "global" && r.scope !== "channel_brief");
     return (
       <div className="space-y-10">
         {globalRow && (

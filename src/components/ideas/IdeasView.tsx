@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { useIdeas, useCreateIdea, useBulkCreateIdeas, useDeleteIdeas, useUpdateIdea } from "@/hooks/useIdeas";
+import { useIdeas, useCreateIdea, useBulkCreateIdeas, useDeleteIdeas, useUpdateIdea, useGenerateViralShortsIdeas } from "@/hooks/useIdeas";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
@@ -10,9 +10,10 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { format } from "date-fns";
-import { Plus, Upload, Sparkles, Trash2, Pencil } from "lucide-react";
+import { Plus, Upload, Sparkles, Trash2, Pencil, Wand2 } from "lucide-react";
 import type { TablesInsert, Tables } from "@/integrations/supabase/types";
 import { IdeaFormDialog, type IdeaFormValues } from "@/components/ideas/IdeaFormDialog";
+import { GenerateIdeasDialog } from "@/components/ideas/GenerateIdeasDialog";
 
 const CSV_COLUMNS = ["topic", "category", "avatar", "length", "planned_date"];
 
@@ -73,9 +74,11 @@ export function IdeasView() {
   const bulkCreate = useBulkCreateIdeas();
   const deleteIdeas = useDeleteIdeas();
   const updateIdea = useUpdateIdea();
+  const generateIdeas = useGenerateViralShortsIdeas();
 
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
   const [editingIdea, setEditingIdea] = useState<Tables<"content_ideas"> | null>(null);
   const [generating, setGenerating] = useState(false);
   const [genProgress, setGenProgress] = useState({ current: 0, total: 0 });
@@ -391,7 +394,10 @@ export function IdeasView() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" className="gap-2" onClick={() => setAddDialogOpen(true)}>
+          <Button size="sm" className="gap-2" onClick={() => setGenerateDialogOpen(true)}>
+            <Wand2 className="h-4 w-4" /> Generate Ideas
+          </Button>
+          <Button size="sm" variant="outline" className="gap-2" onClick={() => setAddDialogOpen(true)}>
             <Plus className="h-4 w-4" /> Add Idea
           </Button>
           <Button size="sm" variant="outline" className="gap-2" onClick={() => fileRef.current?.click()}>
@@ -400,6 +406,21 @@ export function IdeasView() {
           <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCSV} />
         </div>
       </div>
+
+      <GenerateIdeasDialog
+        open={generateDialogOpen}
+        onOpenChange={setGenerateDialogOpen}
+        isPending={generateIdeas.isPending}
+        onSubmit={async (count, theme) => {
+          try {
+            const result = await generateIdeas.mutateAsync({ count, theme });
+            toast({ title: `Generated ${result.count} viral Shorts ideas` });
+            setGenerateDialogOpen(false);
+          } catch (err: any) {
+            toast({ title: "Generation failed", description: err.message, variant: "destructive" });
+          }
+        }}
+      />
 
       <IdeaFormDialog
         open={addDialogOpen}
