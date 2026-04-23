@@ -50,49 +50,39 @@ Deno.serve(async (req) => {
       rows = data ?? [];
     }
 
+    const invokeFn = async (fn: string, contentId: string) => {
+      const resp = await fetch(`${supabaseUrl}/functions/v1/${fn}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${serviceRoleKey}`,
+        },
+        body: JSON.stringify({ content_id: contentId }),
+      });
+      if (!resp.ok) {
+        console.warn(`${fn} invoke failed for ${contentId}:`, resp.status, await resp.text());
+        return false;
+      }
+      return true;
+    };
+
     let invoked = 0;
     for (const row of rows) {
       try {
         const platforms: string[] = Array.isArray(row.scheduled_platforms) ? row.scheduled_platforms : [];
-        const youtubeOnly = platforms.length === 1 && platforms[0] === "youtube";
-        const useNative = row.youtube_via === "native" && youtubeOnly;
-        const targetFn = useNative ? "youtube-native-submit" : "upload-post-submit";
+        const wantsYoutube = platforms.includes("youtube");
+        const useNativeYoutube = row.youtube_via === "native" && wantsYoutube;
+        const otherPlatforms = platforms.filter((p) => p !== "youtube");
 
-        const resp = await fetch(`${supabaseUrl}/functions/v1/${targetFn}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${serviceRoleKey}`,
-          },
-          body: JSON.stringify({ content_id: row.id }),
-        });
-        if (resp.ok) invoked++;
-        else console.warn(`${targetFn} invoke failed for ${row.id}:`, resp.status, await resp.text());
-
-        // If native YouTube was selected alongside other platforms, ALSO dispatch upload-post for the rest.
-        // (Native path only handles YouTube; other platforms still flow through Upload-Post.)
-        if (row.youtube_via === "native" && !youtubeOnly && platforms.some((p: string) => p !== "youtube")) {
-          const resp2 = await fetch(`${supabaseUrl}/functions/v1/upload-post-submit`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${serviceRoleKey}`,
-            },
-            // Tell upload-post to skip youtube; submit will intersect with connected platforms
-            body: JSON.stringify({ content_id: row.id }),
-          });
-          if (!resp2.ok) console.warn(`upload-post-submit (sibling) failed for ${row.id}:`, resp2.status);
-
-          // Also kick the native YouTube upload
-          const resp3 = await fetch(`${supabaseUrl}/functions/v1/youtube-native-submit`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${serviceRoleKey}`,
-            },
-            body: JSON.stringify({ content_id: row.id }),
-          });
-          if (!resp3.ok) console.warn(`youtube-native-submit (sibling) failed for ${row.id}:`, resp3.status);
+        if (useNativeYoutube) {
+          // Native path handles YouTube; Upload-Post handles the rest (if any)
+          if (await invokeFn("youtube-native-submit", row.id)) invoked++;
+          if (otherPlatforms.length > 0) {
+            if (await invokeFn("upload-post-submit", row.id)) invoked++;
+          }
+        } else {
+          // Default: everything via Upload-Post
+          if (await invokeFn("upload-post-submit", row.id)) invoked++;
         }
       } catch (e) {
         console.error(`Submit invoke error for ${row.id}:`, e);
