@@ -37,6 +37,7 @@ import {
   isPlatformConnected,
   ALL_PLATFORMS,
 } from "@/hooks/useUploadPostProfile";
+import { useYoutubeNativeConnection } from "@/hooks/useYoutubeNativeConnection";
 import { PLATFORM_LABELS } from "@/lib/platforms";
 
 const SHORT_TIMES_CHICAGO = [
@@ -66,12 +67,18 @@ function chicagoHourToUTC(date: Date, chicagoHour: number): Date {
 interface ScheduleDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (scheduledAt: Date, playlistId: number | null, platforms: string[]) => void;
+  onConfirm: (
+    scheduledAt: Date,
+    playlistId: number | null,
+    platforms: string[],
+    youtubeVia: string | null,
+  ) => void;
   loading?: boolean;
   initialDate?: Date;
   initialTime?: string;
   initialPlaylistId?: number | null;
   initialPlatforms?: string[] | null;
+  initialYoutubeVia?: string | null;
   postLength?: string | null;
   title?: string;
 }
@@ -85,6 +92,7 @@ export function ScheduleDialog({
   initialTime,
   initialPlaylistId,
   initialPlatforms,
+  initialYoutubeVia,
   postLength,
   title = "Schedule Post",
 }: ScheduleDialogProps) {
@@ -95,12 +103,14 @@ export function ScheduleDialog({
   const [playlistId, setPlaylistId] = useState<number | null>(initialPlaylistId ?? null);
   const { data: playlists } = usePlaylists();
   const { data: profile, isLoading: profileLoading } = useUploadPostProfile();
+  const { data: nativeYt } = useYoutubeNativeConnection();
 
   const connectedPlatforms = profile
     ? ALL_PLATFORMS.filter((p) => isPlatformConnected(profile.connected_platforms, p))
     : [];
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  const [useNativeYoutube, setUseNativeYoutube] = useState<boolean>(initialYoutubeVia === "native");
 
   // Default platform selection: existing scheduled_platforms (filtered to still-connected) or all connected
   useEffect(() => {
@@ -110,6 +120,7 @@ export function ScheduleDialog({
     } else {
       setSelectedPlatforms(connectedPlatforms);
     }
+    setUseNativeYoutube(initialYoutubeVia === "native");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, profile?.user_id]);
 
@@ -120,6 +131,8 @@ export function ScheduleDialog({
   };
 
   const prefOptions = postLength === "Long" ? LONG_TIMES_CHICAGO : SHORT_TIMES_CHICAGO;
+  const youtubeSelected = selectedPlatforms.includes("youtube");
+  const showNativeToggle = youtubeSelected && !!nativeYt;
 
   const handleConfirm = () => {
     if (!date) return;
@@ -131,7 +144,8 @@ export function ScheduleDialog({
       selectedAt = new Date(date);
       selectedAt.setHours(hours, minutes, 0, 0);
     }
-    onConfirm(selectedAt, playlistId, selectedPlatforms);
+    const youtubeVia = showNativeToggle && useNativeYoutube ? "native" : null;
+    onConfirm(selectedAt, playlistId, selectedPlatforms, youtubeVia);
   };
 
   const noConnections = !profileLoading && connectedPlatforms.length === 0;
@@ -251,6 +265,26 @@ export function ScheduleDialog({
                     {PLATFORM_LABELS[p] ?? p}
                   </label>
                 ))}
+              </div>
+            )}
+
+            {showNativeToggle && (
+              <div className="mt-2 flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2">
+                <div className="flex flex-col">
+                  <Label htmlFor="native-yt-toggle" className="text-sm font-medium cursor-pointer">
+                    Post YouTube via Native (beta)
+                  </Label>
+                  <span className="text-xs text-muted-foreground">
+                    {nativeYt?.channel_title
+                      ? `Uploads directly to ${nativeYt.channel_title}`
+                      : "Uploads directly via your Google account"}
+                  </span>
+                </div>
+                <Switch
+                  id="native-yt-toggle"
+                  checked={useNativeYoutube}
+                  onCheckedChange={setUseNativeYoutube}
+                />
               </div>
             )}
           </div>

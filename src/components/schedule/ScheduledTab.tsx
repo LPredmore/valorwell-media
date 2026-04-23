@@ -44,10 +44,15 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
   const [editItem, setEditItem] = useState<SocialContent | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  const handleUpdate = (scheduledAt: Date, playlistId: number | null, platforms: string[]) => {
+  const handleUpdate = (
+    scheduledAt: Date,
+    playlistId: number | null,
+    platforms: string[],
+    youtubeVia: string | null,
+  ) => {
     if (!editItem) return;
     updateMutation.mutate(
-      { id: editItem.id, scheduledAt, playlistId, platforms },
+      { id: editItem.id, scheduledAt, playlistId, platforms, youtubeVia },
       {
         onSuccess: () => { toast({ title: "Schedule updated" }); setEditItem(null); },
         onError: (err: any) => { toast({ title: "Failed to update", description: err.message, variant: "destructive" }); },
@@ -139,6 +144,7 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
           initialTime={editItem.scheduled_at ? format(new Date(editItem.scheduled_at), "HH:mm") : undefined}
           initialPlaylistId={(editItem as any).playlist_id ?? null}
           initialPlatforms={editItem.scheduled_platforms ?? null}
+          initialYoutubeVia={(editItem as any)?.youtube_via ?? null}
           postLength={editItem.post_length}
         />
       )}
