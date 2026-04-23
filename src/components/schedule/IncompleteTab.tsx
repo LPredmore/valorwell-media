@@ -76,11 +76,21 @@ export function IncompleteTab({ postLength }: { postLength?: "Long" | "Short" })
   if (isLoading) return <div className="py-8 text-center text-muted-foreground">Loading…</div>;
 
   if (!items?.length) {
-    return <div className="py-8 text-center text-muted-foreground">All caught up — nothing waiting on you right now.</div>;
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-end">
+          <ContentCsvUpload />
+        </div>
+        <div className="py-8 text-center text-muted-foreground">All caught up — nothing waiting on you right now.</div>
+      </div>
+    );
   }
 
   return (
     <>
+      <div className="flex justify-end mb-3">
+        <ContentCsvUpload />
+      </div>
       <Table>
         <TableHeader>
           <TableRow>
