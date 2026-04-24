@@ -217,6 +217,34 @@ export function useRetryUploadPost() {
   });
 }
 
+export function useRetryYoutubeNative() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("social_content")
+        .update({
+          youtube_native_status: null,
+          youtube_native_error_detail: null,
+          youtube_native_video_id: null,
+          youtube_native_uploaded_at: null,
+        } as any)
+        .eq("id", id);
+      if (error) throw error;
+
+      await supabase.functions.invoke("youtube-native-submit", {
+        body: { content_id: id },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["schedule"] });
+      queryClient.invalidateQueries({ queryKey: ["contents"] });
+      queryClient.invalidateQueries({ queryKey: ["content"] });
+    },
+  });
+}
+
 export function usePlaylists() {
   return useQuery({
     queryKey: ["playlists"],
