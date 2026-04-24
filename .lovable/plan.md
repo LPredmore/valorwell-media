@@ -1,93 +1,99 @@
 
+## Goal
 
-## Plan: Comp all existing accounts + reusable "comp" mechanism
+Get the app fully usable for you right now with **zero payment friction**, while keeping all the existing Lovable Payments plumbing intact for one-flag reactivation later.
 
-Make every existing account permanently paid (no Stripe charges, no expiration), and give you a clean way to do the same for any account in the future via the cloud database.
+## Quick clarification first
 
-### Approach
+"Lovable Payments" *is* Stripe under the hood — Lovable's built-in integration so you don't manage keys yourself. They're the same thing; I was just sliding between names. Nothing about the comp work broke this.
 
-I'll introduce a **"complimentary" tier** — a new value for `subscription_tier` (`'comp'`) that means "permanently paid, never expires, not tied to Stripe." The frontend treats it exactly like a paid subscriber (full access, no paywall), and the Billing tab shows a friendly "Complimentary access" card instead of a Stripe-managed plan.
+## Approach: a `PAYMENTS_ENABLED` feature flag
 
-This is cleaner than fake-Stripe rows because:
-- No `subscription_end` to keep extending
-- `check-subscription` won't accidentally downgrade comp users (it only writes when a real Stripe customer is found)
-- Easy to filter / report on (`WHERE subscription_tier = 'comp'`)
+Add one boolean flag (`VITE_PAYMENTS_ENABLED`) read by the registration state machine. When `false` (the default for now):
 
-### Part 1 — Backfill existing 5 accounts
+- The `needs_subscription` state never triggers — every authenticated, onboarded user is treated as `active`
+- `/onboarding/subscribe` and `/subscription/success` redirect to `/schedule`
+- Settings → Billing shows a friendly "Payments aren't enabled yet" card instead of the portal button
+- Signup → onboarding → app, with no payment step and no payments calls anywhere
 
-One INSERT to upsert all current profiles into `subscribers` as comp:
+When you flip it to `true` later, all the existing logic (paywall, Embedded Checkout, customer portal, comp tier, subscription sync) reactivates exactly as built. Nothing gets deleted.
 
-```sql
-INSERT INTO subscribers (user_id, email, subscribed, subscription_tier, subscription_end, stripe_customer_id)
-SELECT p.id, p.email, true, 'comp', NULL, NULL
-FROM profiles p
-ON CONFLICT (user_id) DO UPDATE
-SET subscribed = true,
-    subscription_tier = 'comp',
-    subscription_end = NULL,
-    updated_at = now();
+## Changes
+
+### 1. Add the flag
+
+`.env.development` (and `.env.production` when you publish):
+```
+VITE_PAYMENTS_ENABLED=false
 ```
 
-This grants permanent paid access to all 5 existing users (the 2 already on `monthly` get converted to `comp` so they stop being billed/expiring, and the 3 with no row get a fresh comp row).
+### 2. `src/lib/featureFlags.ts` (new)
 
-### Part 2 — Reusable cloud DB workflow for future comps
-
-Document and standardize the SQL you'll run from the cloud database whenever you want to comp someone:
-
-**Comp a single user by email:**
-```sql
-INSERT INTO subscribers (user_id, email, subscribed, subscription_tier, subscription_end)
-SELECT p.id, p.email, true, 'comp', NULL FROM profiles p WHERE p.email = 'someone@example.com'
-ON CONFLICT (user_id) DO UPDATE
-SET subscribed = true, subscription_tier = 'comp', subscription_end = NULL, updated_at = now();
-```
-
-**Revoke a comp:**
-```sql
-UPDATE subscribers SET subscribed = false, subscription_tier = NULL WHERE user_id = '...' AND subscription_tier = 'comp';
-```
-
-I'll save these as a memory file (`mem://operations/comp-accounts.md`) so they're always available when you ask.
-
-### Part 3 — Code updates
-
-**`src/hooks/useSubscription.ts`** — widen the type:
 ```ts
-subscription_tier: "monthly" | "annual" | "comp" | null
+export const PAYMENTS_ENABLED =
+  import.meta.env.VITE_PAYMENTS_ENABLED === "true";
 ```
-No logic change — `subscribed: true` already drives `AuthGuard` and gating.
 
-**`src/components/settings/BillingView.tsx`** — when `subscription_tier === 'comp'`:
-- Show a green "Complimentary access" card with a Gift icon
-- Copy: "You have complimentary access to Flurra. No payment method or subscription required."
-- Hide the "Manage subscription" / Stripe portal button (no Stripe customer to manage)
-- Hide the renewal date row
+### 3. `src/hooks/useRegistrationStatus.ts`
 
-**`supabase/functions/check-subscription/index.ts`** — add a guard at the top: if the existing row's tier is `'comp'`, return it unchanged and skip Stripe entirely. Prevents any future accidental overwrite if this function ever gets called for a comp user.
+When `PAYMENTS_ENABLED` is false, skip the subscription check entirely — go from `needs_onboarding` → `active`. Don't even call `useSubscription`.
 
-### Files touched
+### 4. `src/components/AuthGuard.tsx`
 
-**Data ops (insert tool, no schema change — `subscription_tier` is already `text`):**
-- Backfill all profiles to `subscribers` with `subscription_tier = 'comp'`
+When `PAYMENTS_ENABLED` is false:
+- Treat `/onboarding/subscribe` and `/subscription/success` as redirects → `/schedule`
+- The `needs_subscription` branch becomes unreachable
 
-**Code:**
-- `src/hooks/useSubscription.ts` — extend tier type
-- `src/components/settings/BillingView.tsx` — render comp state
-- `supabase/functions/check-subscription/index.ts` — early-return for comp tier
+### 5. `src/pages/Onboarding.tsx`
 
-**Memory:**
-- `mem://operations/comp-accounts.md` — copy-paste SQL for future comps
+When `PAYMENTS_ENABLED` is false, the final onboarding step routes to `/schedule` instead of `/onboarding/subscribe`. Same for the "already onboarded" early-return.
 
-### Behavior after this runs
+### 6. `src/components/settings/BillingView.tsx`
 
-- All 5 existing users: full app access, no paywall, no Stripe billing, no expiration
-- Their Settings → Billing tab shows a friendly "Complimentary access" card
-- New signups: still go through the normal Stripe paywall
-- You comp a future user: run one INSERT in the cloud database (template above) → they're in immediately
-- Stripe webhooks / `check-subscription` will never overwrite or downgrade a comp row
+When `PAYMENTS_ENABLED` is false, render a placeholder:
+> "Payments aren't enabled yet. The app is currently free to use for invited accounts."
 
-### Out of scope
+Hide the portal button and plan/renewal sections. Keep the comp branch untouched (harmless and ready for later).
 
-- Admin UI for comping users (could be added later under Settings → Admin if you want a button instead of SQL)
-- LinkedIn/Reddit native connections — still paused awaiting credentials
+### 7. Existing comp accounts: leave them as-is
 
+The existing comp rows in `subscribers` don't hurt anything — when payments are off, the table is just ignored. When payments are turned back on, those accounts stay as comp (full access, no billing), which is what you want for your own accounts long-term.
+
+## How to re-enable payments later (one-line change)
+
+Set `VITE_PAYMENTS_ENABLED=true` and republish. Everything we already built activates:
+- Paywall after onboarding
+- Embedded Checkout at `/onboarding/subscribe`
+- Billing tab with portal access
+- Subscription syncing
+- Your comp accounts keep full access automatically
+
+Remaining work to actually take real money at that point:
+1. Create the two products/prices (`flurra_monthly_15`, `flurra_annual_11988`) in Lovable Payments — one tool call
+2. Complete go-live verification — done in the Lovable UI
+
+Both can wait until you're ready to charge.
+
+## Files touched
+
+- `.env.development` — add `VITE_PAYMENTS_ENABLED=false`
+- `src/lib/featureFlags.ts` — new
+- `src/hooks/useRegistrationStatus.ts` — gate subscription check
+- `src/components/AuthGuard.tsx` — skip subscribe routes when disabled
+- `src/pages/Onboarding.tsx` — skip subscribe step when disabled
+- `src/components/settings/BillingView.tsx` — placeholder card when disabled
+
+No database changes. No edge function changes. No payment code deleted.
+
+## What you'll see immediately after this ships
+
+- Sign up a new account → onboarding → straight into `/schedule`. No paywall.
+- Existing accounts: same — no paywall, app works fully.
+- Settings → Billing: friendly "not enabled yet" card.
+- Lovable Payments dashboard: untouched, no live charges possible.
+
+## Out of scope (saved for when you flip the flag)
+
+- Creating products & prices in Lovable Payments
+- Go-live verification
+- Live test of the checkout → success → billing portal loop
