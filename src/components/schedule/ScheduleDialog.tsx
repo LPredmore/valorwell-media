@@ -122,13 +122,15 @@ export function ScheduleDialog({
   useEffect(() => {
     if (!open) return;
     if (initialPlatforms && initialPlatforms.length) {
-      setSelectedPlatforms(initialPlatforms.filter((p) => connectedPlatforms.includes(p as any)));
+      setSelectedPlatforms(initialPlatforms.filter((p) => connectedPlatforms.includes(p)));
     } else {
       setSelectedPlatforms(connectedPlatforms);
     }
-    setUseNativeYoutube(initialYoutubeVia === "native");
+    setUseNativeYoutube(
+      initialYoutubeVia === "native" || (!!nativeYt && !youtubeFromUploadPost),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, profile?.user_id]);
+  }, [open, profile?.user_id, nativeYt?.user_id]);
 
   const togglePlatform = (p: string) => {
     setSelectedPlatforms((prev) =>
