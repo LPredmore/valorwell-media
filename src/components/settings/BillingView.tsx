@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { getStripeEnvironment } from "@/lib/stripe";
 import { toast } from "@/hooks/use-toast";
-import { CreditCard, ExternalLink, Sparkles, Gift } from "lucide-react";
+import { CreditCard, ExternalLink, Sparkles, Gift, Lock } from "lucide-react";
+import { PAYMENTS_ENABLED } from "@/lib/featureFlags";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -69,7 +70,23 @@ export function BillingView() {
         </p>
       </div>
 
-      {isComp ? (
+      {!PAYMENTS_ENABLED ? (
+        <div className="rounded-2xl border border-border surface-elevated p-6 space-y-4">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+              <Lock className="h-5 w-5" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm text-muted-foreground">Current plan</p>
+              <p className="text-lg font-semibold">Free access</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Payments aren't enabled yet. The app is currently free to use for invited accounts.
+                When billing is turned on, you'll be able to manage your subscription here.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : isComp ? (
         <div className="rounded-2xl border border-primary/30 bg-primary/5 p-6 space-y-4">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/15 text-primary">
