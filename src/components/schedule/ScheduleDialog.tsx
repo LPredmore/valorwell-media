@@ -105,12 +105,18 @@ export function ScheduleDialog({
   const { data: profile, isLoading: profileLoading } = useUploadPostProfile();
   const { data: nativeYt } = useYoutubeNativeConnection();
 
-  const connectedPlatforms = profile
+  const uploadPostPlatforms = profile
     ? ALL_PLATFORMS.filter((p) => isPlatformConnected(profile.connected_platforms, p))
     : [];
+  const youtubeFromUploadPost = uploadPostPlatforms.includes("youtube");
+  const connectedPlatforms: string[] = nativeYt && !youtubeFromUploadPost
+    ? [...uploadPostPlatforms, "youtube"]
+    : uploadPostPlatforms;
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
-  const [useNativeYoutube, setUseNativeYoutube] = useState<boolean>(initialYoutubeVia === "native");
+  const [useNativeYoutube, setUseNativeYoutube] = useState<boolean>(
+    initialYoutubeVia === "native" || (!!nativeYt && !youtubeFromUploadPost),
+  );
 
   // Default platform selection: existing scheduled_platforms (filtered to still-connected) or all connected
   useEffect(() => {
