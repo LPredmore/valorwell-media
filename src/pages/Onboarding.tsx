@@ -18,8 +18,10 @@ import {
 } from "lucide-react";
 import mascot from "@/assets/flurra-mascot.png";
 import { OnboardingLogoutButton } from "@/components/OnboardingLogoutButton";
+import { PAYMENTS_ENABLED } from "@/lib/featureFlags";
 
 const CHANNEL_BRIEF_SCOPE = "channel_brief";
+const POST_ONBOARDING_PATH = PAYMENTS_ENABLED ? "/onboarding/subscribe" : "/schedule";
 
 export default function Onboarding() {
   const navigate = useNavigate();
@@ -61,9 +63,9 @@ export default function Onboarding() {
     );
   }
 
-  // Already onboarded — go to subscribe (gating happens there)
+  // Already onboarded — go to subscribe (gating happens there) or straight to app if payments are off
   if (profile?.onboarding_completed) {
-    navigate("/onboarding/subscribe", { replace: true });
+    navigate(POST_ONBOARDING_PATH, { replace: true });
     return null;
   }
 
@@ -106,7 +108,7 @@ export default function Onboarding() {
     if (ok) setStep(3);
   };
 
-  const finishOnboarding = async (destination = "/onboarding/subscribe") => {
+  const finishOnboarding = async (destination = POST_ONBOARDING_PATH) => {
     try {
       await completeOnboarding.mutateAsync();
       navigate(destination, { replace: true });

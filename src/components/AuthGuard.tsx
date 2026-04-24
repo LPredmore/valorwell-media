@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useRegistrationStatus } from "@/hooks/useRegistrationStatus";
+import { PAYMENTS_ENABLED } from "@/lib/featureFlags";
 
 // Routes accessible while in `needs_subscription` state.
 const SUBSCRIPTION_FLOW_PATHS = [
@@ -31,6 +32,14 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   if (status === "needs_onboarding") {
     if (path !== "/onboarding") {
       return <Navigate to="/onboarding" replace />;
+    }
+    return <>{children}</>;
+  }
+
+  // When payments are disabled, never gate on subscription and bounce subscribe routes.
+  if (!PAYMENTS_ENABLED) {
+    if (SUBSCRIPTION_FLOW_PATHS.includes(path) || path === "/onboarding") {
+      return <Navigate to="/schedule" replace />;
     }
     return <>{children}</>;
   }
