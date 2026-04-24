@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { format } from "date-fns";
 import { useNavigate } from "react-router-dom";
-import { Pencil, TableIcon, CalendarDays, Trash2, MoreHorizontal } from "lucide-react";
+import { Pencil, TableIcon, CalendarDays, Trash2, MoreHorizontal, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -13,7 +13,7 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useScheduledContent, useUpdateSchedule } from "@/hooks/useSchedule";
+import { useScheduledContent, useUpdateSchedule, useRetryYoutubeNative } from "@/hooks/useSchedule";
 import { useDeleteContent } from "@/hooks/useContents";
 import { ScheduleThumbnail } from "./ScheduleThumbnail";
 import { ScheduleDialog } from "./ScheduleDialog";
@@ -38,6 +38,7 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
   const { data: items, isLoading } = useScheduledContent(postLength);
   const updateMutation = useUpdateSchedule();
   const deleteMutation = useDeleteContent();
+  const retryYoutubeNative = useRetryYoutubeNative();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [view, setView] = useState<"table" | "calendar">("table");
@@ -121,6 +122,19 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
                       <DropdownMenuItem onClick={() => setEditItem(item)}>
                         <CalendarDays className="h-4 w-4 mr-2" /> Reschedule
                       </DropdownMenuItem>
+                      {(item as any).youtube_native_status === "failed" && (
+                        <DropdownMenuItem
+                          onClick={() => {
+                            retryYoutubeNative.mutate(item.id, {
+                              onSuccess: () => toast({ title: "Retry queued" }),
+                              onError: (err: any) =>
+                                toast({ title: "Retry failed", description: err.message, variant: "destructive" }),
+                            });
+                          }}
+                        >
+                          <RotateCcw className="h-4 w-4 mr-2" /> Retry YouTube
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(item.id)}>
                         <Trash2 className="h-4 w-4 mr-2" /> Delete
                       </DropdownMenuItem>
