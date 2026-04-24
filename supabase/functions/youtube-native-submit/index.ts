@@ -120,15 +120,24 @@ Deno.serve(async (req) => {
 
     const callbackUrl = `${supabaseUrl}/functions/v1/youtube-native-callback`;
 
+    // Tags can come from a comma-separated text column if present
+    let tags: string[] = [];
+    const rawTags = (row as any).youtube_tags;
+    if (Array.isArray(rawTags)) tags = rawTags.filter((t: unknown) => typeof t === "string");
+    else if (typeof rawTags === "string" && rawTags.trim())
+      tags = rawTags.split(",").map((t: string) => t.trim()).filter(Boolean);
+
     const job = {
       content_id: contentId,
       user_id: row.user_id,
       video_url: videoUrl,
       thumbnail_url: thumbnailUrl,
-      title: row.post_title || row.topic || "Untitled",
+      title: (row as any).youtube_title || row.post_title || row.topic || "Untitled",
       description: row.youtube_desc || row.post_title || "",
-      tags: [] as string[],
-      privacy: "public",
+      tags,
+      privacy: (row as any).youtube_privacy || "public",
+      category_id: "22", // People & Blogs
+      made_for_kids: false,
       callback_url: callbackUrl,
       issued_at: Date.now(),
     };
@@ -153,11 +162,13 @@ Deno.serve(async (req) => {
     if (!resp.ok) {
       const errMsg = `Fly worker rejected job: ${resp.status} ${text}`;
       console.error(errMsg);
+      // Reset to null (not 'failed') so the cron retries on its next tick.
+      // Real failure status only comes from the worker's own callback.
       await admin.from("social_content")
-        .update({ youtube_native_status: "failed", youtube_native_error_detail: errMsg })
+        .update({ youtube_native_status: null, youtube_native_error_detail: errMsg })
         .eq("id", contentId);
       return new Response(JSON.stringify({ error: errMsg }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
