@@ -105,24 +105,32 @@ export function ScheduleDialog({
   const { data: profile, isLoading: profileLoading } = useUploadPostProfile();
   const { data: nativeYt } = useYoutubeNativeConnection();
 
-  const connectedPlatforms = profile
+  const uploadPostPlatforms = profile
     ? ALL_PLATFORMS.filter((p) => isPlatformConnected(profile.connected_platforms, p))
     : [];
+  const youtubeFromUploadPost = uploadPostPlatforms.includes("youtube");
+  const connectedPlatforms: string[] = nativeYt && !youtubeFromUploadPost
+    ? [...uploadPostPlatforms, "youtube"]
+    : uploadPostPlatforms;
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
-  const [useNativeYoutube, setUseNativeYoutube] = useState<boolean>(initialYoutubeVia === "native");
+  const [useNativeYoutube, setUseNativeYoutube] = useState<boolean>(
+    initialYoutubeVia === "native" || (!!nativeYt && !youtubeFromUploadPost),
+  );
 
   // Default platform selection: existing scheduled_platforms (filtered to still-connected) or all connected
   useEffect(() => {
     if (!open) return;
     if (initialPlatforms && initialPlatforms.length) {
-      setSelectedPlatforms(initialPlatforms.filter((p) => connectedPlatforms.includes(p as any)));
+      setSelectedPlatforms(initialPlatforms.filter((p) => connectedPlatforms.includes(p)));
     } else {
       setSelectedPlatforms(connectedPlatforms);
     }
-    setUseNativeYoutube(initialYoutubeVia === "native");
+    setUseNativeYoutube(
+      initialYoutubeVia === "native" || (!!nativeYt && !youtubeFromUploadPost),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, profile?.user_id]);
+  }, [open, profile?.user_id, nativeYt?.user_id]);
 
   const togglePlatform = (p: string) => {
     setSelectedPlatforms((prev) =>
