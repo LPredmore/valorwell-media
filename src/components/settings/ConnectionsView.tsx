@@ -626,3 +626,113 @@ function YoutubeNativeCard() {
     </ConnectionCard>
   );
 }
+
+function AdminSlotPanel() {
+  const { isAdmin } = useIsAdmin();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const slotStatus = useUploadPostSlotStatus(open);
+  const pruneMutation = usePruneUploadPostProfile();
+
+  if (!isAdmin) return null;
+
+  const handlePrune = (username: string) => {
+    if (!confirm(`Delete upstream profile "${username}"? This frees a slot but the user will need to reconnect.`)) return;
+    pruneMutation.mutate(username, {
+      onSuccess: () => toast({ title: `Removed ${username}` }),
+      onError: (e: any) =>
+        toast({ title: "Prune failed", description: e?.message, variant: "destructive" }),
+    });
+  };
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-2">
+          <Plug className="h-4 w-4" />
+          Admin: Upload-Post slot status
+          <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-3">
+        <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Upstream profile usage</p>
+              <p className="text-xs text-muted-foreground">
+                Live count from Upload-Post. Use prune to free slots.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => slotStatus.refetch()}
+              disabled={slotStatus.isFetching}
+              className="gap-2"
+            >
+              {slotStatus.isFetching ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+              Refresh
+            </Button>
+          </div>
+
+          {slotStatus.isLoading ? (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading slot status…
+            </div>
+          ) : slotStatus.error ? (
+            <p className="text-sm text-destructive">{(slotStatus.error as Error).message}</p>
+          ) : slotStatus.data ? (
+            <div className="space-y-3 text-sm">
+              <div>
+                <span className="font-medium">{slotStatus.data.used}</span> upstream profile(s) in use
+                {" · "}
+                <span className="font-medium">{slotStatus.data.our_rows_count}</span> reserved in our DB
+              </div>
+
+              {slotStatus.data.upstream_usernames.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Upstream profiles</p>
+                  <div className="space-y-1">
+                    {slotStatus.data.upstream_usernames.map((u) => (
+                      <div key={u} className="flex items-center justify-between gap-2 rounded border bg-background px-2 py-1">
+                        <code className="text-xs truncate">{u}</code>
+                        <div className="flex items-center gap-2">
+                          {slotStatus.data!.orphans.includes(u) && (
+                            <span className="text-xs text-amber-600">orphan</span>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handlePrune(u)}
+                            disabled={pruneMutation.isPending}
+                          >
+                            Prune
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {slotStatus.data.missing_upstream.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-amber-600 mb-1">
+                    Marked ready in DB but missing upstream (will self-heal on next Connect)
+                  </p>
+                  <ul className="text-xs list-disc pl-4">
+                    {slotStatus.data.missing_upstream.map((u) => <li key={u}><code>{u}</code></li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
