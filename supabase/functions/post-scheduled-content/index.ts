@@ -38,10 +38,9 @@ Deno.serve(async (req) => {
     } else {
       const { data, error } = await admin
         .from("social_content")
-        .select("id, scheduled_platforms, youtube_via")
+        .select("id, scheduled_platforms, youtube_via, upload_post_status, youtube_native_status")
         .eq("status", "scheduled")
-        .lte("scheduled_at", new Date().toISOString())
-        .or("upload_post_status.is.null,upload_post_status.eq.failed");
+        .lte("scheduled_at", new Date().toISOString());
       if (error) {
         return new Response(JSON.stringify({ error: error.message }), {
           status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
