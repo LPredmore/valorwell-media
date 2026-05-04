@@ -73,15 +73,23 @@ Deno.serve(async (req) => {
         const useNativeYoutube = row.youtube_via === "native" && wantsYoutube;
         const otherPlatforms = platforms.filter((p) => p !== "youtube");
 
+        const ytStatus = (row as any).youtube_native_status;
+        const ytAlreadyHandled = ytStatus === "uploading" || ytStatus === "success" || ytStatus === "failed";
+
+        const upStatus = (row as any).upload_post_status;
+        const upAlreadyHandled = upStatus === "uploading" || upStatus === "success" || upStatus === "partial" || upStatus === "failed";
+
         if (useNativeYoutube) {
-          // Native path handles YouTube; Upload-Post handles the rest (if any)
-          if (await invokeFn("youtube-native-submit", row.id)) invoked++;
-          if (otherPlatforms.length > 0) {
+          if (!ytAlreadyHandled) {
+            if (await invokeFn("youtube-native-submit", row.id)) invoked++;
+          }
+          if (otherPlatforms.length > 0 && !upAlreadyHandled) {
             if (await invokeFn("upload-post-submit", row.id)) invoked++;
           }
         } else {
-          // Default: everything via Upload-Post
-          if (await invokeFn("upload-post-submit", row.id)) invoked++;
+          if (!upAlreadyHandled) {
+            if (await invokeFn("upload-post-submit", row.id)) invoked++;
+          }
         }
       } catch (e) {
         console.error(`Submit invoke error for ${row.id}:`, e);
