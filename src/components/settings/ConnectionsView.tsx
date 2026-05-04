@@ -335,7 +335,7 @@ export function ConnectionsView() {
           size="sm"
           className="gap-2"
           onClick={handleRefresh}
-          disabled={syncMutation.isPending || !isReady}
+          disabled={syncMutation.isPending}
         >
           {syncMutation.isPending ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -365,16 +365,17 @@ export function ConnectionsView() {
         </h3>
       </div>
 
-      {status === "pending" && (
-        <Alert>
-          <Loader2 className="h-4 w-4 animate-spin" />
+      {status === "limit_reached" && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            I'm setting up your posting workspace — this usually takes a few seconds.
+            Our publishing service is at capacity and can't add new accounts right now.
+            Please contact support so we can free up a slot.
           </AlertDescription>
         </Alert>
       )}
 
-      {status === "failed" && (
+      {(status === "failed" || status === "error") && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="flex items-center justify-between gap-3">
@@ -394,10 +395,13 @@ export function ConnectionsView() {
         </Alert>
       )}
 
+      <AdminSlotPanel />
+
+
       <div className="grid gap-4">
         {ALL_PLATFORMS.map((platform) => {
           const meta = PLATFORM_META[platform];
-          const isConnected = isReady && isPlatformConnected(connected, platform);
+          const isConnected = isPlatformConnected(connected, platform);
           const handle = isConnected ? getHandle(connected[platform]) : null;
 
           return (
@@ -436,7 +440,7 @@ export function ConnectionsView() {
                 <Button
                   className="gap-2"
                   onClick={() => handleConnect(platform)}
-                  disabled={!isReady || linkMutation.isPending}
+                  disabled={linkMutation.isPending}
                 >
                   {linkMutation.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
