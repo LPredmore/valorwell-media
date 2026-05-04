@@ -62,9 +62,21 @@ Deno.serve(async (req) => {
 
     const admin = createClient(supabaseUrl, serviceRoleKey);
 
+    // Detect non-retryable Google OAuth errors so we don't loop forever.
+    const raw = (errorDetail ?? "").toLowerCase();
+    const authBroken =
+      raw.includes("invalid_grant") ||
+      raw.includes("invalid_client") ||
+      raw.includes("unauthorized_client") ||
+      raw.includes("invalid_token");
+
+    const friendlyError = authBroken
+      ? "YouTube authorization expired or was revoked. Please reconnect YouTube in Settings → Connections, then retry this post."
+      : (errorDetail ?? "Unknown error");
+
     const update: Record<string, unknown> = {
       youtube_native_status: status === "success" ? "success" : "failed",
-      youtube_native_error_detail: status === "success" ? null : (errorDetail ?? "Unknown error"),
+      youtube_native_error_detail: status === "success" ? null : friendlyError,
     };
     if (status === "success") {
       update.youtube_native_video_id = videoId ?? null;

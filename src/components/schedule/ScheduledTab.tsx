@@ -102,47 +102,63 @@ export function ScheduledTab({ postLength }: { postLength?: "Long" | "Short" }) 
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.map((item) => (
-              <TableRow key={item.id}>
-                <TableCell className="hidden sm:table-cell"><ScheduleThumbnail imagePath={item.image} /></TableCell>
-                <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">{item.post_title || item.topic}</TableCell>
-                <TableCell className="text-muted-foreground">
-                  {item.scheduled_at ? format(new Date(item.scheduled_at), "MMM d, yyyy h:mm a") : "—"}
-                </TableCell>
-                <TableCell className="hidden sm:table-cell"><PostStatusBadge status={item.upload_post_status} /></TableCell>
-                <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="sm" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => navigate(`/content/${item.id}`)}>
-                        <Pencil className="h-4 w-4 mr-2" /> Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setEditItem(item)}>
-                        <CalendarDays className="h-4 w-4 mr-2" /> Reschedule
-                      </DropdownMenuItem>
-                      {(item as any).youtube_native_status === "failed" && (
-                        <DropdownMenuItem
-                          onClick={() => {
-                            retryYoutubeNative.mutate(item.id, {
-                              onSuccess: () => toast({ title: "Retry queued" }),
-                              onError: (err: any) =>
-                                toast({ title: "Retry failed", description: err.message, variant: "destructive" }),
-                            });
-                          }}
-                        >
-                          <RotateCcw className="h-4 w-4 mr-2" /> Retry YouTube
+            {items.map((item) => {
+              const ytStatus = (item as any).youtube_native_status as string | null;
+              const ytErr = (item as any).youtube_native_error_detail as string | null;
+              const ytNative = (item as any).youtube_via === "native";
+              const reconnectNeeded =
+                ytStatus === "failed" &&
+                (ytErr ?? "").toLowerCase().includes("reconnect");
+              const displayStatus = ytNative ? (ytStatus ?? item.upload_post_status) : item.upload_post_status;
+              return (
+                <TableRow key={item.id}>
+                  <TableCell className="hidden sm:table-cell"><ScheduleThumbnail imagePath={item.image} /></TableCell>
+                  <TableCell className="font-medium max-w-[150px] sm:max-w-[250px] truncate">
+                    {item.post_title || item.topic}
+                    {reconnectNeeded && (
+                      <div className="text-xs text-destructive mt-0.5 truncate">
+                        Reconnect YouTube, then retry
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {item.scheduled_at ? format(new Date(item.scheduled_at), "MMM d, yyyy h:mm a") : "—"}
+                  </TableCell>
+                  <TableCell className="hidden sm:table-cell"><PostStatusBadge status={displayStatus} /></TableCell>
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm" variant="ghost"><MoreHorizontal className="h-4 w-4" /></Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => navigate(`/content/${item.id}`)}>
+                          <Pencil className="h-4 w-4 mr-2" /> Edit
                         </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(item.id)}>
-                        <Trash2 className="h-4 w-4 mr-2" /> Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
+                        <DropdownMenuItem onClick={() => setEditItem(item)}>
+                          <CalendarDays className="h-4 w-4 mr-2" /> Reschedule
+                        </DropdownMenuItem>
+                        {ytStatus === "failed" && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              retryYoutubeNative.mutate(item.id, {
+                                onSuccess: () => toast({ title: "Retry queued" }),
+                                onError: (err: any) =>
+                                  toast({ title: "Retry failed", description: err.message, variant: "destructive" }),
+                              });
+                            }}
+                          >
+                            <RotateCcw className="h-4 w-4 mr-2" /> Retry YouTube
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(item.id)}>
+                          <Trash2 className="h-4 w-4 mr-2" /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       )}
