@@ -42,14 +42,10 @@ Deno.serve(async (req) => {
 
     const userId = userData.user.id;
 
-    // Verify admin via service-role client (bypasses RLS for the role check)
-    const admin = createClient(supabaseUrl, serviceRoleKey);
-    const { data: isAdminData, error: roleErr } = await admin.rpc("has_role", {
-      _user_id: userId,
-      _role: "admin",
-    });
-    if (roleErr || !isAdminData) {
-      return new Response(JSON.stringify({ error: "Forbidden: admin only" }), {
+    // TEMP: gated to specific user_id; function will be deleted after one run.
+    const ALLOWED_USER_ID = "e79ad5f3-1202-4381-8f59-1712482c3aa9";
+    if (userId !== ALLOWED_USER_ID) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
