@@ -47,7 +47,6 @@ Deno.serve(async (req) => {
       .from("upload_post_profiles")
       .upsert({ user_id: userId, username, provisioning_status: "pending" }, { onConflict: "user_id" });
 
-    // Call Upload-Post create user
     const resp = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/users`, {
       method: "POST",
       headers: {
@@ -78,20 +77,37 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Failure: capture error code
-    const errorCode = data?.error_code ?? null;
+    const errorCode: string | null = data?.error_code ?? null;
     const errorMessage = data?.message ?? data?.error ?? text ?? `HTTP ${resp.status}`;
+
+    // Detect plan-limit hits explicitly so the UI/caller can react.
+    const isLimitReached =
+      resp.status === 403 ||
+      errorCode === "PROFILE_LIMIT_REACHED" ||
+      /limit/i.test(String(errorMessage));
+
+    const newStatus = isLimitReached ? "limit_reached" : "error";
+
+    console.error(
+      `[upload-post-create-profile] provisioning failed for ${userId}: status=${resp.status} code=${errorCode} msg=${errorMessage}`,
+    );
 
     await admin
       .from("upload_post_profiles")
       .update({
-        provisioning_status: "error",
+        provisioning_status: newStatus,
         provisioning_error: `[${resp.status}${errorCode ? "/" + errorCode : ""}] ${errorMessage}`,
       })
       .eq("user_id", userId);
 
     return new Response(
-      JSON.stringify({ success: false, error: errorMessage, error_code: errorCode, status: resp.status }),
+      JSON.stringify({
+        success: false,
+        error: errorMessage,
+        error_code: errorCode,
+        status: resp.status,
+        limit_reached: isLimitReached,
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err: unknown) {
