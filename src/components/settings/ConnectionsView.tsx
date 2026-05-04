@@ -34,7 +34,10 @@ import {
   useGenerateConnectLink,
   useRetryProvisioning,
   useUploadPostDebugStatus,
+  useUploadPostSlotStatus,
+  usePruneUploadPostProfile,
   isPlatformConnected,
+  ProfileLimitReachedError,
   ALL_PLATFORMS,
   type PlatformKey,
 } from "@/hooks/useUploadPostProfile";
@@ -43,6 +46,7 @@ import {
   useConnectYoutubeNative,
   useDisconnectYoutubeNative,
 } from "@/hooks/useYoutubeNativeConnection";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 
 const PLATFORM_META: Record<
   PlatformKey,
@@ -273,6 +277,15 @@ export function ConnectionsView() {
         }
       }, 500);
     } catch (err: unknown) {
+      if (err instanceof ProfileLimitReachedError) {
+        toast({
+          title: "Can't add more accounts right now",
+          description:
+            "Our publishing service has hit its profile limit. Please contact support so we can free up a slot.",
+          variant: "destructive",
+        });
+        return;
+      }
       const message = err instanceof Error ? err.message : "Failed to start connection";
       toast({ title: "Connection error", description: message, variant: "destructive" });
     }
