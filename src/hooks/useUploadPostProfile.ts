@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 export type UploadPostProfile = {
   user_id: string;
   username: string;
-  provisioning_status: "pending" | "ready" | "failed" | string;
+  provisioning_status: "pending" | "ready" | "failed" | "error" | "limit_reached" | string;
   provisioning_error: string | null;
   connected_platforms: Record<string, unknown>;
   last_synced_at: string | null;
@@ -79,6 +79,13 @@ export function useSyncUploadPostProfile() {
   });
 }
 
+export class ProfileLimitReachedError extends Error {
+  code = "PROFILE_LIMIT_REACHED";
+  constructor(message?: string) {
+    super(message ?? "Our publishing service is at capacity. Please contact support.");
+  }
+}
+
 export function useGenerateConnectLink() {
   return useMutation({
     mutationFn: async (platform: PlatformKey) => {
@@ -86,8 +93,67 @@ export function useGenerateConnectLink() {
         "upload-post-generate-link",
         { body: { platform } },
       );
-      if (error) throw error;
+      if (error) {
+        try {
+          const ctx: any = (error as any).context;
+          if (ctx && typeof ctx.json === "function") {
+            const payload = await ctx.json();
+            if (payload?.error_code === "PROFILE_LIMIT_REACHED") {
+              throw new ProfileLimitReachedError(payload.error);
+            }
+            if (payload?.error) throw new Error(payload.error);
+          }
+        } catch (inner) {
+          if (inner instanceof ProfileLimitReachedError) throw inner;
+        }
+        throw error;
+      }
+      if ((data as any)?.error_code === "PROFILE_LIMIT_REACHED") {
+        throw new ProfileLimitReachedError((data as any)?.error);
+      }
       return data as { url?: string; access_url?: string };
+    },
+  });
+}
+
+export function useUploadPostSlotStatus(enabled = false) {
+  return useQuery({
+    queryKey: ["upload-post-slot-status"],
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke(
+        "upload-post-admin-slot-status",
+        { body: {} },
+      );
+      if (error) throw error;
+      return data as {
+        used: number;
+        upstream_usernames: string[];
+        upstream_profiles: any[];
+        our_rows_count: number;
+        orphans: string[];
+        missing_upstream: string[];
+        checked_at: string;
+      };
+    },
+    staleTime: 10_000,
+  });
+}
+
+export function usePruneUploadPostProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (username: string) => {
+      const { data, error } = await supabase.functions.invoke(
+        "upload-post-admin-prune",
+        { body: { username } },
+      );
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["upload-post-slot-status"] });
+      queryClient.invalidateQueries({ queryKey: ["upload-post-profile"] });
     },
   });
 }
