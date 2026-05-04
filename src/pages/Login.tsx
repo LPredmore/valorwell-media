@@ -56,6 +56,7 @@ export default function Login() {
             <label className="text-sm font-medium text-foreground">Email</label>
             <Input
               type="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
@@ -66,6 +67,7 @@ export default function Login() {
             <label className="text-sm font-medium text-foreground">Password</label>
             <Input
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"

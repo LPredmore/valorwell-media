@@ -159,20 +159,29 @@ export function ProfileView() {
           <CardDescription>What I should call you in the app.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="display-name">Name</Label>
-            <Input
-              id="display-name"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="e.g. Sam Carter"
-              maxLength={80}
-            />
-          </div>
-          <Button onClick={handleSaveDisplayName} disabled={savingName}>
-            {savingName && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-            Save name
-          </Button>
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSaveDisplayName();
+            }}
+          >
+            <div className="space-y-2">
+              <Label htmlFor="display-name">Name</Label>
+              <Input
+                id="display-name"
+                autoComplete="name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="e.g. Sam Carter"
+                maxLength={80}
+              />
+            </div>
+            <Button type="submit" disabled={savingName}>
+              {savingName && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Save name
+            </Button>
+          </form>
         </CardContent>
       </Card>
 
@@ -188,19 +197,28 @@ export function ProfileView() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-            />
-          </div>
-          <Button onClick={handleSaveEmail} disabled={savingEmail}>
-            {savingEmail && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-            Update email
-          </Button>
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSaveEmail();
+            }}
+          >
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+              />
+            </div>
+            <Button type="submit" disabled={savingEmail}>
+              {savingEmail && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Update email
+            </Button>
+          </form>
         </CardContent>
       </Card>
 
@@ -214,40 +232,57 @@ export function ProfileView() {
           <CardDescription>Confirm your current password to set a new one.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="current-password">Current password</Label>
-            <Input
-              id="current-password"
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              autoComplete="current-password"
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSavePassword();
+            }}
+          >
+            {/* Hidden username field helps password managers associate the new password with this account */}
+            <input
+              type="email"
+              name="username"
+              autoComplete="username"
+              value={user?.email ?? ""}
+              readOnly
+              hidden
             />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="new-password">New password</Label>
-            <Input
-              id="new-password"
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="confirm-password">Confirm new password</Label>
-            <Input
-              id="confirm-password"
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
-          <Button onClick={handleSavePassword} disabled={savingPassword}>
-            {savingPassword && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-            Update password
-          </Button>
+            <div className="space-y-2">
+              <Label htmlFor="current-password">Current password</Label>
+              <Input
+                id="current-password"
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="new-password">New password</Label>
+              <Input
+                id="new-password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password">Confirm new password</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <Button type="submit" disabled={savingPassword}>
+              {savingPassword && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Update password
+            </Button>
+          </form>
         </CardContent>
       </Card>
     </div>
