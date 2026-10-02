@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js@2.4.5/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.93.1";\nimport { createRemoteJWKSet, jwtVerify } from "npm:jose@6.1.0";
+import { createClient } from "npm:@supabase/supabase-js@2.93.1";
+import { createRemoteJWKSet, jwtVerify } from "npm:jose@6.1.0";
 
 const TENANT_ID = "00000000-0000-0000-0000-000000000001";
 const GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com";
