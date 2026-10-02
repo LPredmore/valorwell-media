@@ -51,25 +51,56 @@ def api_call(action: str, wid: str, **payload: Any) -> dict[str, Any]:
         raise RuntimeError(
             "Either SUPABASE_SERVER_KEY or GITHUB_OIDC_TOKEN is required."
         )
+
     body = {"action": action, "worker_id": wid, **payload}
-    response = requests.post(
-        API_URL,
-        headers={
-            **auth_headers,
-            "content-type": "application/json",
-        },
-        json=body,
-        timeout=60,
-    )
-    try:
-        data = response.json()
-    except ValueError:
-        data = {"error": response.text[:500]}
-    if not response.ok:
-        raise RetryableJobError(
-            f"Worker API {action} failed ({response.status_code}): {data.get('error', data)}"
+    transient_statuses = {429, 500, 502, 503, 504}
+
+    for attempt in range(1, 5):
+        try:
+            response = requests.post(
+                API_URL,
+                headers={
+                    **auth_headers,
+                    "content-type": "application/json",
+                },
+                json=body,
+                timeout=60,
+            )
+        except requests.RequestException as exc:
+            if attempt == 4:
+                raise RetryableJobError(
+                    f"Worker API {action} request failed after retries: {exc}"
+                ) from exc
+            time.sleep(2 ** (attempt - 1))
+            continue
+
+        try:
+            data = response.json()
+        except ValueError:
+            data = {"error": response.text[:500]}
+
+        if response.ok:
+            return data
+
+        message = (
+            f"Worker API {action} failed ({response.status_code}): "
+            f"{data.get('error', data)}"
         )
-    return data
+
+        if response.status_code in transient_statuses:
+            if attempt == 4:
+                raise RetryableJobError(message)
+            retry_after = response.headers.get("retry-after")
+            try:
+                delay = max(float(retry_after), 0.0) if retry_after else 2 ** (attempt - 1)
+            except ValueError:
+                delay = 2 ** (attempt - 1)
+            time.sleep(min(delay, 15))
+            continue
+
+        raise PermanentJobError(message)
+
+    raise RetryableJobError(f"Worker API {action} failed after retries.")
 
 
 def heartbeat(
@@ -83,7 +114,17 @@ def heartbeat(
     if percent is not None:
         progress["percent"] = max(0, min(100, round(percent, 2)))
     progress.update(extra)
-    api_call("heartbeat", wid, job_id=job_id, progress=progress)
+    try:
+        api_call("heartbeat", wid, job_id=job_id, progress=progress)
+    except Exception as exc:
+        # Progress reporting is non-critical. A transient control-plane outage
+        # must never abort a large Drive transfer or FFmpeg operation.
+        log.warning(
+            "Heartbeat failed for job %s during %s: %s",
+            job_id,
+            phase,
+            exc,
+        )
 
 
 def refresh_drive_token(wid: str, job_id: int) -> str:
