@@ -1,7 +1,17 @@
 import "jsr:@supabase/functions-js@2.4.5/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.93.1";
+import { createClient } from "npm:@supabase/supabase-js@2.93.1";\nimport { createRemoteJWKSet, jwtVerify } from "npm:jose@6.1.0";
 
 const TENANT_ID = "00000000-0000-0000-0000-000000000001";
+const GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com";
+const GITHUB_OIDC_AUDIENCE = "valorwell-video-worker";
+const GITHUB_REPOSITORY = "LPredmore/valorwell-media";
+const GITHUB_REPOSITORY_ID = "1180964076";
+const GITHUB_OWNER_ID = "124374222";
+const GITHUB_WORKFLOW_REF =
+  "LPredmore/valorwell-media/.github/workflows/video-concat-worker.yml@refs/heads/main";
+const GITHUB_JWKS = createRemoteJWKSet(
+  new URL("https://token.actions.githubusercontent.com/.well-known/jwks"),
+);
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -46,13 +56,49 @@ function serverKeys(): string[] {
   return keys;
 }
 
-async function authorized(req: Request) {
+async function serverKeyAuthorized(req: Request) {
   const supplied = req.headers.get("apikey") ?? "";
   if (!supplied) return false;
   for (const candidate of serverKeys()) {
     if (await secureEqual(supplied, candidate)) return true;
   }
   return false;
+}
+
+async function githubOidcAuthorized(req: Request) {
+  const header = req.headers.get("authorization") ?? "";
+  if (!header.toLowerCase().startsWith("bearer ")) return false;
+  const token = header.slice(7).trim();
+  if (!token) return false;
+
+  try {
+    const { payload } = await jwtVerify(token, GITHUB_JWKS, {
+      issuer: GITHUB_OIDC_ISSUER,
+      audience: GITHUB_OIDC_AUDIENCE,
+    });
+
+    return (
+      String(payload.repository ?? "") === GITHUB_REPOSITORY &&
+      String(payload.repository_id ?? "") === GITHUB_REPOSITORY_ID &&
+      String(payload.repository_owner_id ?? "") === GITHUB_OWNER_ID &&
+      String(payload.ref ?? "") === "refs/heads/main" &&
+      String(payload.event_name ?? "") === "push" &&
+      String(payload.workflow_ref ?? "") === GITHUB_WORKFLOW_REF &&
+      String(payload.runner_environment ?? "") === "github-hosted"
+    );
+  } catch (error) {
+    console.error(JSON.stringify({
+      component: "video-concat-worker-api",
+      auth: "github_oidc",
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    return false;
+  }
+}
+
+async function authorized(req: Request) {
+  if (await serverKeyAuthorized(req)) return true;
+  return await githubOidcAuthorized(req);
 }
 
 function admin() {
