@@ -1,0 +1,44 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: valorwell-media-worker
+  annotations:
+    run.googleapis.com/launch-stage: BETA
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+        autoscaling.knative.dev/maxScale: "1"
+    spec:
+      containerConcurrency: 1
+      timeoutSeconds: 3600
+      containers:
+        - image: IMAGE_URL
+          resources:
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          env:
+            - name: SUPABASE_URL
+              value: https://ahqauomkgflopxgnlndd.supabase.co
+            - name: SUPABASE_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: valorwell-video-supabase-server-key
+                  key: latest
+            - name: WAKE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: valorwell-video-wake-token
+                  key: latest
+            - name: WORKSPACE_ROOT
+              value: /workspace
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: workspace
+          emptyDir:
+            medium: Disk
+            sizeLimit: 10Gi
