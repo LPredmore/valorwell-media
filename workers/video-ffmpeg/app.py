@@ -19,6 +19,7 @@ log = logging.getLogger("valorwell-video-worker")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVER_KEY = os.environ.get("SUPABASE_SERVER_KEY", "")
+GITHUB_OIDC_TOKEN = os.environ.get("GITHUB_OIDC_TOKEN", "")
 WAKE_TOKEN = os.environ.get("WAKE_TOKEN", "")
 WORKSPACE_ROOT = Path(os.environ.get("WORKSPACE_ROOT", "/workspace"))
 API_URL = f"{SUPABASE_URL}/functions/v1/video-concat-worker-api" if SUPABASE_URL else ""
