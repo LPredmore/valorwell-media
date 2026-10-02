@@ -40,13 +40,21 @@ def worker_id() -> str:
 
 
 def api_call(action: str, wid: str, **payload: Any) -> dict[str, Any]:
-    if not API_URL or not SUPABASE_SERVER_KEY:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVER_KEY are required.")
+    if not API_URL:
+        raise RuntimeError("SUPABASE_URL is required.")
+    if SUPABASE_SERVER_KEY:
+        auth_headers = {"apikey": SUPABASE_SERVER_KEY}
+    elif GITHUB_OIDC_TOKEN:
+        auth_headers = {"authorization": f"Bearer {GITHUB_OIDC_TOKEN}"}
+    else:
+        raise RuntimeError(
+            "Either SUPABASE_SERVER_KEY or GITHUB_OIDC_TOKEN is required."
+        )
     body = {"action": action, "worker_id": wid, **payload}
     response = requests.post(
         API_URL,
         headers={
-            "apikey": SUPABASE_SERVER_KEY,
+            **auth_headers,
             "content-type": "application/json",
         },
         json=body,
