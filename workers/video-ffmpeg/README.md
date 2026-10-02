@@ -40,3 +40,7 @@ Each wake processes at most one queued concat job. Concurrency should remain 1 u
 - request timeout 3600s
 
 The source files and final file stay in Google Drive; Supabase stores only job metadata.
+
+## CI
+
+GitHub Actions compiles the worker, performs a real synthetic lossless concat, builds the container, and verifies the health endpoint before merge.
