@@ -1,0 +1,7 @@
+{
+  "job_id": 82,
+  "operation": "concat_video",
+  "retry": 1,
+  "requested_at": "2026-10-02T17:43:00Z",
+  "reason": "Retry after transient Supabase Edge 503; worker hardened with bounded API retries and nonfatal heartbeats."
+}
