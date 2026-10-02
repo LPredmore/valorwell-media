@@ -3,6 +3,7 @@ name: Video FFmpeg Worker CI
 on:
   push:
     branches:
+      - main
       - feature/cloud-video-concat-worker
     paths:
       - "workers/video-ffmpeg/**"
