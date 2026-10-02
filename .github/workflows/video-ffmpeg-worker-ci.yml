@@ -1,0 +1,104 @@
+name: Video FFmpeg Worker CI
+
+on:
+  push:
+    branches:
+      - feature/cloud-video-concat-worker
+    paths:
+      - "workers/video-ffmpeg/**"
+      - ".github/workflows/video-ffmpeg-worker-ci.yml"
+  pull_request:
+    paths:
+      - "workers/video-ffmpeg/**"
+      - ".github/workflows/video-ffmpeg-worker-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/video-ffmpeg
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install FFmpeg and Python dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile worker
+        run: python -m py_compile app.py
+
+      - name: Generate compatible test videos
+        run: |
+          ffmpeg -hide_banner -loglevel error -y \
+            -f lavfi -i "color=c=black:s=320x240:r=30:d=1" \
+            -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=1" \
+            -c:v libx264 -pix_fmt yuv420p -r 30 \
+            -c:a aac -ar 48000 -ac 2 -shortest /tmp/part1.mp4
+
+          ffmpeg -hide_banner -loglevel error -y \
+            -f lavfi -i "color=c=black:s=320x240:r=30:d=1" \
+            -f lavfi -i "sine=frequency=660:sample_rate=48000:duration=1" \
+            -c:v libx264 -pix_fmt yuv420p -r 30 \
+            -c:a aac -ar 48000 -ac 2 -shortest /tmp/part2.mp4
+
+      - name: Exercise lossless concat and validation
+        run: |
+          python - <<'PY'
+          import tempfile
+          from pathlib import Path
+          import app as worker
+
+          p1 = Path("/tmp/part1.mp4")
+          p2 = Path("/tmp/part2.mp4")
+          probes = [worker.probe(p1), worker.probe(p2)]
+          signature = worker.validate_compatible(probes)
+          expected = sum(worker.duration_seconds(p) for p in probes)
+
+          workspace = Path(tempfile.mkdtemp(prefix="worker-ci-"))
+          output = workspace / "output.mp4"
+          worker.concat_lossless([p1, p2], output, workspace)
+
+          out_probe = worker.probe(output)
+          assert worker.stream_signature(out_probe) == signature
+          actual = worker.duration_seconds(out_probe)
+          assert abs(actual - expected) <= max(2.0, expected * 0.005)
+          assert output.stat().st_size > 0
+          print({"expected_duration": expected, "actual_duration": actual, "bytes": output.stat().st_size})
+          PY
+
+      - name: Build container
+        run: docker build -t valorwell-video-worker-ci .
+
+      - name: Start container and verify health
+        run: |
+          docker run -d --rm --name valorwell-video-worker-ci \
+            -p 8080:8080 \
+            -e WAKE_TOKEN=test-only \
+            valorwell-video-worker-ci
+          trap 'docker stop valorwell-video-worker-ci >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/health >/tmp/health.json; then
+              break
+            fi
+            sleep 1
+          done
+          cat /tmp/health.json
+          python - <<'PY'
+          import json
+          data = json.load(open("/tmp/health.json"))
+          assert data["ok"] is True
+          assert data["ffmpeg"] is True
+          assert data["ffprobe"] is True
+          PY
