@@ -1,0 +1,70 @@
+name: Video Concat Worker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "video-job-triggers/**/*.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: video-concat-worker
+  cancel-in-progress: false
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: workers/video-ffmpeg
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install FFmpeg and worker dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Request GitHub OIDC token
+        shell: bash
+        run: |
+          TOKEN_JSON="$(curl -fsSL \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=valorwell-video-worker")"
+          OIDC_TOKEN="$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"${TOKEN_JSON}")"
+          echo "::add-mask::${OIDC_TOKEN}"
+          echo "GITHUB_OIDC_TOKEN=${OIDC_TOKEN}" >> "${GITHUB_ENV}"
+
+      - name: Process one queued concat job
+        env:
+          SUPABASE_URL: https://ahqauomkgflopxgnlndd.supabase.co
+          WORKSPACE_ROOT: ${{ runner.temp }}/video-worker
+        run: |
+          mkdir -p "${WORKSPACE_ROOT}"
+          python - <<'PY'
+          import json
+          import app as worker
+
+          result = worker.process_one_job()
+          print(json.dumps(result, indent=2, sort_keys=True))
+
+          action = result.get("action")
+          if action in {"complete", "idle"} and result.get("ok") is True:
+              raise SystemExit(0)
+          raise SystemExit(1)
+          PY
