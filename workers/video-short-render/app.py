@@ -43,32 +43,17 @@ def drive_token(wid: str) -> str:
     return token
 
 
-def download_drive(file_id: str, path: Path, token: str, wid: str) -> str:
-    url = f"https://www.googleapis.com/drive/v3/files/{requests.utils.quote(file_id, safe='')}?alt=media"
-    for attempt in range(2):
-        with requests.get(
-            url,
-            headers={"authorization": f"Bearer {token}"},
-            stream=True,
-            timeout=(30, 600),
-        ) as r:
-            if r.status_code == 401 and attempt == 0:
-                token = drive_token(wid)
-                continue
-            r.raise_for_status()
-            with path.open("wb") as f:
-                for chunk in r.iter_content(CHUNK):
-                    if chunk:
-                        f.write(chunk)
-            return token
-    raise RuntimeError("Source Drive download failed.")
-
-
-def safe_name(value: str) -> str:
-    bad = '<>:"/\\|?*'
-    for ch in bad:
-        value = value.replace(ch, "_")
-    return " ".join(value.split()).strip(" .")[:150] or "video"
+def download_http(url: str, path: Path) -> None:
+    if not url:
+        raise RuntimeError("Short source URL is missing.")
+    with requests.get(url, stream=True, timeout=(30, 600)) as r:
+        r.raise_for_status()
+        with path.open("wb") as f:
+            for chunk in r.iter_content(CHUNK):
+                if chunk:
+                    f.write(chunk)
+    if path.stat().st_size <= 0:
+        raise RuntimeError("Downloaded Short source is empty.")
 
 
 def ffprobe(path: Path) -> dict[str, Any]:
@@ -83,17 +68,21 @@ def ffprobe(path: Path) -> dict[str, Any]:
     return json.loads(p.stdout)
 
 
-def render_short(source: Path, output: Path, start: float, end: float) -> None:
-    duration = max(0.05, end - start)
-    vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
+def render_short(source: Path, output: Path, expected_duration: float) -> None:
+    filter_complex = (
+        "[0:v]split=2[bgsrc][fgsrc];"
+        "[bgsrc]scale=1080:1920:force_original_aspect_ratio=increase,"
+        "crop=1080:1920,gblur=sigma=30[bg];"
+        "[fgsrc]scale=1080:1920:force_original_aspect_ratio=decrease[fg];"
+        "[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[v]"
+    )
+
     cmd = [
         "ffmpeg", "-hide_banner", "-nostdin", "-y",
-        "-ss", f"{start:.3f}",
         "-i", str(source),
-        "-t", f"{duration:.3f}",
-        "-map", "0:v:0",
+        "-filter_complex", filter_complex,
+        "-map", "[v]",
         "-map", "0:a:0?",
-        "-vf", vf,
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-crf", "20",
@@ -105,26 +94,36 @@ def render_short(source: Path, output: Path, start: float, end: float) -> None:
     ]
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
-        raise RuntimeError("FFmpeg failed: " + p.stderr[-2500:])
+        raise RuntimeError("FFmpeg failed: " + p.stderr[-3000:])
 
     info = ffprobe(output)
     videos = [s for s in info.get("streams", []) if s.get("codec_type") == "video"]
     if not videos:
         raise RuntimeError("Rendered output has no video stream.")
+
     v = videos[0]
     if int(v.get("width") or 0) != 1080 or int(v.get("height") or 0) != 1920:
         raise RuntimeError(
             f"Rendered output is {v.get('width')}x{v.get('height')}, expected 1080x1920."
         )
+
     actual = float((info.get("format") or {}).get("duration") or 0)
-    if abs(actual - duration) > max(1.5, duration * 0.03):
+    if expected_duration > 0 and abs(actual - expected_duration) > max(1.5, expected_duration * 0.03):
         raise RuntimeError(
-            f"Rendered duration mismatch: expected {duration:.3f}s, got {actual:.3f}s."
+            f"Rendered duration mismatch: expected {expected_duration:.3f}s, got {actual:.3f}s."
         )
 
 
+def safe_name(value: str) -> str:
+    bad = '<>:"/\\|?*'
+    for ch in bad:
+        value = value.replace(ch, "_")
+    return " ".join(value.split()).strip(" .")[:150] or "video"
+
+
 def find_drive_file(folder_id: str, name: str, token: str) -> dict[str, Any] | None:
-    q = f"'{folder_id}' in parents and name = '{name.replace(chr(39), chr(92)+chr(39))}' and trashed = false"
+    escaped = name.replace("'", "\\'")
+    q = f"'{folder_id}' in parents and name = '{escaped}' and trashed = false"
     r = requests.get(
         "https://www.googleapis.com/drive/v3/files",
         headers={"authorization": f"Bearer {token}"},
@@ -186,6 +185,7 @@ def upload_drive(path: Path, folder_id: str, name: str, token: str, wid: str) ->
             timeout=60,
         )
     init.raise_for_status()
+
     location = init.headers.get("Location")
     if not location:
         raise RuntimeError("Drive returned no resumable upload URL.")
@@ -220,29 +220,32 @@ def main() -> dict[str, Any]:
     token = str(claim["google_access_token"])
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
 
+    source_base = safe_name(Path(str(project.get("source_file_name") or "video")).stem)
+    job_ids = [int(j["job_id"]) for j in jobs]
+    rendered = 0
+    failures: list[dict[str, Any]] = []
+
     with tempfile.TemporaryDirectory(prefix="short-render-", dir=WORKSPACE_ROOT) as tmp:
         root = Path(tmp)
-        source = root / "source.mp4"
-        token = download_drive(str(project["parent_file_id"]), source, token, wid)
 
-        source_base = safe_name(Path(str(project.get("source_file_name") or "video")).stem)
-        job_ids = [int(j["job_id"]) for j in jobs]
-        rendered = 0
-        failures: list[dict[str, Any]] = []
-
-        for index, job in enumerate(jobs, start=1):
+        for job in jobs:
             api("heartbeat", wid, job_ids=job_ids)
             job_id = int(job["job_id"])
             clip_id = str(job["clip_id"])
             start = float(job["start_seconds"])
             end = float(job["end_seconds"])
+            expected_duration = max(0.05, end - start)
+            source_url = str(job.get("source_url") or "")
             start_ms = round(start * 1000)
             end_ms = round(end * 1000)
-            name = f"{source_base}__short_9x16__{start_ms}-{end_ms}__{clip_id[:8]}.mp4"
+
+            source = root / f"{clip_id}-source.mp4"
             output = root / f"{clip_id}.mp4"
+            name = f"{source_base}__short_9x16__{start_ms}-{end_ms}__{clip_id[:8]}.mp4"
 
             try:
-                render_short(source, output, start, end)
+                download_http(source_url, source)
+                render_short(source, output, expected_duration)
                 file_id, file_url, size, token = upload_drive(
                     output, folder_id, name, token, wid
                 )
@@ -263,13 +266,13 @@ def main() -> dict[str, Any]:
                 except Exception:
                     pass
 
-        return {
-            "ok": not failures,
-            "action": "complete" if not failures else "partial",
-            "rendered": rendered,
-            "failed": len(failures),
-            "failures": failures,
-        }
+    return {
+        "ok": not failures,
+        "action": "complete" if not failures else "partial",
+        "rendered": rendered,
+        "failed": len(failures),
+        "failures": failures,
+    }
 
 
 if __name__ == "__main__":
