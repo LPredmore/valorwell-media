@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - "video-short-render-triggers/**/*.json"
+      - "video-short-render-triggers/**"
   workflow_dispatch:
 
 permissions:
