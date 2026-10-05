@@ -2,7 +2,7 @@ name: Video Short Render Worker
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "1-59/5 * * * *"
   push:
     branches:
       - main
