@@ -1,0 +1,62 @@
+name: Video Short Render Worker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "video-short-job-triggers/**/*.json"
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: video-short-render-worker
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    defaults:
+      run:
+        working-directory: workers/video-short-render
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install FFmpeg and worker dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Request GitHub OIDC token
+        shell: bash
+        run: |
+          TOKEN_JSON="$(curl -fsSL \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=valorwell-video-worker")"
+          OIDC_TOKEN="$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"${TOKEN_JSON}")"
+          echo "::add-mask::${OIDC_TOKEN}"
+          echo "GITHUB_OIDC_TOKEN=${OIDC_TOKEN}" >> "${GITHUB_ENV}"
+
+      - name: Render queued Shorts
+        env:
+          SUPABASE_URL: https://ahqauomkgflopxgnlndd.supabase.co
+          WORKSPACE_ROOT: ${{ runner.temp }}/video-short-worker
+        run: |
+          mkdir -p "${WORKSPACE_ROOT}"
+          python app.py
