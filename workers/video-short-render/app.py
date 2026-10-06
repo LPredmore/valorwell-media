@@ -3,6 +3,7 @@ import os
 import socket
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,8 @@ GITHUB_OIDC_TOKEN = os.environ["GITHUB_OIDC_TOKEN"]
 WORKSPACE_ROOT = Path(os.environ.get("WORKSPACE_ROOT", "/tmp/video-short-render"))
 API_URL = f"{SUPABASE_URL}/functions/v1/video-render-worker-api"
 CHUNK = 8 * 1024 * 1024
+MAX_JOBS_PER_RUN = int(os.environ.get("MAX_JOBS_PER_RUN", "50"))
+MAX_RUN_SECONDS = int(os.environ.get("MAX_RUN_SECONDS", "6000"))
 
 
 def worker_id() -> str:
@@ -210,68 +213,94 @@ def upload_drive(path: Path, folder_id: str, name: str, token: str, wid: str) ->
 
 def main() -> dict[str, Any]:
     wid = worker_id()
-    claim = api("claim", wid)
-    jobs = list(claim.get("jobs") or [])
-    if not jobs:
-        return {"ok": True, "action": "idle", "rendered": 0}
-
-    project = dict(claim["project"])
-    folder_id = str(claim["output_folder_id"])
-    token = str(claim["google_access_token"])
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
 
-    source_base = safe_name(Path(str(project.get("source_file_name") or "video")).stem)
-    job_ids = [int(j["job_id"]) for j in jobs]
+    started = time.monotonic()
+    claimed_total = 0
     rendered = 0
     failures: list[dict[str, Any]] = []
+    stop_reason = "queue_empty"
 
-    with tempfile.TemporaryDirectory(prefix="short-render-", dir=WORKSPACE_ROOT) as tmp:
-        root = Path(tmp)
+    while claimed_total < MAX_JOBS_PER_RUN:
+        if time.monotonic() - started >= MAX_RUN_SECONDS:
+            stop_reason = "time_budget"
+            break
 
-        for job in jobs:
-            api("heartbeat", wid, job_ids=job_ids)
-            job_id = int(job["job_id"])
-            clip_id = str(job["clip_id"])
-            start = float(job["start_seconds"])
-            end = float(job["end_seconds"])
-            expected_duration = max(0.05, end - start)
-            source_url = str(job.get("source_url") or "")
-            start_ms = round(start * 1000)
-            end_ms = round(end * 1000)
+        claim = api("claim", wid)
+        jobs = list(claim.get("jobs") or [])
+        if not jobs:
+            stop_reason = "queue_empty"
+            break
 
-            source = root / f"{clip_id}-source.mp4"
-            output = root / f"{clip_id}.mp4"
-            name = f"{source_base}__short_9x16__{start_ms}-{end_ms}__{clip_id[:8]}.mp4"
+        project = dict(claim["project"])
+        folder_id = str(claim["output_folder_id"])
+        token = str(claim["google_access_token"])
+        source_base = safe_name(Path(str(project.get("source_file_name") or "video")).stem)
+        job_ids = [int(j["job_id"]) for j in jobs]
+        claimed_total += len(jobs)
 
-            try:
-                download_http(source_url, source)
-                render_short(source, output, expected_duration)
-                file_id, file_url, size, token = upload_drive(
-                    output, folder_id, name, token, wid
-                )
-                api(
-                    "complete",
-                    wid,
-                    job_id=job_id,
-                    clip_id=clip_id,
-                    drive_file_id=file_id,
-                    drive_file_url=file_url,
-                    output_size_bytes=size,
-                )
-                rendered += 1
-            except Exception as exc:
-                failures.append({"job_id": job_id, "clip_id": clip_id, "error": str(exc)})
+        with tempfile.TemporaryDirectory(prefix="short-render-", dir=WORKSPACE_ROOT) as tmp:
+            root = Path(tmp)
+
+            for job in jobs:
+                api("heartbeat", wid, job_ids=job_ids)
+                job_id = int(job["job_id"])
+                clip_id = str(job["clip_id"])
+                start = float(job["start_seconds"])
+                end = float(job["end_seconds"])
+                expected_duration = max(0.05, end - start)
+                source_url = str(job.get("source_url") or "")
+                start_ms = round(start * 1000)
+                end_ms = round(end * 1000)
+
+                source = root / f"{clip_id}-source.mp4"
+                output = root / f"{clip_id}.mp4"
+                name = f"{source_base}__short_9x16__{start_ms}-{end_ms}__{clip_id[:8]}.mp4"
+
                 try:
-                    api("fail", wid, job_id=job_id, clip_id=clip_id, error=str(exc))
-                except Exception:
-                    pass
+                    download_http(source_url, source)
+                    render_short(source, output, expected_duration)
+                    file_id, file_url, size, token = upload_drive(
+                        output, folder_id, name, token, wid
+                    )
+                    api(
+                        "complete",
+                        wid,
+                        job_id=job_id,
+                        clip_id=clip_id,
+                        drive_file_id=file_id,
+                        drive_file_url=file_url,
+                        output_size_bytes=size,
+                    )
+                    rendered += 1
+                except Exception as exc:
+                    failures.append({"job_id": job_id, "clip_id": clip_id, "error": str(exc)})
+                    try:
+                        api("fail", wid, job_id=job_id, clip_id=clip_id, error=str(exc))
+                    except Exception:
+                        pass
+
+    if claimed_total >= MAX_JOBS_PER_RUN:
+        stop_reason = "job_limit"
+
+    if claimed_total == 0 and not failures:
+        action = "idle"
+    elif failures:
+        action = "partial"
+    elif stop_reason == "queue_empty":
+        action = "drained"
+    else:
+        action = "limit_reached"
 
     return {
         "ok": not failures,
-        "action": "complete" if not failures else "partial",
+        "action": action,
+        "stop_reason": stop_reason,
+        "claimed": claimed_total,
         "rendered": rendered,
         "failed": len(failures),
         "failures": failures,
+        "elapsed_seconds": round(time.monotonic() - started, 1),
     }
 
 
