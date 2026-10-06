@@ -1,0 +1,5 @@
+{
+  "reason": "Verify queue-draining Shorts worker against Reins of Honor workflow revision 1",
+  "worker_commit": "b0d221f1ad9312cd4f9897face536c21378e955c",
+  "requested_at": "2026-10-06T23:30:00Z"
+}
