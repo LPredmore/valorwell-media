@@ -1,0 +1,9 @@
+{
+  "reason": "Verify queue drain after adding automatic GitHub OIDC refresh",
+  "worker_commit": "d8237d20404acc658a0a3203f774b0108e59ef04",
+  "project_id": "4c67fda3-281c-4f0f-b3a0-c8c512211403",
+  "remaining_jobs": [
+    1106,
+    1107
+  ]
+}
