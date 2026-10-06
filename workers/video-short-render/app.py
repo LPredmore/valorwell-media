@@ -10,7 +10,7 @@ from typing import Any
 import requests
 
 SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
-GITHUB_OIDC_TOKEN = os.environ["GITHUB_OIDC_TOKEN"]
+GITHUB_OIDC_TOKEN = os.environ.get("GITHUB_OIDC_TOKEN", "")
 WORKSPACE_ROOT = Path(os.environ.get("WORKSPACE_ROOT", "/tmp/video-short-render"))
 API_URL = f"{SUPABASE_URL}/functions/v1/video-render-worker-api"
 CHUNK = 8 * 1024 * 1024
@@ -22,20 +22,49 @@ def worker_id() -> str:
     return f"github-short-{socket.gethostname()}-{os.getpid()}"
 
 
-def api(action: str, wid: str, **payload: Any) -> dict[str, Any]:
-    r = requests.post(
-        API_URL,
-        headers={
-            "authorization": f"Bearer {GITHUB_OIDC_TOKEN}",
-            "content-type": "application/json",
-        },
-        json={"action": action, "worker_id": wid, **payload},
-        timeout=120,
+def refresh_github_oidc_token() -> str:
+    request_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+    request_token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
+    if not request_url or not request_token:
+        raise RuntimeError("GitHub OIDC refresh environment is unavailable.")
+
+    separator = "&" if "?" in request_url else "?"
+    r = requests.get(
+        f"{request_url}{separator}audience=valorwell-video-worker",
+        headers={"authorization": f"bearer {request_token}"},
+        timeout=30,
     )
     data = r.json() if r.content else {}
-    if not r.ok:
-        raise RuntimeError(f"API {action} failed ({r.status_code}): {data}")
-    return data
+    if not r.ok or not data.get("value"):
+        raise RuntimeError(f"GitHub OIDC refresh failed ({r.status_code}): {data}")
+    return str(data["value"])
+
+
+def api(action: str, wid: str, **payload: Any) -> dict[str, Any]:
+    global GITHUB_OIDC_TOKEN
+
+    if not GITHUB_OIDC_TOKEN:
+        GITHUB_OIDC_TOKEN = refresh_github_oidc_token()
+
+    for attempt in range(2):
+        r = requests.post(
+            API_URL,
+            headers={
+                "authorization": f"Bearer {GITHUB_OIDC_TOKEN}",
+                "content-type": "application/json",
+            },
+            json={"action": action, "worker_id": wid, **payload},
+            timeout=120,
+        )
+        data = r.json() if r.content else {}
+        if r.status_code == 401 and attempt == 0:
+            GITHUB_OIDC_TOKEN = refresh_github_oidc_token()
+            continue
+        if not r.ok:
+            raise RuntimeError(f"API {action} failed ({r.status_code}): {data}")
+        return data
+
+    raise RuntimeError(f"API {action} failed after GitHub OIDC refresh.")
 
 
 def drive_token(wid: str) -> str:
