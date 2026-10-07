@@ -350,6 +350,8 @@ async function processJob(admin:SupabaseClient,job:JobRow){
   const project=await loadProject(admin,job.project_id);
   if(Number(project.workflow_revision)!==Number(job.workflow_revision)){await completeJob(admin,job,{applied:false,skipped:"stale_workflow_revision"});return {status:"skipped_stale"};}
   const settings=await loadSettings(admin,project.tenant_id);
+  // Validate writable Drive authorization before any paid image generation work.
+  const driveToken=await googleAccessToken(admin);
   const imageModel=String(settings.image_model_id||"openai/gpt-image-2.5-sunburst");
   const textModel=String(settings.text_model_id||"z-ai/glm-5.3-flash");
   const promptKey=String(job.payload?.prompt_profile??(job.job_type==="generate_project_cover"?"bty_image_full_cover":""));
@@ -391,7 +393,6 @@ async function processJob(admin:SupabaseClient,job:JobRow){
   if(!final.bytes.length)throw new ImageJobError("final_image_empty","Final image bytes were empty.","retryable");
   if(final.bytes.byteLength>2000000)throw new ImageJobError("final_image_too_large","Compressed thumbnail is "+final.bytes.byteLength+" bytes; YouTube limit is 2 MB.","retryable");
 
-  const driveToken=await googleAccessToken(admin);
   const uploaded=await uploadDriveFile(driveToken,String(settings.cover_image_folder_id),assetName,final.bytes);
   const payload={...(job.payload??{}),image_uploaded_file_id:uploaded.id,image_uploaded_file_url:uploaded.url,image_model:imageModel,text_model:textModel,prompt_profile:promptProfile.profile_key,prompt_profile_version:promptProfile.version,art_directed_prompt:generated.prompt,reference_sources:references.map(r=>({label:r.label??null,source:r.source})),reference_count:references.length,output_bytes:final.bytes.byteLength,output_width:final.width,output_height:final.height,jpeg_quality:final.quality,aspect_ratio:aspectRatio,openrouter_cost_usd:generated.totalCost,art_direction_cost_usd:generated.artCost,image_cost_usd:generated.imageCost};
   const {error:payloadError}=await admin.from("ai_operations_video_jobs").update({payload,updated_at:new Date().toISOString()}).eq("id",job.id).eq("claimed_by",WORKER_ID).eq("status","running");
@@ -409,10 +410,10 @@ Deno.serve(async(req:Request)=>{
     if(claimError)throw new Error(claimError.message);
     job=(Array.isArray(claimed)?claimed[0]:null) as JobRow|null;
     if(!job){
-      await admin.rpc("heartbeat_ai_operations_video_worker",{p_worker_id:WORKER_ID,p_tenant_id:TENANT_ID,p_status:"idle",p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.0.0",p_last_error:null,p_metadata:{job_types:JOB_TYPES}});
+      await admin.rpc("heartbeat_ai_operations_video_worker",{p_worker_id:WORKER_ID,p_tenant_id:TENANT_ID,p_status:"idle",p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.1.0",p_last_error:null,p_metadata:{job_types:JOB_TYPES}});
       return json({ok:true,status:"idle"});
     }
-    await admin.rpc("heartbeat_ai_operations_video_worker",{p_worker_id:WORKER_ID,p_tenant_id:job.tenant_id,p_status:"working",p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.0.0",p_last_error:null,p_metadata:{job_type:job.job_type}});
+    await admin.rpc("heartbeat_ai_operations_video_worker",{p_worker_id:WORKER_ID,p_tenant_id:job.tenant_id,p_status:"working",p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.1.0",p_last_error:null,p_metadata:{job_type:job.job_type}});
     const result=await processJob(admin,job);
     return json({ok:true,job_id:job.id,job_type:job.job_type,result});
   }catch(e){
@@ -422,7 +423,7 @@ Deno.serve(async(req:Request)=>{
       try{const next=await failJob(admin,job,err);return json({ok:false,job_id:job.id,status:next,error_code:err.code,error:err.message},next==="error"?500:202);}
       catch(recordError){return json({ok:false,job_id:job.id,error:err.message,failure_record_error:safeMessage(recordError)},500);}
     }
-    await admin.rpc("heartbeat_ai_operations_video_worker",{p_worker_id:WORKER_ID,p_tenant_id:TENANT_ID,p_status:"error",p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.0.0",p_last_error:err.message,p_metadata:{error_code:err.code}});
+    await admin.rpc("heartbeat_ai_operations_video_worker",{p_worker_id:WORKER_ID,p_tenant_id:TENANT_ID,p_status:"error",p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.1.0",p_last_error:err.message,p_metadata:{error_code:err.code}});
     return json({ok:false,error_code:err.code,error:err.message},500);
   }
 });
