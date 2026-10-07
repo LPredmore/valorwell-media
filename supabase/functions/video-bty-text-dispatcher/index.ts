@@ -282,6 +282,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
   const effectiveModel=model;
   const segments=await getSegments(admin,project.id);
   const isPart=kind==="part";
+  const partsOnly=isPart && String((project as any)?.metadata?.workflow_mode??"")==="parts_only";
   if(!segments.length){
     throw new JobError(
       "segmentation_timestamped_transcript_missing",
@@ -710,17 +711,30 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       .eq("start_seconds",x.start).eq("end_seconds",x.end).maybeSingle();
     if(eErr) throw new JobError("clip_boundary_lookup_failed",eErr.message,"retryable");
 
-    const canReuseRender=Boolean(existing?.drive_file_id)&&Number(existing?.source_revision??0)===Number(project.source_revision??0);
+    const canReuseRender=!partsOnly && Boolean(existing?.drive_file_id)&&Number(existing?.source_revision??0)===Number(project.source_revision??0);
     const values:any={
       project_id:project.id,start_seconds:x.start,end_seconds:x.end,transcript_text:text,
       clip_type:kind,parent_file_id:project.source_file_id,workflow_revision:project.workflow_revision,
       source_revision:Number(project.source_revision??0),
-      pipeline_status:canReuseRender?"rendered":"render_pending",
+      pipeline_status:partsOnly?"parts_ready":(canReuseRender?"rendered":"render_pending"),
       last_progress_at:new Date().toISOString(),updated_at:new Date().toISOString()
     };
     if(!canReuseRender){
       values.drive_file_id=null;values.drive_file_url=null;values.rendered_at=null;
       values.output_size_bytes=null;values.error_message=null;values.status="proposed";
+    }
+    if(partsOnly){
+      values.render_input_fingerprint=null;
+      values.youtube_title=null;values.youtube_description=null;
+      values.linkedin_description=null;values.facebook_description=null;values.tiktok_description=null;
+      values.hashtags=[];
+      values.title_input_fingerprint=null;values.title_candidates=null;values.title_generation_meta=null;values.title_generated_at=null;
+      values.copy_input_fingerprint=null;
+      values.hook_text=null;values.hook_input_fingerprint=null;values.hook_candidates=null;values.hook_generation_meta=null;values.hook_generated_at=null;
+      values.thumbnail_metadata_input_fingerprint=null;values.thumbnail_input_fingerprint=null;
+      values.primary_speaker=null;values.person_positioning=null;values.facial_expression=null;values.gesture_action=null;
+      values.camera_framing=null;values.pose_family=null;values.core_visual=null;values.hook_text_placement=null;
+      values.cover_image_file_id=null;values.cover_image_url=null;
     }
     if(isPart) values.part_number=i+1;
 
@@ -1266,7 +1280,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
   try{
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.11.0",
+      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.12.0",
       p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
     });
     const result=await processJob(admin,job);
@@ -1290,7 +1304,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
     try{
       await admin.rpc("heartbeat_ai_operations_video_worker",{
         p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"idle",
-        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.11.0",
+        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.12.0",
         p_last_error:null,p_metadata:{last_job_id:job.id,last_job_type:job.job_type,execution_mode:"wait_until_background"}
       });
     }catch(_){}
@@ -1319,7 +1333,7 @@ Deno.serve(async(req:Request)=>{
     const active=Array.isArray(owned)&&owned.length?owned[0]:null;
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:TENANT_ID,p_status:active?"working":"idle",
-      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.11.0",
+      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.12.0",
       p_last_error:null,p_metadata:active?{job_type:active.job_type,execution_mode:"wait_until_background",heartbeat_source:"concurrent_cron"}:{execution_mode:"wait_until_background"}
     });
     return json({ok:true,status:active?"busy":"idle",current_job_id:active?.id??null});
@@ -1327,7 +1341,7 @@ Deno.serve(async(req:Request)=>{
 
   await admin.rpc("heartbeat_ai_operations_video_worker",{
     p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.11.0",
+    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.12.0",
     p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
   });
 
