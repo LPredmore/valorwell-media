@@ -100,21 +100,74 @@ def ffprobe(path: Path) -> dict[str, Any]:
     return json.loads(p.stdout)
 
 
-def render_short(source: Path, output: Path, expected_duration: float) -> None:
-    filter_complex = (
+def render_short(
+    source: Path,
+    output: Path,
+    expected_duration: float,
+    cold_open_start: float | None = None,
+    cold_open_end: float | None = None,
+) -> tuple[bool, float]:
+    source_info = ffprobe(source)
+    has_audio = any(s.get("codec_type") == "audio" for s in source_info.get("streams", []))
+
+    cold_start = float(cold_open_start) if cold_open_start is not None else None
+    cold_end = float(cold_open_end) if cold_open_end is not None else None
+    cold_duration = 0.0
+    cold_enabled = False
+    if cold_start is not None and cold_end is not None:
+        candidate_duration = cold_end - cold_start
+        cold_enabled = (
+            cold_start >= -0.05
+            and cold_end <= expected_duration + 0.05
+            and 1.999 <= candidate_duration <= 6.001
+            and expected_duration + candidate_duration < 180
+        )
+        if cold_enabled:
+            cold_start = max(0.0, cold_start)
+            cold_end = min(expected_duration, cold_end)
+            cold_duration = max(0.0, cold_end - cold_start)
+
+    base_filter = (
         "[0:v]split=2[bgsrc][fgsrc];"
         "[bgsrc]scale=1080:1920:force_original_aspect_ratio=increase,"
         "crop=1080:1920,gblur=sigma=30[bg];"
         "[fgsrc]scale=1080:1920:force_original_aspect_ratio=decrease[fg];"
-        "[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[v]"
+        "[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[base]"
     )
+
+    if cold_enabled:
+        video_filter = (
+            base_filter
+            + f";[base]split=2[hookbase][mainbase]"
+            + f";[hookbase]trim=start={cold_start:.6f}:end={cold_end:.6f},"
+              "setpts=PTS-STARTPTS[hookv]"
+            + ";[mainbase]setpts=PTS-STARTPTS[mainv]"
+        )
+        if has_audio:
+            filter_complex = (
+                video_filter
+                + f";[0:a:0]asplit=2[hooka0][maina0]"
+                + f";[hooka0]atrim=start={cold_start:.6f}:end={cold_end:.6f},"
+                  "asetpts=PTS-STARTPTS[hooka]"
+                + ";[maina0]asetpts=PTS-STARTPTS[maina]"
+                + ";[hookv][hooka][mainv][maina]concat=n=2:v=1:a=1[v][a]"
+            )
+            maps = ["-map", "[v]", "-map", "[a]"]
+        else:
+            filter_complex = (
+                video_filter
+                + ";[hookv][mainv]concat=n=2:v=1:a=0[v]"
+            )
+            maps = ["-map", "[v]"]
+    else:
+        filter_complex = base_filter
+        maps = ["-map", "[base]", "-map", "0:a:0?"]
 
     cmd = [
         "ffmpeg", "-hide_banner", "-nostdin", "-y",
         "-i", str(source),
         "-filter_complex", filter_complex,
-        "-map", "[v]",
-        "-map", "0:a:0?",
+        *maps,
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-crf", "20",
@@ -139,11 +192,17 @@ def render_short(source: Path, output: Path, expected_duration: float) -> None:
             f"Rendered output is {v.get('width')}x{v.get('height')}, expected 1080x1920."
         )
 
+    final_expected_duration = expected_duration + (cold_duration if cold_enabled else 0.0)
     actual = float((info.get("format") or {}).get("duration") or 0)
-    if expected_duration > 0 and abs(actual - expected_duration) > max(1.5, expected_duration * 0.03):
+    if final_expected_duration > 0 and abs(actual - final_expected_duration) > max(
+        1.5, final_expected_duration * 0.03
+    ):
         raise RuntimeError(
-            f"Rendered duration mismatch: expected {expected_duration:.3f}s, got {actual:.3f}s."
+            "Rendered duration mismatch: "
+            f"expected {final_expected_duration:.3f}s, got {actual:.3f}s."
         )
+
+    return cold_enabled, cold_duration
 
 
 def safe_name(value: str) -> str:
@@ -279,6 +338,17 @@ def main() -> dict[str, Any]:
                 end = float(job["end_seconds"])
                 expected_duration = max(0.05, end - start)
                 source_url = str(job.get("source_url") or "")
+                cold_open_enabled = bool(job.get("cold_open_enabled"))
+                cold_open_start = (
+                    float(job["cold_open_start_seconds"])
+                    if cold_open_enabled and job.get("cold_open_start_seconds") is not None
+                    else None
+                )
+                cold_open_end = (
+                    float(job["cold_open_end_seconds"])
+                    if cold_open_enabled and job.get("cold_open_end_seconds") is not None
+                    else None
+                )
                 start_ms = round(start * 1000)
                 end_ms = round(end * 1000)
 
@@ -288,7 +358,13 @@ def main() -> dict[str, Any]:
 
                 try:
                     download_http(source_url, source)
-                    render_short(source, output, expected_duration)
+                    cold_open_applied, cold_open_duration = render_short(
+                        source,
+                        output,
+                        expected_duration,
+                        cold_open_start=cold_open_start,
+                        cold_open_end=cold_open_end,
+                    )
                     file_id, file_url, size, token = upload_drive(
                         output, folder_id, name, token, wid
                     )
@@ -300,6 +376,8 @@ def main() -> dict[str, Any]:
                         drive_file_id=file_id,
                         drive_file_url=file_url,
                         output_size_bytes=size,
+                        cold_open_applied=cold_open_applied,
+                        cold_open_duration_seconds=cold_open_duration,
                     )
                     rendered += 1
                 except Exception as exc:
