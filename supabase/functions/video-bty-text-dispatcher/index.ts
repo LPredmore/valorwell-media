@@ -394,6 +394,11 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       end_segment_index:Number(x.end_segment_index),
       reason:String(x.reason??"").trim()
     }));
+    // Coverage is deterministic: the final Part always extends through the final transcript segment.
+    // This avoids wasting retries when the model chooses a reasonable final arc but stops a few segments early.
+    if(boundaries.length>0){
+      boundaries[boundaries.length-1].end_segment_index=Number(segments.at(-1)!.segment_index);
+    }
     if(boundaries.length<partMinCount || boundaries.length>partMaxCount){
       throw new JobError("segmentation_part_count_invalid","BTY Parts Generator requires "+partMinCount+"-"+partMaxCount+" Parts; model returned "+boundaries.length+".","retryable");
     }
@@ -1067,7 +1072,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
   try{
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.8.0",
+      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.9.0",
       p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
     });
     const result=await processJob(admin,job);
@@ -1091,7 +1096,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
     try{
       await admin.rpc("heartbeat_ai_operations_video_worker",{
         p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"idle",
-        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.8.0",
+        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.9.0",
         p_last_error:null,p_metadata:{last_job_id:job.id,last_job_type:job.job_type,execution_mode:"wait_until_background"}
       });
     }catch(_){}
@@ -1120,7 +1125,7 @@ Deno.serve(async(req:Request)=>{
     const active=Array.isArray(owned)&&owned.length?owned[0]:null;
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:TENANT_ID,p_status:active?"working":"idle",
-      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.8.0",
+      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.9.0",
       p_last_error:null,p_metadata:active?{job_type:active.job_type,execution_mode:"wait_until_background",heartbeat_source:"concurrent_cron"}:{execution_mode:"wait_until_background"}
     });
     return json({ok:true,status:active?"busy":"idle",current_job_id:active?.id??null});
@@ -1128,7 +1133,7 @@ Deno.serve(async(req:Request)=>{
 
   await admin.rpc("heartbeat_ai_operations_video_worker",{
     p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.8.0",
+    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.9.0",
     p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
   });
 
