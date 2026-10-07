@@ -8,6 +8,7 @@ const JOB_TYPES = [
   "generate_full_metadata",
   "segment_parts",
   "segment_shorts",
+  "generate_title",
   "generate_clip_copy",
   "generate_hook",
   "generate_thumbnail_visual_metadata",
@@ -545,21 +546,190 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
   };
 }
 
-async function processClipCopy(admin:any,job:Job,project:Project,model:string,apiKey:string){
-  if(!job.clip_id) throw new JobError("clip_id_missing","Clip-copy job has no clip_id.","permanent");
-  const prompt=await getPrompt(admin,job,project,"bty_clip_copy");
-  const clip=await getClip(admin,job.clip_id); const links=await getLinks(admin,project.id);
+async function processTitleGeneration(admin:any,job:Job,project:Project,model:string,apiKey:string){
+  if(!job.clip_id) throw new JobError("clip_id_missing","Title-generation job has no clip_id.","permanent");
+  const prompt=await getPrompt(admin,job,project,"bty_title_generation");
+  const clip=await getClip(admin,job.clip_id);
+  const script=String(clip.transcript_text??"").trim();
+  if(!script) throw new JobError("title_script_missing","Title generation requires a non-empty clip script.","permanent");
+
+  const effectiveModel=String((prompt.config as any)?.model_override??model);
+  const configuredEffort=String((prompt.config as any)?.reasoning_effort??"high");
+  const reasoningEffort=(["none","minimal","low","medium","high","xhigh"].includes(configuredEffort)
+    ? configuredEffort : "high") as "none"|"minimal"|"low"|"medium"|"high"|"xhigh";
+  const candidateCount=Math.min(10,Math.max(3,Number((prompt.config as any)?.candidate_count??10)));
+  const maxCharacters=Math.min(55,Math.max(20,Number((prompt.config as any)?.max_characters??55)));
+
   const schema={
     type:"object",additionalProperties:false,
     properties:{
-      youtube_title:{type:"string"},youtube_description:{type:"string"},
+      title:{type:"string"},
+      candidates:{
+        type:"array",minItems:candidateCount,maxItems:candidateCount,
+        items:{
+          type:"object",additionalProperties:false,
+          properties:{
+            title:{type:"string"},
+            score:{type:"number",minimum:0,maximum:100},
+            character_count:{type:"integer",minimum:1,maximum:maxCharacters}
+          },
+          required:["title","score","character_count"]
+        }
+      }
+    },
+    required:["title","candidates"]
+  };
+
+  // Deliberately sealed context: the title model receives the script and nothing
+  // from hook generation, guest/org metadata, descriptions, thumbnails, or asset type.
+  const user=[
+    prompt.instruction_prompt,
+    "Return exactly "+candidateCount+" distinct title candidates.",
+    "TITLE HARD CEILING: "+maxCharacters+" characters including spaces and punctuation.",
+    "\nSCRIPT\n"+script
+  ].join("\n");
+
+  const out=await openRouterJson(
+    apiKey,effectiveModel,prompt.system_prompt,user,"bty_title_generation",schema,
+    {
+      maxTokens:Number((prompt.config as any)?.openrouter_max_tokens??6500),
+      reasoningEffort,
+      emptyRetries:Number((prompt.config as any)?.empty_response_retries??1),
+      temperature:Number((prompt.config as any)?.temperature??0.55)
+    }
+  );
+
+  const v=out.value as any;
+  const normalizeTitle=(value:any)=>String(value??"").trim().replace(/\s+/g," ");
+  const characterCount=(value:string)=>Array.from(value).length;
+  const validTitle=(value:string)=>Boolean(value) && characterCount(value)<=maxCharacters;
+
+  const requestedWinner=normalizeTitle(v.title);
+  if(!validTitle(requestedWinner)){
+    throw new JobError(
+      "title_character_count_invalid",
+      "YouTube title must contain 1-"+maxCharacters+" characters; model returned "+characterCount(requestedWinner)+".",
+      "retryable"
+    );
+  }
+
+  const seen=new Set<string>();
+  const candidates=(Array.isArray(v.candidates)?v.candidates:[])
+    .map((x:any)=>{
+      const title=normalizeTitle(x?.title);
+      return {
+        title,
+        score:Math.max(0,Math.min(100,Number(x?.score??0))),
+        character_count:characterCount(title)
+      };
+    })
+    .filter((x:any)=>validTitle(x.title))
+    .filter((x:any)=>{
+      const key=x.title.toLowerCase();
+      if(!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a:any,b:any)=>b.score-a.score);
+
+  if(candidates.length!==candidateCount){
+    throw new JobError(
+      "title_candidate_count_invalid",
+      "Title generator must return exactly "+candidateCount+" distinct valid candidates; received "+candidates.length+".",
+      "retryable"
+    );
+  }
+
+  const winner=candidates.find((x:any)=>x.title.toLowerCase()===requestedWinner.toLowerCase());
+  if(!winner){
+    throw new JobError(
+      "title_winner_missing_from_candidates",
+      "Selected title must also appear in the ranked candidate set.",
+      "retryable"
+    );
+  }
+
+  const title=winner.title;
+  const nextRevision=Number(clip.title_generation_revision??0)+1;
+  const now=new Date().toISOString();
+  const {error}=await admin.from("ai_operations_video_clips").update({
+    youtube_title:title,
+    title_candidates:candidates,
+    title_generation_meta:{
+      source:"generated",
+      context_mode:"script_only",
+      model:effectiveModel,
+      reasoning_effort:reasoningEffort,
+      prompt_profile:prompt.profile_key,
+      prompt_version:prompt.version,
+      candidate_count:candidateCount,
+      max_characters:maxCharacters,
+      openrouter_diagnostic:out.diagnostic
+    },
+    title_generation_revision:nextRevision,
+    title_input_fingerprint:job.input_fingerprint,
+    title_generated_at:now,
+    youtube_description:null,
+    linkedin_description:null,
+    facebook_description:null,
+    tiktok_description:null,
+    hashtags:[],
+    copy_input_fingerprint:null,
+    thumbnail_metadata_input_fingerprint:null,
+    thumbnail_input_fingerprint:null,
+    primary_speaker:null,
+    person_positioning:null,
+    facial_expression:null,
+    gesture_action:null,
+    camera_framing:null,
+    pose_family:null,
+    core_visual:null,
+    hook_text_placement:null,
+    cover_image_file_id:null,
+    cover_image_url:null,
+    pipeline_status:"title_ready",
+    last_progress_at:now,
+    updated_at:now
+  }).eq("id",clip.id);
+  if(error) throw new JobError("title_update_failed",error.message,"retryable");
+
+  const {error:pubErr}=await admin.from("ai_operations_social_publications").update({
+    title,
+    description:null,
+    thumbnail_file_id:null,
+    thumbnail_url:null,
+    updated_at:now
+  }).eq("clip_id",clip.id).in("status",["draft","ready","approved"]);
+  if(pubErr) throw new JobError("title_publication_invalidate_failed",pubErr.message,"retryable");
+
+  return {
+    clip_id:clip.id,generation_revision:nextRevision,title,
+    character_count:characterCount(title),candidate_count:candidates.length,
+    model:effectiveModel,reasoning_effort:reasoningEffort,prompt_profile:prompt.profile_key,
+    prompt_version:prompt.version,cost:out.cost,usage:out.usage,openrouter_diagnostic:out.diagnostic
+  };
+}
+
+async function processClipCopy(admin:any,job:Job,project:Project,model:string,apiKey:string){
+  if(!job.clip_id) throw new JobError("clip_id_missing","Clip-copy job has no clip_id.","permanent");
+  const prompt=await getPrompt(admin,job,project,"bty_clip_copy");
+  const clip=await getClip(admin,job.clip_id);
+  if(!clip.title_input_fingerprint || !String(clip.youtube_title??"").trim()){
+    throw new JobError("title_not_ready","Platform-copy generation requires a completed title-generation step.","retryable");
+  }
+  const links=await getLinks(admin,project.id);
+  const schema={
+    type:"object",additionalProperties:false,
+    properties:{
+      youtube_description:{type:"string"},
       linkedin_description:{type:"string"},facebook_description:{type:"string"},tiktok_description:{type:"string"},
       hashtags:{type:"array",minItems:3,maxItems:8,items:{type:"string"}}
-    },required:["youtube_title","youtube_description","linkedin_description","facebook_description","tiktok_description","hashtags"]
+    },required:["youtube_description","linkedin_description","facebook_description","tiktok_description","hashtags"]
   };
   const user=[
     prompt.instruction_prompt,
     "Asset type: "+String(clip.clip_type),
+    "Approved YouTube title (do not rewrite): "+String(clip.youtube_title??""),
     "Guest: "+String(project.guest_name??""),
     "Organization: "+String(project.organization_name??""),
     "Known links: "+JSON.stringify(links),
@@ -567,23 +737,26 @@ async function processClipCopy(admin:any,job:Job,project:Project,model:string,ap
   ].join("\n");
   const out=await openRouterJson(apiKey,model,prompt.system_prompt,user,"bty_clip_copy",schema);
   const v=out.value as any;
+  const now=new Date().toISOString();
   const {error}=await admin.from("ai_operations_video_clips").update({
-    youtube_title:String(v.youtube_title??"").trim(),
     youtube_description:String(v.youtube_description??"").trim(),
     linkedin_description:String(v.linkedin_description??"").trim(),
     facebook_description:String(v.facebook_description??"").trim(),
     tiktok_description:String(v.tiktok_description??"").trim(),
     hashtags:(v.hashtags??[]).map((x:any)=>String(x).trim()).filter(Boolean),
     copy_input_fingerprint:job.input_fingerprint,
-    thumbnail_metadata_input_fingerprint:null,thumbnail_input_fingerprint:null,
-    cover_image_file_id:null,cover_image_url:null,
-    pipeline_status:"copy_ready",last_progress_at:new Date().toISOString(),updated_at:new Date().toISOString()
+    pipeline_status:"copy_ready",last_progress_at:now,updated_at:now
   }).eq("id",clip.id);
   if(error) throw new JobError("clip_copy_update_failed",error.message,"retryable");
-  const {error:pubThumbErr}=await admin.from("ai_operations_social_publications").update({
-    thumbnail_file_id:null,thumbnail_url:null,updated_at:new Date().toISOString()
+
+  const {error:pubErr}=await admin.from("ai_operations_social_publications").update({
+    title:String(clip.youtube_title??"").trim(),
+    description:String(v.youtube_description??"").trim(),
+    hashtags:(v.hashtags??[]).map((x:any)=>String(x).trim()).filter(Boolean),
+    updated_at:now
   }).eq("clip_id",clip.id).in("status",["draft","ready","approved"]);
-  if(pubThumbErr) throw new JobError("clip_copy_thumbnail_invalidate_failed",pubThumbErr.message,"retryable");
+  if(pubErr) throw new JobError("clip_copy_publication_update_failed",pubErr.message,"retryable");
+
   return {clip_id:clip.id,model,prompt_profile:prompt.profile_key,prompt_version:prompt.version,cost:out.cost,usage:out.usage};
 }
 async function processHookGeneration(admin:any,job:Job,project:Project,model:string,apiKey:string){
@@ -864,6 +1037,7 @@ async function processJob(admin:any,job:Job){
     case "generate_full_metadata": return processFullMetadata(admin,job,project,model,apiKey);
     case "segment_parts": return processSegments(admin,job,project,model,apiKey,"part");
     case "segment_shorts": return processSegments(admin,job,project,model,apiKey,"short");
+    case "generate_title": return processTitleGeneration(admin,job,project,model,apiKey);
     case "generate_clip_copy": return processClipCopy(admin,job,project,model,apiKey);
     case "generate_hook": return processHookGeneration(admin,job,project,model,apiKey);
     case "generate_thumbnail_visual_metadata": return processThumbnailVisualMetadata(admin,job,project,model,apiKey);
@@ -878,7 +1052,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
   try{
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.5.0",
+      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.6.0",
       p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
     });
     const result=await processJob(admin,job);
@@ -902,7 +1076,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
     try{
       await admin.rpc("heartbeat_ai_operations_video_worker",{
         p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"idle",
-        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.5.0",
+        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.6.0",
         p_last_error:null,p_metadata:{last_job_id:job.id,last_job_type:job.job_type,execution_mode:"wait_until_background"}
       });
     }catch(_){}
@@ -931,7 +1105,7 @@ Deno.serve(async(req:Request)=>{
     const active=Array.isArray(owned)&&owned.length?owned[0]:null;
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:TENANT_ID,p_status:active?"working":"idle",
-      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.5.0",
+      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.6.0",
       p_last_error:null,p_metadata:active?{job_type:active.job_type,execution_mode:"wait_until_background",heartbeat_source:"concurrent_cron"}:{execution_mode:"wait_until_background"}
     });
     return json({ok:true,status:active?"busy":"idle",current_job_id:active?.id??null});
@@ -939,7 +1113,7 @@ Deno.serve(async(req:Request)=>{
 
   await admin.rpc("heartbeat_ai_operations_video_worker",{
     p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.5.0",
+    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.6.0",
     p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
   });
 
