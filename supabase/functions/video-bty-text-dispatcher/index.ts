@@ -590,18 +590,23 @@ async function processHookGeneration(admin:any,job:Job,project:Project,model:str
   if(!job.clip_id) throw new JobError("clip_id_missing","Hook-generation job has no clip_id.","permanent");
   const prompt=await getPrompt(admin,job,project,"bty_hook_generation");
   const clip=await getClip(admin,job.clip_id);
+  const script=String(clip.transcript_text??"").trim();
+  if(!script) throw new JobError("hook_script_missing","Hook generation requires a non-empty clip script.","permanent");
+
   const effectiveModel=String((prompt.config as any)?.model_override??model);
   const configuredEffort=String((prompt.config as any)?.reasoning_effort??"high");
   const reasoningEffort=(["none","minimal","low","medium","high","xhigh"].includes(configuredEffort)
     ? configuredEffort : "high") as "none"|"minimal"|"low"|"medium"|"high"|"xhigh";
-  const maxHookWords=Math.min(5,Math.max(1,Number((prompt.config as any)?.hook_max_words??5)));
-  const candidateCount=Math.min(10,Math.max(3,Number((prompt.config as any)?.candidate_count??6)));
+  const minHookWords=Math.max(2,Math.min(5,Number((prompt.config as any)?.hook_min_words??2)));
+  const maxHookWords=Math.min(5,Math.max(minHookWords,Number((prompt.config as any)?.hook_max_words??5)));
+  const candidateCount=Math.min(10,Math.max(3,Number((prompt.config as any)?.candidate_count??10)));
+
   const schema={
     type:"object",additionalProperties:false,
     properties:{
       hook_text:{type:"string"},
       candidates:{
-        type:"array",minItems:3,maxItems:10,
+        type:"array",minItems:candidateCount,maxItems:candidateCount,
         items:{
           type:"object",additionalProperties:false,
           properties:{
@@ -614,50 +619,75 @@ async function processHookGeneration(admin:any,job:Job,project:Project,model:str
     },
     required:["hook_text","candidates"]
   };
+
+  // Deliberately sealed context: no title, asset type, guest, organization,
+  // social copy, thumbnail metadata, or other project framing reaches this model.
   const user=[
     prompt.instruction_prompt,
-    "Asset type: "+String(clip.clip_type),
-    "Guest: "+String(project.guest_name??""),
-    "Organization: "+String(project.organization_name??""),
-    "Return "+candidateCount+" serious candidates before selecting the winner.",
-    "HOOK HARD LIMIT: "+maxHookWords+" words maximum for the winner and every candidate.",
-    "\nCLIP TRANSCRIPT\n"+String(clip.transcript_text??"")
+    "Return exactly "+candidateCount+" distinct candidates.",
+    "HOOK HARD LIMIT: every hook must contain "+minHookWords+"-"+maxHookWords+" words.",
+    "\nSCRIPT\n"+script
   ].join("\n");
+
   const out=await openRouterJson(
     apiKey,effectiveModel,prompt.system_prompt,user,"bty_hook_generation",schema,
     {
       maxTokens:Number((prompt.config as any)?.openrouter_max_tokens??6000),
       reasoningEffort,
       emptyRetries:Number((prompt.config as any)?.empty_response_retries??1),
-      temperature:Number((prompt.config as any)?.temperature??0.35)
+      temperature:Number((prompt.config as any)?.temperature??0.55)
     }
   );
+
   const v=out.value as any;
   const normalizeHook=(value:any)=>String(value??"").trim().replace(/\s+/g," ");
   const validHook=(value:string)=>{
     const wc=value ? value.split(/\s+/).filter(Boolean).length : 0;
-    return wc>=1 && wc<=maxHookWords;
+    return wc>=minHookWords && wc<=maxHookWords;
   };
-  const hook=normalizeHook(v.hook_text);
-  if(!validHook(hook)){
-    const wc=hook ? hook.split(/\s+/).filter(Boolean).length : 0;
+
+  const requestedWinner=normalizeHook(v.hook_text);
+  if(!validHook(requestedWinner)){
+    const wc=requestedWinner ? requestedWinner.split(/\s+/).filter(Boolean).length : 0;
     throw new JobError(
       "hook_word_count_invalid",
-      "On-screen hook must contain 1-"+maxHookWords+" words; model returned "+wc+".",
+      "On-screen hook must contain "+minHookWords+"-"+maxHookWords+" words; model returned "+wc+".",
       "retryable"
     );
   }
+
   const seen=new Set<string>();
   const candidates=(Array.isArray(v.candidates)?v.candidates:[])
-    .map((x:any)=>({hook_text:normalizeHook(x?.hook_text),score:Number(x?.score??0)}))
+    .map((x:any)=>({
+      hook_text:normalizeHook(x?.hook_text),
+      score:Math.max(0,Math.min(100,Number(x?.score??0)))
+    }))
     .filter((x:any)=>validHook(x.hook_text))
     .filter((x:any)=>{
       const key=x.hook_text.toLowerCase();
       if(!key || seen.has(key)) return false;
-      seen.add(key); return true;
+      seen.add(key);
+      return true;
     })
-    .slice(0,10);
-  if(!seen.has(hook.toLowerCase())) candidates.unshift({hook_text:hook,score:100});
+    .sort((a:any,b:any)=>b.score-a.score);
+
+  if(candidates.length!==candidateCount){
+    throw new JobError(
+      "hook_candidate_count_invalid",
+      "Hook generator must return exactly "+candidateCount+" distinct valid candidates; received "+candidates.length+".",
+      "retryable"
+    );
+  }
+
+  const winner=candidates.find((x:any)=>x.hook_text.toLowerCase()===requestedWinner.toLowerCase());
+  if(!winner){
+    throw new JobError(
+      "hook_winner_missing_from_candidates",
+      "Selected hook_text must also appear in the ranked candidate set.",
+      "retryable"
+    );
+  }
+  const hook=winner.hook_text;
 
   const nextRevision=Number(clip.hook_generation_revision??0)+1;
   const now=new Date().toISOString();
@@ -665,10 +695,15 @@ async function processHookGeneration(admin:any,job:Job,project:Project,model:str
     hook_text:hook,
     hook_candidates:candidates,
     hook_generation_meta:{
+      source:"generated",
+      context_mode:"script_only",
       model:effectiveModel,
       reasoning_effort:reasoningEffort,
       prompt_profile:prompt.profile_key,
       prompt_version:prompt.version,
+      candidate_count:candidateCount,
+      hook_min_words:minHookWords,
+      hook_max_words:maxHookWords,
       openrouter_diagnostic:out.diagnostic
     },
     hook_generation_revision:nextRevision,
@@ -843,7 +878,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
   try{
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.4.0",
+      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.5.0",
       p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
     });
     const result=await processJob(admin,job);
@@ -867,7 +902,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
     try{
       await admin.rpc("heartbeat_ai_operations_video_worker",{
         p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"idle",
-        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.4.0",
+        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.5.0",
         p_last_error:null,p_metadata:{last_job_id:job.id,last_job_type:job.job_type,execution_mode:"wait_until_background"}
       });
     }catch(_){}
@@ -896,7 +931,7 @@ Deno.serve(async(req:Request)=>{
     const active=Array.isArray(owned)&&owned.length?owned[0]:null;
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:TENANT_ID,p_status:active?"working":"idle",
-      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.4.0",
+      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.5.0",
       p_last_error:null,p_metadata:active?{job_type:active.job_type,execution_mode:"wait_until_background",heartbeat_source:"concurrent_cron"}:{execution_mode:"wait_until_background"}
     });
     return json({ok:true,status:active?"busy":"idle",current_job_id:active?.id??null});
@@ -904,7 +939,7 @@ Deno.serve(async(req:Request)=>{
 
   await admin.rpc("heartbeat_ai_operations_video_worker",{
     p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.4.0",
+    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.5.0",
     p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
   });
 
