@@ -20,11 +20,17 @@ type Job = {
   id:number; tenant_id:string; project_id:string; clip_id:string|null; job_type:string;
   attempts:number; payload:Record<string,unknown>|null; input_fingerprint:string|null;
 };
-type Segment = { start_seconds:number; end_seconds:number; text:string; segment_index:number };
+type TranscriptWord = {
+  start:number; end:number; word:string; punctuated_word:string;
+};
+type Segment = {
+  start_seconds:number; end_seconds:number; text:string; segment_index:number; words:TranscriptWord[];
+};
 type Project = {
   id:string; tenant_id:string; source_file_id:string; source_file_name:string;
   duration_seconds:number|null; transcript_text:string|null; guest_name:string|null;
   organization_name:string|null; guest_image_url:string|null; workflow_revision:number; source_revision:number;
+  metadata:Record<string,unknown>|null;
 };
 class JobError extends Error {
   code:string; errorClass:"retryable"|"permanent"|"systemic";
@@ -56,7 +62,7 @@ function formatTime(seconds:number){
 }
 async function getProject(admin:any,id:string):Promise<Project>{
   const {data,error}=await admin.from("ai_operations_video_projects")
-    .select("id,tenant_id,source_file_id,source_file_name,duration_seconds,transcript_text,guest_name,organization_name,guest_image_url,workflow_revision,source_revision")
+    .select("id,tenant_id,source_file_id,source_file_name,duration_seconds,transcript_text,guest_name,organization_name,guest_image_url,workflow_revision,source_revision,metadata")
     .eq("id",id).maybeSingle();
   if(error) throw new JobError("project_lookup_failed",error.message,"retryable");
   if(!data) throw new JobError("project_missing","Video project no longer exists.","permanent");
@@ -72,12 +78,17 @@ async function getSegments(admin:any,projectId:string):Promise<Segment[]>{
   const out:Segment[]=[]; let from=0; const size=1000;
   while(true){
     const {data,error}=await admin.from("ai_operations_video_transcript_segments")
-      .select("segment_index,start_seconds,end_seconds,text")
+      .select("segment_index,start_seconds,end_seconds,text,words")
       .eq("project_id",projectId).order("segment_index",{ascending:true}).range(from,from+size-1);
     if(error) throw new JobError("segments_lookup_failed",error.message,"retryable");
     const rows=(data??[]).map((x:any)=>({
       segment_index:Number(x.segment_index), start_seconds:Number(x.start_seconds),
-      end_seconds:Number(x.end_seconds), text:String(x.text??"")
+      end_seconds:Number(x.end_seconds), text:String(x.text??""),
+      words:(Array.isArray(x.words)?x.words:[]).map((w:any)=>({
+        start:Number(w?.start),end:Number(w?.end),
+        word:String(w?.word??""),
+        punctuated_word:String(w?.punctuated_word??w?.word??"")
+      })).filter((w:any)=>Number.isFinite(w.start)&&Number.isFinite(w.end)&&w.end>w.start)
     }));
     out.push(...rows);
     if(rows.length<size) break;
@@ -204,6 +215,173 @@ async function openRouterJson(
   }
   throw new JobError("openrouter_empty","OpenRouter returned no structured content ("+lastDiagnostic+").","retryable");
 }
+
+async function getActivePrompt(admin:any,project:Project,key:string):Promise<PromptProfile>{
+  const {data,error}=await admin.from("ai_operations_video_prompt_profiles")
+    .select("profile_key,version,system_prompt,instruction_prompt,config")
+    .eq("tenant_id",project.tenant_id).eq("profile_key",key).eq("is_active",true)
+    .order("version",{ascending:false}).limit(1).maybeSingle();
+  if(error) throw new JobError("prompt_profile_lookup_failed",error.message,"retryable");
+  if(!data) throw new JobError("prompt_profile_missing","Prompt profile "+key+" is unavailable.","systemic");
+  return data as PromptProfile;
+}
+function allTranscriptWords(segments:Segment[]):TranscriptWord[]{
+  return segments.flatMap(s=>s.words??[])
+    .filter(w=>Number.isFinite(w.start)&&Number.isFinite(w.end)&&w.end>w.start)
+    .sort((a,b)=>a.start-b.start);
+}
+function wordsInRange(words:TranscriptWord[],start:number,end:number):TranscriptWord[]{
+  return words.filter(w=>w.end>start&&w.start<end);
+}
+function formatExactWords(words:TranscriptWord[]):string{
+  return words.map(w=>"["+w.start.toFixed(3)+"-"+w.end.toFixed(3)+"] "+(w.punctuated_word||w.word)).join(" ");
+}
+function reconstructWords(words:TranscriptWord[],start:number,end:number):string{
+  return words.filter(w=>w.start>=start-0.03&&w.end<=end+0.03)
+    .map(w=>w.punctuated_word||w.word).join(" ").replace(/\s+/g," ").trim();
+}
+async function selectShortColdOpens(
+  admin:any,project:Project,model:string,apiKey:string,segments:Segment[],clips:any[]
+){
+  const prompt=await getActivePrompt(admin,project,"bty_short_cold_open");
+  const minDuration=Math.max(2,Number((prompt.config as any)?.min_duration_seconds??2));
+  const maxDuration=Math.min(6,Math.max(minDuration,Number((prompt.config as any)?.max_duration_seconds??6)));
+  const minimumScore=Math.max(0,Math.min(100,Number((prompt.config as any)?.minimum_score??82)));
+  const openingSeconds=Math.max(2,Math.min(10,Number((prompt.config as any)?.opening_compare_seconds??6)));
+  const tailFraction=Math.max(0.2,Math.min(0.6,Number((prompt.config as any)?.tail_fraction??0.35)));
+  const tailMin=Math.max(maxDuration,Number((prompt.config as any)?.tail_min_seconds??12));
+  const tailMax=Math.max(tailMin,Number((prompt.config as any)?.tail_max_seconds??35));
+  const finalHardMax=Math.min(179.999,Number((prompt.config as any)?.final_duration_hard_max_seconds??179.999));
+  const allWords=allTranscriptWords(segments);
+
+  const contexts=clips.map((clip:any,i:number)=>{
+    const d=Math.max(0,Number(clip.end)-Number(clip.start));
+    const tailSpan=Math.min(tailMax,Math.max(tailMin,d*tailFraction));
+    const tailStart=Math.max(Number(clip.start)+Math.min(8,d*0.25),Number(clip.end)-tailSpan);
+    const openingWords=wordsInRange(allWords,Number(clip.start),Math.min(Number(clip.end),Number(clip.start)+openingSeconds));
+    const tailWords=wordsInRange(allWords,tailStart,Number(clip.end));
+    return {
+      clip_number:i+1,clip,
+      openingWords,tailWords,tailStart,
+      promptBlock:[
+        "SHORT "+(i+1),
+        "Clip source range: "+Number(clip.start).toFixed(3)+"-"+Number(clip.end).toFixed(3),
+        "Clip duration: "+d.toFixed(3)+" seconds",
+        "Natural opening words: "+formatExactWords(openingWords),
+        "TAIL SEARCH WORDS: "+formatExactWords(tailWords)
+      ].join("\n")
+    };
+  });
+
+  const disabled=(reason:string,promptVersion:number)=>({
+    enabled:false,start_seconds:null,end_seconds:null,text:"",score:0,reason,prompt_version:promptVersion
+  });
+  if(!clips.length) return {decisions:[],prompt_version:prompt.version,cost:null,usage:{},diagnostic:"no_clips"};
+
+  const schema={
+    type:"object",additionalProperties:false,
+    properties:{
+      decisions:{
+        type:"array",minItems:clips.length,maxItems:clips.length,
+        items:{
+          type:"object",additionalProperties:false,
+          properties:{
+            clip_number:{type:"integer",minimum:1,maximum:clips.length},
+            enabled:{type:"boolean"},
+            start_seconds:{type:"number",minimum:0},
+            end_seconds:{type:"number",minimum:0},
+            text:{type:"string"},
+            score:{type:"number",minimum:0,maximum:100},
+            reason:{type:"string"}
+          },
+          required:["clip_number","enabled","start_seconds","end_seconds","text","score","reason"]
+        }
+      }
+    },
+    required:["decisions"]
+  };
+
+  try{
+    const user=[
+      prompt.instruction_prompt,
+      "Evaluate exactly "+clips.length+" Shorts and return exactly one decision for every clip_number.",
+      contexts.map((c:any)=>c.promptBlock).join("\n\n")
+    ].join("\n\n");
+
+    const out=await openRouterJson(
+      apiKey,model,prompt.system_prompt,user,"bty_short_cold_open_selection",schema,
+      {
+        maxTokens:Number((prompt.config as any)?.openrouter_max_tokens??9000),
+        reasoningEffort:String((prompt.config as any)?.reasoning_effort??"medium") as any,
+        emptyRetries:1,
+        temperature:0.1
+      }
+    );
+
+    const byNumber=new Map<number,any>();
+    for(const d of ((out.value as any)?.decisions??[])){
+      const n=Number(d?.clip_number);
+      if(Number.isInteger(n)&&n>=1&&n<=clips.length&&!byNumber.has(n)) byNumber.set(n,d);
+    }
+
+    const decisions=contexts.map((ctx:any)=>{
+      const d=byNumber.get(ctx.clip_number);
+      if(!d) return disabled("Selector returned no valid decision for this Short.",prompt.version);
+      const requestedEnabled=Boolean(d.enabled);
+      const score=Math.max(0,Math.min(100,Number(d.score??0)));
+      const reason=String(d.reason??"").trim()||"No selector reason returned.";
+      if(!requestedEnabled) return {...disabled(reason,prompt.version),score};
+
+      const requestedStart=Number(d.start_seconds);
+      const requestedEnd=Number(d.end_seconds);
+      if(!Number.isFinite(requestedStart)||!Number.isFinite(requestedEnd)){
+        return disabled("Rejected invalid cold-open timestamps.",prompt.version);
+      }
+
+      const startWord=ctx.tailWords.find((w:TranscriptWord)=>Math.abs(w.start-requestedStart)<=0.035);
+      const endWord=ctx.tailWords.find((w:TranscriptWord)=>Math.abs(w.end-requestedEnd)<=0.035);
+      if(!startWord||!endWord){
+        return disabled("Rejected because the model did not choose exact supplied word boundaries.",prompt.version);
+      }
+
+      const start=startWord.start;
+      const end=endWord.end;
+      const coldDuration=end-start;
+      const clipDuration=Number(ctx.clip.end)-Number(ctx.clip.start);
+      if(score<minimumScore){
+        return {...disabled("Rejected below cold-open quality threshold: "+score.toFixed(1)+" < "+minimumScore+".",prompt.version),score};
+      }
+      if(coldDuration<minDuration-0.001||coldDuration>maxDuration+0.001){
+        return {...disabled("Rejected invalid cold-open duration of "+coldDuration.toFixed(3)+" seconds.",prompt.version),score};
+      }
+      if(start<ctx.tailStart-0.05||end>Number(ctx.clip.end)+0.05||start<Number(ctx.clip.start)-0.05){
+        return {...disabled("Rejected because the selected excerpt is outside the allowed tail window.",prompt.version),score};
+      }
+      if(clipDuration+coldDuration>=finalHardMax){
+        return {...disabled("Rejected because prepending it would exceed the Short duration ceiling.",prompt.version),score};
+      }
+      const text=reconstructWords(ctx.tailWords,start,end);
+      if(!text){
+        return {...disabled("Rejected because the selected word range reconstructed to empty text.",prompt.version),score};
+      }
+      return {
+        enabled:true,start_seconds:start,end_seconds:end,text,score,reason,prompt_version:prompt.version
+      };
+    });
+
+    return {decisions,prompt_version:prompt.version,cost:out.cost,usage:out.usage,diagnostic:out.diagnostic};
+  }catch(e){
+    console.error(JSON.stringify({
+      component:"video-bty-text-dispatcher",event:"cold_open_selector_fail_open",
+      project_id:project.id,error:safeMessage(e)
+    }));
+    return {
+      decisions:clips.map(()=>disabled("Cold-open selector unavailable; rendered normally.",prompt.version)),
+      prompt_version:prompt.version,cost:null,usage:{},diagnostic:"fail_open:"+safeMessage(e)
+    };
+  }
+}
+
 async function processFullMetadata(admin:any,job:Job,project:Project,model:string,apiKey:string){
   const prompt=await getPrompt(admin,job,project,"bty_full_metadata");
   const segments=await getSegments(admin,project.id); const links=await getLinks(admin,project.id);
@@ -687,6 +865,19 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       if(!duplicate) deduped.push(clip);
     }
     clips=deduped;
+
+    const coldSelection=await selectShortColdOpens(admin,project,effectiveModel,apiKey,segments,clips);
+    clips=clips.map((clip:any,i:number)=>({
+      ...clip,
+      cold_open:coldSelection.decisions[i]??{
+        enabled:false,start_seconds:null,end_seconds:null,text:"",score:0,
+        reason:"No cold-open decision.",prompt_version:coldSelection.prompt_version
+      }
+    }));
+    (job as any).__cold_open_selection_meta={
+      prompt_version:coldSelection.prompt_version,
+      cost:coldSelection.cost,usage:coldSelection.usage,diagnostic:coldSelection.diagnostic
+    };
   }
 
   if(isPart){
@@ -706,21 +897,42 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
     const x=clips[i];
     const text=clipTranscript(segments,x.start,x.end,project.transcript_text);
     const {data:existing,error:eErr}=await admin.from("ai_operations_video_clips")
-      .select("id,drive_file_id,drive_file_url,rendered_at,output_size_bytes,source_revision")
+      .select("id,drive_file_id,drive_file_url,rendered_at,output_size_bytes,source_revision,cold_open_enabled,cold_open_start_seconds,cold_open_end_seconds,cold_open_text,cold_open_score,cold_open_reason,cold_open_prompt_version")
       .eq("project_id",project.id).eq("clip_type",kind)
       .eq("start_seconds",x.start).eq("end_seconds",x.end).maybeSingle();
     if(eErr) throw new JobError("clip_boundary_lookup_failed",eErr.message,"retryable");
 
-    const canReuseRender=!partsOnly && Boolean(existing?.drive_file_id)&&Number(existing?.source_revision??0)===Number(project.source_revision??0);
+    const desiredCold=(!isPart&&x.cold_open)?x.cold_open:{
+      enabled:false,start_seconds:null,end_seconds:null,text:"",score:0,reason:"Not a Short.",prompt_version:null
+    };
+    const sameColdOpen=isPart || (
+      Boolean(existing?.cold_open_enabled)===Boolean(desiredCold.enabled)
+      && (!desiredCold.enabled || (
+        Math.abs(Number(existing?.cold_open_start_seconds)-Number(desiredCold.start_seconds))<=0.035
+        && Math.abs(Number(existing?.cold_open_end_seconds)-Number(desiredCold.end_seconds))<=0.035
+      ))
+    );
+    const canReuseRender=!partsOnly && Boolean(existing?.drive_file_id)
+      && Number(existing?.source_revision??0)===Number(project.source_revision??0)
+      && sameColdOpen;
     const values:any={
       project_id:project.id,start_seconds:x.start,end_seconds:x.end,transcript_text:text,
       clip_type:kind,parent_file_id:project.source_file_id,workflow_revision:project.workflow_revision,
       source_revision:Number(project.source_revision??0),
+      cold_open_enabled:!isPart&&Boolean(desiredCold.enabled),
+      cold_open_start_seconds:!isPart&&desiredCold.enabled?Number(desiredCold.start_seconds):null,
+      cold_open_end_seconds:!isPart&&desiredCold.enabled?Number(desiredCold.end_seconds):null,
+      cold_open_text:!isPart&&desiredCold.enabled?String(desiredCold.text??""):null,
+      cold_open_score:!isPart?Number(desiredCold.score??0):null,
+      cold_open_reason:!isPart?String(desiredCold.reason??""):null,
+      cold_open_prompt_version:!isPart?Number(desiredCold.prompt_version??0)||null:null,
+      cold_open_selected_at:!isPart?new Date().toISOString():null,
       pipeline_status:partsOnly?"parts_ready":(canReuseRender?"rendered":"render_pending"),
       last_progress_at:new Date().toISOString(),updated_at:new Date().toISOString()
     };
     if(!canReuseRender){
       values.drive_file_id=null;values.drive_file_url=null;values.rendered_at=null;
+      values.render_input_fingerprint=null;
       values.output_size_bytes=null;values.error_message=null;values.status="proposed";
     }
     if(partsOnly){
@@ -768,8 +980,10 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       part_number:i+1,start_seconds:x.start,end_seconds:x.end,duration_seconds:x.end-x.start,reason:x.reason
     })):clips.map((x:any,i:number)=>({
       clip_number:i+1,start_seconds:x.start,end_seconds:x.end,duration_seconds:x.end-x.start,
-      hook_sentence:x.hook_sentence,rationale:x.rationale,category:x.category,total_score:x.total_score
+      hook_sentence:x.hook_sentence,rationale:x.rationale,category:x.category,total_score:x.total_score,
+      cold_open:x.cold_open??null
     })),
+    cold_open_selection:(job as any).__cold_open_selection_meta??null,
     cost:out.cost,usage:out.usage,openrouter_diagnostic:out.diagnostic
   };
 }
@@ -1288,7 +1502,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
   try{
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.13.0",
+      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.14.0",
       p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
     });
     const result=await processJob(admin,job);
@@ -1312,7 +1526,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
     try{
       await admin.rpc("heartbeat_ai_operations_video_worker",{
         p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"idle",
-        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.13.0",
+        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.14.0",
         p_last_error:null,p_metadata:{last_job_id:job.id,last_job_type:job.job_type,execution_mode:"wait_until_background"}
       });
     }catch(_){}
@@ -1341,7 +1555,7 @@ Deno.serve(async(req:Request)=>{
     const active=Array.isArray(owned)&&owned.length?owned[0]:null;
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:TENANT_ID,p_status:active?"working":"idle",
-      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.13.0",
+      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.14.0",
       p_last_error:null,p_metadata:active?{job_type:active.job_type,execution_mode:"wait_until_background",heartbeat_source:"concurrent_cron"}:{execution_mode:"wait_until_background"}
     });
     return json({ok:true,status:active?"busy":"idle",current_job_id:active?.id??null});
@@ -1349,7 +1563,7 @@ Deno.serve(async(req:Request)=>{
 
   await admin.rpc("heartbeat_ai_operations_video_worker",{
     p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.13.0",
+    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.14.0",
     p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
   });
 
