@@ -644,4 +644,77 @@ where p.id=c.project_id
   and c.clip_type in ('part','short')
   and coalesce(btrim(c.hook_text),'')<>'';
 
+update public.ai_operations_video_clips c
+set thumbnail_metadata_input_fingerprint=private.ai_operations_video_sha256_json(jsonb_build_object(
+      'step','generate_thumbnail_visual_metadata_v1',
+      'clip_type',c.clip_type,
+      'transcript',c.transcript_text,
+      'youtube_title',c.youtube_title,
+      'hook_input_fingerprint',c.hook_input_fingerprint,
+      'hook_text',c.hook_text,
+      'guest_name',p.guest_name,
+      'organization_name',p.organization_name,
+      'text_model',s.text_model_id,
+      'ai_config_revision',s.ai_config_revision,
+      'prompt_profile','bty_thumbnail_visual_metadata',
+      'prompt_version',private.ai_operations_video_active_prompt_version(p.tenant_id,'bty_thumbnail_visual_metadata'),
+      'workflow_revision',p.workflow_revision
+    )),
+    updated_at=now()
+from public.ai_operations_video_projects p
+join public.ai_operations_video_settings s on s.tenant_id=p.tenant_id
+where p.id=c.project_id
+  and p.tenant_id='00000000-0000-0000-0000-000000000001'
+  and c.thumbnail_metadata_input_fingerprint is not null
+  and coalesce(btrim(c.primary_speaker),'')<>''
+  and coalesce(btrim(c.person_positioning),'')<>''
+  and coalesce(btrim(c.facial_expression),'')<>''
+  and coalesce(btrim(c.gesture_action),'')<>''
+  and coalesce(btrim(c.camera_framing),'')<>''
+  and coalesce(btrim(c.pose_family),'')<>'';
+
+update public.ai_operations_video_clips c
+set thumbnail_input_fingerprint=private.ai_operations_video_sha256_json(jsonb_build_object(
+      'step','generate_thumbnail_v5',
+      'clip_id',c.id,
+      'clip_type',c.clip_type,
+      'workflow_revision',c.workflow_revision,
+      'hook_input_fingerprint',c.hook_input_fingerprint,
+      'thumbnail_metadata_input_fingerprint',c.thumbnail_metadata_input_fingerprint,
+      'hook_text',c.hook_text,
+      'primary_speaker',c.primary_speaker,
+      'person_positioning',c.person_positioning,
+      'facial_expression',c.facial_expression,
+      'gesture_action',c.gesture_action,
+      'camera_framing',c.camera_framing,
+      'pose_family',c.pose_family,
+      'core_visual',c.core_visual,
+      'hook_text_placement',c.hook_text_placement,
+      'generation_revision',c.thumbnail_generation_revision,
+      'aspect_ratio',case when c.clip_type='short' then '9:16' else '16:9' end,
+      'image_model',s.image_model_id,
+      'text_model',s.text_model_id,
+      'prompt_profile',case when c.clip_type='short' then 'bty_image_short' else 'bty_image_part' end,
+      'prompt_version',private.ai_operations_video_active_prompt_version(
+        p.tenant_id,case when c.clip_type='short' then 'bty_image_short' else 'bty_image_part' end
+      ),
+      'ai_config_revision',s.ai_config_revision,
+      'host_reference_file_id',
+        case when c.clip_type='part' or lower(btrim(c.primary_speaker)) in ('luke','luke predmore')
+          then s.host_reference_file_id else null end,
+      'guest_name',
+        case when c.clip_type='part' or lower(btrim(c.primary_speaker)) not in ('luke','luke predmore')
+          then p.guest_name else null end,
+      'guest_image_url',
+        case when c.clip_type='part' or lower(btrim(c.primary_speaker)) not in ('luke','luke predmore')
+          then p.guest_image_url else null end
+    )),
+    updated_at=now()
+from public.ai_operations_video_projects p
+join public.ai_operations_video_settings s on s.tenant_id=p.tenant_id
+where p.id=c.project_id
+  and p.tenant_id='00000000-0000-0000-0000-000000000001'
+  and c.thumbnail_input_fingerprint is not null
+  and c.cover_image_file_id is not null;
+
 commit;
