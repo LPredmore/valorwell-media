@@ -244,6 +244,7 @@ async function selectShortColdOpens(
   admin:any,project:Project,model:string,apiKey:string,segments:Segment[],clips:any[]
 ){
   const prompt=await getActivePrompt(admin,project,"bty_short_cold_open");
+  const minClipDuration=Math.max(10,Number((prompt.config as any)?.min_clip_seconds??20));
   const minDuration=Math.max(2,Number((prompt.config as any)?.min_duration_seconds??2));
   const maxDuration=Math.min(6,Math.max(minDuration,Number((prompt.config as any)?.max_duration_seconds??6)));
   const minimumScore=Math.max(0,Math.min(100,Number((prompt.config as any)?.minimum_score??82)));
@@ -261,7 +262,7 @@ async function selectShortColdOpens(
     const openingWords=wordsInRange(allWords,Number(clip.start),Math.min(Number(clip.end),Number(clip.start)+openingSeconds));
     const tailWords=wordsInRange(allWords,tailStart,Number(clip.end));
     return {
-      clip_number:i+1,clip,
+      clip_number:i+1,clip,duration:d,
       openingWords,tailWords,tailStart,
       promptBlock:[
         "SHORT "+(i+1),
@@ -329,6 +330,9 @@ async function selectShortColdOpens(
       if(!d) return disabled("Selector returned no valid decision for this Short.",prompt.version);
       const requestedEnabled=Boolean(d.enabled);
       const score=Math.max(0,Math.min(100,Number(d.score??0)));
+      if(ctx.duration<minClipDuration){
+        return disabled("Cold opens are disabled for Shorts under "+minClipDuration+" seconds.",prompt.version);
+      }
       const reason=String(d.reason??"").trim()||"No selector reason returned.";
       if(!requestedEnabled) return {...disabled(reason,prompt.version),score};
 
@@ -1502,7 +1506,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
   try{
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.14.0",
+      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.14.1",
       p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
     });
     const result=await processJob(admin,job);
@@ -1526,7 +1530,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
     try{
       await admin.rpc("heartbeat_ai_operations_video_worker",{
         p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"idle",
-        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.14.0",
+        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.14.1",
         p_last_error:null,p_metadata:{last_job_id:job.id,last_job_type:job.job_type,execution_mode:"wait_until_background"}
       });
     }catch(_){}
@@ -1555,7 +1559,7 @@ Deno.serve(async(req:Request)=>{
     const active=Array.isArray(owned)&&owned.length?owned[0]:null;
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:TENANT_ID,p_status:active?"working":"idle",
-      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.14.0",
+      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.14.1",
       p_last_error:null,p_metadata:active?{job_type:active.job_type,execution_mode:"wait_until_background",heartbeat_source:"concurrent_cron"}:{execution_mode:"wait_until_background"}
     });
     return json({ok:true,status:active?"busy":"idle",current_job_id:active?.id??null});
@@ -1563,7 +1567,7 @@ Deno.serve(async(req:Request)=>{
 
   await admin.rpc("heartbeat_ai_operations_video_worker",{
     p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.14.0",
+    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.14.1",
     p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
   });
 
