@@ -1154,6 +1154,9 @@ async function processThumbnailVisualMetadata(admin:any,job:Job,project:Project,
     },
     required:["primary_speaker","person_positioning","facial_expression","gesture_action","camera_framing","pose_family","core_visual","hook_text_placement"]
   };
+  if(clip.clip_type==="part" && !String(project.guest_name??"").trim()){
+    throw new JobError("part_guest_missing","Long-form Part thumbnail metadata requires a project guest name.","permanent");
+  }
   const user=[
     prompt.instruction_prompt,
     "Asset type: "+String(clip.clip_type),
@@ -1161,7 +1164,9 @@ async function processThumbnailVisualMetadata(admin:any,job:Job,project:Project,
     "YouTube title: "+String(clip.youtube_title??""),
     "Guest: "+String(project.guest_name??""),
     "Organization: "+String(project.organization_name??""),
-    "Allowed primary speakers: Luke Predmore or "+String(project.guest_name??"the project guest")+".",
+    clip.clip_type==="part"
+      ? "LONG-FORM PART RULE: the guest is the ONLY visible person in the thumbnail. Primary speaker MUST be exactly "+String(project.guest_name??"the project guest")+". Do not include Luke/the host or any second recognizable person."
+      : "Allowed primary speakers: Luke Predmore or "+String(project.guest_name??"the project guest")+".",
     "\nCLIP TRANSCRIPT\n"+String(clip.transcript_text??"")
   ].join("\n");
   const out=await openRouterJson(
@@ -1174,10 +1179,13 @@ async function processThumbnailVisualMetadata(admin:any,job:Job,project:Project,
     }
   );
   const v=out.value as any;
+  const primarySpeaker=clip.clip_type==="part"
+    ? String(project.guest_name??"").trim()
+    : String(v.primary_speaker??"").trim();
   const nextRevision=Number(clip.thumbnail_generation_revision??0)+1;
   const now=new Date().toISOString();
   const {error}=await admin.from("ai_operations_video_clips").update({
-    primary_speaker:String(v.primary_speaker??"").trim(),
+    primary_speaker:primarySpeaker,
     person_positioning:String(v.person_positioning??"").trim(),
     facial_expression:String(v.facial_expression??"").trim(),
     gesture_action:String(v.gesture_action??"").trim(),camera_framing:String(v.camera_framing??"").trim(),
@@ -1280,7 +1288,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
   try{
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.12.0",
+      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.13.0",
       p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
     });
     const result=await processJob(admin,job);
@@ -1304,7 +1312,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
     try{
       await admin.rpc("heartbeat_ai_operations_video_worker",{
         p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"idle",
-        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.12.0",
+        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.13.0",
         p_last_error:null,p_metadata:{last_job_id:job.id,last_job_type:job.job_type,execution_mode:"wait_until_background"}
       });
     }catch(_){}
@@ -1333,7 +1341,7 @@ Deno.serve(async(req:Request)=>{
     const active=Array.isArray(owned)&&owned.length?owned[0]:null;
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:TENANT_ID,p_status:active?"working":"idle",
-      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.12.0",
+      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.13.0",
       p_last_error:null,p_metadata:active?{job_type:active.job_type,execution_mode:"wait_until_background",heartbeat_source:"concurrent_cron"}:{execution_mode:"wait_until_background"}
     });
     return json({ok:true,status:active?"busy":"idle",current_job_id:active?.id??null});
@@ -1341,7 +1349,7 @@ Deno.serve(async(req:Request)=>{
 
   await admin.rpc("heartbeat_ai_operations_video_worker",{
     p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.12.0",
+    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.13.0",
     p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
   });
 
