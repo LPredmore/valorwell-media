@@ -301,8 +301,8 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
   const partMaxCount=Math.min(10,Math.max(partMinCount,Number((prompt.config as any)?.max_parts??10)));
   const partPreferredMin=Math.max(partMinCount,Number((prompt.config as any)?.preferred_min_parts??7));
   const partPreferredMax=Math.min(partMaxCount,Math.max(partPreferredMin,Number((prompt.config as any)?.preferred_max_parts??10)));
-  const partMin=Number(job.payload?.min_seconds??(prompt.config as any)?.target_min_seconds??300);
-  const partMax=Number(job.payload?.max_seconds??(prompt.config as any)?.target_max_seconds??900);
+  const partMin=Math.max(210,Number(job.payload?.min_seconds??(prompt.config as any)?.target_min_seconds??210));
+  const partMax=Math.max(partMin,Number(job.payload?.max_seconds??(prompt.config as any)?.target_max_seconds??600));
 
   const shortPreferredMin=Number((prompt.config as any)?.preferred_min_seconds??20);
   const shortPreferredMax=Number((prompt.config as any)?.preferred_max_seconds??90);
@@ -355,7 +355,11 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
         "- Boundary indices must be real supplied SEG numbers and strictly increase.",
         "- The final end_segment_index MUST be "+segments.at(-1)!.segment_index+".",
         "- Coverage is mandatory: all transcript segments from SEG "+segments[0].segment_index+" through SEG "+segments.at(-1)!.segment_index+" must be included exactly once.",
-        "- Target Part duration is roughly "+partMin+"-"+partMax+" seconds, but natural editorial boundaries take priority."
+        "- HARD MINIMUM: every Part must be at least "+partMin+" seconds (3.5 minutes). Never create a shorter orphan Part.",
+        "- PREFERRED MAXIMUM: keep each Part at or under "+partMax+" seconds (10 minutes) whenever a natural boundary exists.",
+        "- "+partMax+" seconds is NOT a hard ceiling. A Part may exceed it only when the nearby conversation has no clean break and splitting would damage a coherent thought, story, or payoff.",
+        "- Do not cut merely because a duration target has been reached. After the hard minimum is satisfied, choose the strongest natural topic/story resolution, preferably before the preferred maximum.",
+        "- Before finalizing boundaries, inspect the remaining tail. If the final remainder would be under "+partMin+" seconds, move the preceding boundary earlier or merge the tail into the previous Part."
       ].join("\n")
     : [
         "BTY Shorts runtime policy:",
@@ -420,6 +424,17 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
     }
     if(previousPos!==segments.length-1){
       throw new JobError("segmentation_final_boundary_invalid","The final Part must end on the final transcript segment (SEG "+segments.at(-1)!.segment_index+").","retryable");
+    }
+
+    for(let i=0;i<clips.length;i++){
+      const partDuration=clips[i].end-clips[i].start;
+      if(partDuration+0.000001<partMin){
+        throw new JobError(
+          "segmentation_part_too_short",
+          "Part "+(i+1)+" is "+partDuration.toFixed(3)+" seconds; every BTY long-form Part must be at least "+partMin+" seconds. Merge it with a neighboring Part and choose the nearest natural boundary.",
+          "retryable"
+        );
+      }
     }
 
     const eps=0.05;
@@ -1052,7 +1067,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
   try{
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.7.0",
+      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.8.0",
       p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
     });
     const result=await processJob(admin,job);
@@ -1076,7 +1091,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
     try{
       await admin.rpc("heartbeat_ai_operations_video_worker",{
         p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"idle",
-        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.7.0",
+        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.8.0",
         p_last_error:null,p_metadata:{last_job_id:job.id,last_job_type:job.job_type,execution_mode:"wait_until_background"}
       });
     }catch(_){}
@@ -1105,7 +1120,7 @@ Deno.serve(async(req:Request)=>{
     const active=Array.isArray(owned)&&owned.length?owned[0]:null;
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:TENANT_ID,p_status:active?"working":"idle",
-      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.7.0",
+      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.8.0",
       p_last_error:null,p_metadata:active?{job_type:active.job_type,execution_mode:"wait_until_background",heartbeat_source:"concurrent_cron"}:{execution_mode:"wait_until_background"}
     });
     return json({ok:true,status:active?"busy":"idle",current_job_id:active?.id??null});
@@ -1113,7 +1128,7 @@ Deno.serve(async(req:Request)=>{
 
   await admin.rpc("heartbeat_ai_operations_video_worker",{
     p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.7.0",
+    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.8.0",
     p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
   });
 
