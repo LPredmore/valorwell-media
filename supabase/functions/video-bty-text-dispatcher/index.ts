@@ -485,12 +485,152 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       mergedShortParts++;
     }
 
+    let refinedOversizeParts=0;
+    let refinementGuard=0;
+    for(let i=0;i<clips.length && refinementGuard<20;){
+      refinementGuard++;
+      const partDuration=clips[i].end-clips[i].start;
+      if(partDuration<=partMax+0.000001 || clips.length>=partMaxCount){
+        i++;
+        continue;
+      }
+
+      const startPos=segments.findIndex((s:any)=>Math.abs(Number(s.start_seconds)-Number(clips[i].start))<0.01);
+      const endPos=segments.findIndex((s:any)=>Math.abs(Number(s.end_seconds)-Number(clips[i].end))<0.01);
+      if(startPos<0 || endPos<startPos){
+        throw new JobError("segmentation_refine_span_lookup_failed","Could not map an oversized Part back to transcript segments.","retryable");
+      }
+
+      const maxSubpartsByCount=1+(partMaxCount-clips.length);
+      const maxSubpartsByMin=Math.max(1,Math.floor(partDuration/partMin));
+      const desiredSubparts=Math.max(2,Math.ceil(partDuration/(partMax*0.9)));
+      const subpartCount=Math.min(desiredSubparts,maxSubpartsByCount,maxSubpartsByMin);
+      if(subpartCount<2){
+        i++;
+        continue;
+      }
+
+      const splitCount=subpartCount-1;
+      const refineSchema={
+        type:"object",additionalProperties:false,
+        properties:{
+          boundaries:{
+            type:"array",minItems:splitCount,maxItems:splitCount,
+            items:{
+              type:"object",additionalProperties:false,
+              properties:{
+                end_segment_index:{type:"integer",minimum:0},
+                reason:{type:"string"}
+              },
+              required:["end_segment_index","reason"]
+            }
+          }
+        },
+        required:["boundaries"]
+      };
+
+      const scopedSegments=segments.slice(startPos,endPos+1);
+      const scopedTranscript=scopedSegments
+        .map((s:any)=>"[SEG "+s.segment_index+" | "+formatTime(s.start_seconds)+"-"+formatTime(s.end_seconds)+"] "+s.text)
+        .join("\n");
+      const refineSystem=[
+        "You are the Beyond The Yellow long-form Part boundary refiner.",
+        "You receive ONE oversized Part from a larger interview and must split only that interval at natural conversational breakpoints.",
+        "Preserve chronology and meaning. Never invent dialogue or segment numbers.",
+        "The supplied interval is already valid content; your sole job is to find better internal boundaries."
+      ].join("\n");
+      const refineUser=[
+        "OVERSIZE PART REFINEMENT.",
+        "Current duration: "+partDuration.toFixed(3)+" seconds.",
+        "Split this interval into exactly "+subpartCount+" chronological Parts by returning exactly "+splitCount+" INTERNAL end_segment_index boundaries.",
+        "The system automatically keeps the original interval start and original interval end.",
+        "HARD MINIMUM: every resulting Part must be at least "+partMin+" seconds.",
+        "PREFERRED MAXIMUM: keep every resulting Part at or under "+partMax+" seconds whenever a natural breakpoint exists.",
+        "Choose topic/story resolutions and transitions, never arbitrary clock cuts.",
+        "Do not return the final transcript segment as an internal boundary.",
+        "Prefer a slightly uneven natural split over mechanically equal durations.",
+        "\nOVERSIZED PART TRANSCRIPT\n"+scopedTranscript
+      ].join("\n");
+
+      const refineOut=await openRouterJson(
+        apiKey,effectiveModel,refineSystem,refineUser,"bty_parts_oversize_refinement",refineSchema,
+        {
+          maxTokens:5000,
+          reasoningEffort:"medium",
+          emptyRetries:1,
+          temperature:0.1
+        }
+      );
+
+      const rawBoundaries=((refineOut.value as any).boundaries??[])
+        .map((x:any)=>({
+          end_segment_index:Number(x.end_segment_index),
+          reason:String(x.reason??"").trim()
+        }));
+
+      if(rawBoundaries.length!==splitCount){
+        throw new JobError("segmentation_refine_count_invalid","Oversize refinement returned the wrong number of boundaries.","retryable");
+      }
+
+      const boundaryPositions:number[]=[];
+      let prevBoundaryPos=startPos-1;
+      for(let b=0;b<rawBoundaries.length;b++){
+        const boundary=rawBoundaries[b];
+        if(!Number.isInteger(boundary.end_segment_index)||!posBySegmentIndex.has(boundary.end_segment_index)){
+          throw new JobError("segmentation_refine_boundary_invalid","Oversize refinement returned a boundary not present in the transcript.","retryable");
+        }
+        const pos=posBySegmentIndex.get(boundary.end_segment_index)!;
+        if(pos<startPos || pos>=endPos || pos<=prevBoundaryPos){
+          throw new JobError("segmentation_refine_boundary_order_invalid","Oversize refinement boundaries must be internal and strictly increasing.","retryable");
+        }
+        boundaryPositions.push(pos);
+        prevBoundaryPos=pos;
+      }
+
+      const refined:any[]=[];
+      let subStartPos=startPos;
+      for(let sIdx=0;sIdx<subpartCount;sIdx++){
+        const subEndPos=sIdx<boundaryPositions.length?boundaryPositions[sIdx]:endPos;
+        const subStartSeg=segments[subStartPos];
+        const subEndSeg=segments[subEndPos];
+        const subStart=Number(subStartSeg.start_seconds);
+        const subEnd=Math.min(duration||Number(subEndSeg.end_seconds),Number(subEndSeg.end_seconds));
+        const subDuration=subEnd-subStart;
+        if(subDuration+0.000001<partMin){
+          throw new JobError(
+            "segmentation_refine_part_too_short",
+            "Oversize refinement produced a "+subDuration.toFixed(3)+" second Part below the "+partMin+" second hard minimum.",
+            "retryable"
+          );
+        }
+        refined.push({
+          start:subStart,
+          end:subEnd,
+          reason:sIdx<rawBoundaries.length
+            ? rawBoundaries[sIdx].reason
+            : String(clips[i].reason??"").trim(),
+          hook_sentence:"",
+          rationale:sIdx<rawBoundaries.length
+            ? rawBoundaries[sIdx].reason
+            : String(clips[i].reason??"").trim(),
+          category:"",
+          total_score:null
+        });
+        subStartPos=subEndPos+1;
+      }
+
+      clips.splice(i,1,...refined);
+      refinedOversizeParts++;
+      // Re-check the newly inserted Parts. If one still exceeds the preferred
+      // maximum and there is room under max_parts, it can be refined again.
+    }
+
     for(let i=0;i<clips.length;i++){
       const partDuration=clips[i].end-clips[i].start;
       if(partDuration+0.000001<partMin){
         throw new JobError(
           "segmentation_part_too_short",
-          "Part "+(i+1)+" remains below the "+partMin+" second hard minimum after orphan normalization.",
+          "Part "+(i+1)+" remains below the "+partMin+" second hard minimum after normalization.",
           "retryable"
         );
       }
@@ -605,7 +745,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
     kind,count:written,model:effectiveModel,prompt_profile:prompt.profile_key,prompt_version:prompt.version,
     duration_policy:isPart?{
       min_parts:partMinCount,max_parts:partMaxCount,preferred_min_parts:partPreferredMin,preferred_max_parts:partPreferredMax,
-      target_min:partMin,target_max:partMax,coverage_required:true,orphan_merge_normalization:true,output_mode:"segment_boundary_indices_v1"
+      target_min:partMin,target_max:partMax,coverage_required:true,orphan_merge_normalization:true,oversize_refinement:true,output_mode:"segment_boundary_indices_v1"
     }:{
       preferred_min:shortPreferredMin,preferred_max:shortPreferredMax,allowed_min:shortAllowedMin,hard_max:shortHardMax,
       output_mode:"short_segment_indices_v1"
@@ -1126,7 +1266,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
   try{
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.10.0",
+      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.11.0",
       p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
     });
     const result=await processJob(admin,job);
@@ -1150,7 +1290,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
     try{
       await admin.rpc("heartbeat_ai_operations_video_worker",{
         p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"idle",
-        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.10.0",
+        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.11.0",
         p_last_error:null,p_metadata:{last_job_id:job.id,last_job_type:job.job_type,execution_mode:"wait_until_background"}
       });
     }catch(_){}
@@ -1179,7 +1319,7 @@ Deno.serve(async(req:Request)=>{
     const active=Array.isArray(owned)&&owned.length?owned[0]:null;
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:TENANT_ID,p_status:active?"working":"idle",
-      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.10.0",
+      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.11.0",
       p_last_error:null,p_metadata:active?{job_type:active.job_type,execution_mode:"wait_until_background",heartbeat_source:"concurrent_cron"}:{execution_mode:"wait_until_background"}
     });
     return json({ok:true,status:active?"busy":"idle",current_job_id:active?.id??null});
@@ -1187,7 +1327,7 @@ Deno.serve(async(req:Request)=>{
 
   await admin.rpc("heartbeat_ai_operations_video_worker",{
     p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.10.0",
+    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.11.0",
     p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
   });
 
