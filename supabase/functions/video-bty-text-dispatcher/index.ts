@@ -386,6 +386,97 @@ async function selectShortColdOpens(
   }
 }
 
+
+async function processSingleShortColdOpen(
+  admin:any,job:Job,project:Project,model:string,apiKey:string
+){
+  if(!job.clip_id) throw new JobError("clip_id_missing","Cold-open-only Short job has no clip_id.","permanent");
+  const clip=await getClip(admin,job.clip_id);
+  if(String(clip.clip_type)!=="short"){
+    throw new JobError("cold_open_clip_type_invalid","Cold-open-only evaluation requires a Short clip.","permanent");
+  }
+  if(String(clip.project_id)!==String(project.id)){
+    throw new JobError("cold_open_project_mismatch","Cold-open clip does not belong to the claimed project.","permanent");
+  }
+
+  const segments=await getSegments(admin,project.id);
+  if(!segments.length){
+    throw new JobError("cold_open_timestamped_transcript_missing","Cold-open evaluation requires timestamped transcript words.","permanent");
+  }
+
+  const start=Number(clip.start_seconds);
+  const end=Number(clip.end_seconds);
+  const selection=await selectShortColdOpens(
+    admin,project,model,apiKey,segments,[{start,end}]
+  );
+  const decision=selection.decisions[0]??{
+    enabled:false,start_seconds:null,end_seconds:null,text:"",score:0,
+    reason:"No cold-open decision returned.",prompt_version:selection.prompt_version
+  };
+
+  const oldEnabled=Boolean(clip.cold_open_enabled);
+  const oldStart=clip.cold_open_start_seconds==null?null:Number(clip.cold_open_start_seconds);
+  const oldEnd=clip.cold_open_end_seconds==null?null:Number(clip.cold_open_end_seconds);
+  const newEnabled=Boolean(decision.enabled);
+  const newStart=newEnabled?Number(decision.start_seconds):null;
+  const newEnd=newEnabled?Number(decision.end_seconds):null;
+  const timingChanged=oldEnabled!==newEnabled
+    || (newEnabled && (
+      oldStart==null || oldEnd==null
+      || Math.abs(oldStart-newStart)>0.035
+      || Math.abs(oldEnd-newEnd)>0.035
+    ));
+
+  const now=new Date().toISOString();
+  const values:any={
+    cold_open_enabled:newEnabled,
+    cold_open_start_seconds:newStart,
+    cold_open_end_seconds:newEnd,
+    cold_open_text:newEnabled?String(decision.text??""):null,
+    cold_open_score:Number(decision.score??0),
+    cold_open_reason:String(decision.reason??""),
+    cold_open_prompt_version:Number(decision.prompt_version??selection.prompt_version??0)||null,
+    cold_open_selected_at:now,
+    last_progress_at:now,
+    updated_at:now
+  };
+
+  if(timingChanged){
+    values.drive_file_id=null;
+    values.drive_file_url=null;
+    values.rendered_at=null;
+    values.output_size_bytes=null;
+    values.render_input_fingerprint=null;
+    values.error_message=null;
+    values.status="proposed";
+    values.pipeline_status="render_pending";
+  }
+
+  const {error:updateErr}=await admin.from("ai_operations_video_clips")
+    .update(values).eq("id",clip.id);
+  if(updateErr) throw new JobError("cold_open_clip_update_failed",updateErr.message,"retryable");
+
+  return {
+    mode:"cold_open_only",
+    clip_id:clip.id,
+    enabled:newEnabled,
+    start_seconds:newStart,
+    end_seconds:newEnd,
+    duration_seconds:newEnabled?(newEnd-newStart):0,
+    text:newEnabled?String(decision.text??""):"",
+    score:Number(decision.score??0),
+    reason:String(decision.reason??""),
+    timing_changed:timingChanged,
+    rerender_enqueued:timingChanged,
+    prompt_profile:"bty_short_cold_open",
+    prompt_version:Number(decision.prompt_version??selection.prompt_version??0)||null,
+    model,
+    cost:selection.cost,
+    usage:selection.usage,
+    openrouter_diagnostic:selection.diagnostic
+  };
+}
+
 async function processFullMetadata(admin:any,job:Job,project:Project,model:string,apiKey:string){
   const prompt=await getPrompt(admin,job,project,"bty_full_metadata");
   const segments=await getSegments(admin,project.id); const links=await getLinks(admin,project.id);
@@ -1490,7 +1581,11 @@ async function processJob(admin:any,job:Job){
   switch(job.job_type){
     case "generate_full_metadata": return processFullMetadata(admin,job,project,model,apiKey);
     case "segment_parts": return processSegments(admin,job,project,model,apiKey,"part");
-    case "segment_shorts": return processSegments(admin,job,project,model,apiKey,"short");
+    case "segment_shorts":
+      if(String(job.payload?.mode??"")==="cold_open_only"){
+        return processSingleShortColdOpen(admin,job,project,model,apiKey);
+      }
+      return processSegments(admin,job,project,model,apiKey,"short");
     case "generate_title": return processTitleGeneration(admin,job,project,model,apiKey);
     case "generate_clip_copy": return processClipCopy(admin,job,project,model,apiKey);
     case "generate_hook": return processHookGeneration(admin,job,project,model,apiKey);
@@ -1506,7 +1601,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
   try{
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.14.1",
+      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.15.0",
       p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
     });
     const result=await processJob(admin,job);
@@ -1530,7 +1625,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
     try{
       await admin.rpc("heartbeat_ai_operations_video_worker",{
         p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"idle",
-        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.14.1",
+        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.15.0",
         p_last_error:null,p_metadata:{last_job_id:job.id,last_job_type:job.job_type,execution_mode:"wait_until_background"}
       });
     }catch(_){}
@@ -1559,7 +1654,7 @@ Deno.serve(async(req:Request)=>{
     const active=Array.isArray(owned)&&owned.length?owned[0]:null;
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:TENANT_ID,p_status:active?"working":"idle",
-      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.14.1",
+      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.15.0",
       p_last_error:null,p_metadata:active?{job_type:active.job_type,execution_mode:"wait_until_background",heartbeat_source:"concurrent_cron"}:{execution_mode:"wait_until_background"}
     });
     return json({ok:true,status:active?"busy":"idle",current_job_id:active?.id??null});
@@ -1567,7 +1662,7 @@ Deno.serve(async(req:Request)=>{
 
   await admin.rpc("heartbeat_ai_operations_video_worker",{
     p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.14.1",
+    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.15.0",
     p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
   });
 
