@@ -143,24 +143,23 @@ async function hostReference(admin:SupabaseClient,settings:SettingsRow){
 }
 async function clipReferences(admin:SupabaseClient,clip:ClipRow,project:ProjectRow,settings:SettingsRow){
   const speaker=String(clip.primary_speaker??"").trim().toLowerCase();
+  const guestName=String(project.guest_name??"").trim().toLowerCase();
   if(clip.clip_type==="part"){
-    const host=await hostReference(admin,settings);
-    const guest=await guestReference(admin,project);
-    if(speaker!=="luke"&&speaker!=="luke predmore"&&String(project.guest_name??"").trim().toLowerCase()!==speaker){
-      throw new ImageJobError("speaker_reference_mismatch","Primary speaker does not match Luke or the project guest.","permanent",{primary_speaker:clip.primary_speaker,guest_name:project.guest_name});
+    if(!guestName || guestName!==speaker){
+      throw new ImageJobError("speaker_reference_mismatch","Long-form Part thumbnails must use the episode guest as the only visible person.","permanent",{primary_speaker:clip.primary_speaker,guest_name:project.guest_name});
     }
-    return [host,guest];
+    return [await guestReference(admin,project)];
   }
   if(speaker==="luke"||speaker==="luke predmore")return [await hostReference(admin,settings)];
-  if(String(project.guest_name??"").trim().toLowerCase()!==speaker)throw new ImageJobError("speaker_reference_mismatch","Primary speaker does not match Luke or the project guest.","permanent",{primary_speaker:clip.primary_speaker,guest_name:project.guest_name});
+  if(guestName!==speaker)throw new ImageJobError("speaker_reference_mismatch","Primary speaker does not match Luke or the project guest.","permanent",{primary_speaker:clip.primary_speaker,guest_name:project.guest_name});
   return [await guestReference(admin,project)];
 }
 function clipCreativeBrief(clip:ClipRow,project:ProjectRow,aspectRatio:string){
   const referenceRules=clip.clip_type==="part" ? [
-    "REFERENCE IMAGE A: Luke Predmore (host).",
-    "REFERENCE IMAGE B: "+String(project.guest_name??"the episode guest")+".",
-    "Both people MUST appear visibly and recognizably in the finished thumbnail.",
-    "Primary speaker indicates who may dominate the composition; it never means omit the other person."
+    "REFERENCE IMAGE: "+String(project.guest_name??"the episode guest")+".",
+    "The guest is the ONLY visible recognizable person in the finished thumbnail.",
+    "Do NOT include Luke/the host, a second talking head, a host silhouette, or any other recognizable person.",
+    "Build the composition around the guest's expression, posture, gesture, and the Part's story."
   ] : [
     "REFERENCE IMAGE: the selected primary speaker."
   ];
