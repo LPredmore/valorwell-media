@@ -279,7 +279,7 @@ async function processFullMetadata(admin:any,job:Job,project:Project,model:strin
 async function processSegments(admin:any,job:Job,project:Project,model:string,apiKey:string,kind:"part"|"short"){
   const promptKey=kind==="part"?"bty_segment_parts":"bty_segment_shorts";
   const prompt=await getPrompt(admin,job,project,promptKey);
-  const effectiveModel=String((prompt.config as any)?.model_override??model);
+  const effectiveModel=model;
   const segments=await getSegments(admin,project.id);
   const isPart=kind==="part";
   if(!segments.length){
@@ -553,7 +553,7 @@ async function processTitleGeneration(admin:any,job:Job,project:Project,model:st
   const script=String(clip.transcript_text??"").trim();
   if(!script) throw new JobError("title_script_missing","Title generation requires a non-empty clip script.","permanent");
 
-  const effectiveModel=String((prompt.config as any)?.model_override??model);
+  const effectiveModel=model;
   const configuredEffort=String((prompt.config as any)?.reasoning_effort??"high");
   const reasoningEffort=(["none","minimal","low","medium","high","xhigh"].includes(configuredEffort)
     ? configuredEffort : "high") as "none"|"minimal"|"low"|"medium"|"high"|"xhigh";
@@ -766,7 +766,7 @@ async function processHookGeneration(admin:any,job:Job,project:Project,model:str
   const script=String(clip.transcript_text??"").trim();
   if(!script) throw new JobError("hook_script_missing","Hook generation requires a non-empty clip script.","permanent");
 
-  const effectiveModel=String((prompt.config as any)?.model_override??model);
+  const effectiveModel=model;
   const configuredEffort=String((prompt.config as any)?.reasoning_effort??"high");
   const reasoningEffort=(["none","minimal","low","medium","high","xhigh"].includes(configuredEffort)
     ? configuredEffort : "high") as "none"|"minimal"|"low"|"medium"|"high"|"xhigh";
@@ -912,7 +912,7 @@ async function processThumbnailVisualMetadata(admin:any,job:Job,project:Project,
   if(!clip.hook_input_fingerprint || !String(clip.hook_text??"").trim()){
     throw new JobError("hook_not_ready","Thumbnail visual metadata requires a completed hook-generation step.","retryable");
   }
-  const effectiveModel=String((prompt.config as any)?.model_override??model);
+  const effectiveModel=model;
   const configuredEffort=String((prompt.config as any)?.reasoning_effort??"low");
   const reasoningEffort=(["none","minimal","low","medium","high","xhigh"].includes(configuredEffort)
     ? configuredEffort : "low") as "none"|"minimal"|"low"|"medium"|"high"|"xhigh";
@@ -1052,7 +1052,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
   try{
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.6.0",
+      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.7.0",
       p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
     });
     const result=await processJob(admin,job);
@@ -1076,7 +1076,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
     try{
       await admin.rpc("heartbeat_ai_operations_video_worker",{
         p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"idle",
-        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.6.0",
+        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.7.0",
         p_last_error:null,p_metadata:{last_job_id:job.id,last_job_type:job.job_type,execution_mode:"wait_until_background"}
       });
     }catch(_){}
@@ -1105,7 +1105,7 @@ Deno.serve(async(req:Request)=>{
     const active=Array.isArray(owned)&&owned.length?owned[0]:null;
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:TENANT_ID,p_status:active?"working":"idle",
-      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.6.0",
+      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.7.0",
       p_last_error:null,p_metadata:active?{job_type:active.job_type,execution_mode:"wait_until_background",heartbeat_source:"concurrent_cron"}:{execution_mode:"wait_until_background"}
     });
     return json({ok:true,status:active?"busy":"idle",current_job_id:active?.id??null});
@@ -1113,7 +1113,7 @@ Deno.serve(async(req:Request)=>{
 
   await admin.rpc("heartbeat_ai_operations_video_worker",{
     p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.6.0",
+    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.7.0",
     p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
   });
 
