@@ -431,12 +431,66 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       throw new JobError("segmentation_final_boundary_invalid","The final Part must end on the final transcript segment (SEG "+segments.at(-1)!.segment_index+").","retryable");
     }
 
+    // Deterministically remove orphan Parts below the hard minimum by deleting
+    // the offending boundary and absorbing that material into the better neighbor.
+    // The model still chooses the natural boundaries; this normalization prevents
+    // an otherwise good segmentation from failing because of one tiny orphan.
+    let mergedShortParts=0;
+    for(let i=0;i<clips.length;){
+      const partDuration=clips[i].end-clips[i].start;
+      if(partDuration+0.000001>=partMin){
+        i++;
+        continue;
+      }
+      if(clips.length<=partMinCount){
+        throw new JobError(
+          "segmentation_part_too_short",
+          "Part "+(i+1)+" is "+partDuration.toFixed(3)+" seconds and cannot be merged without dropping below the minimum Part count.",
+          "retryable"
+        );
+      }
+
+      const hasPrev=i>0;
+      const hasNext=i<clips.length-1;
+      if(!hasPrev && !hasNext){
+        throw new JobError("segmentation_part_too_short","The only Part is below the hard minimum.","retryable");
+      }
+
+      let mergeIntoPrev=false;
+      if(hasPrev && !hasNext){
+        mergeIntoPrev=true;
+      }else if(!hasPrev && hasNext){
+        mergeIntoPrev=false;
+      }else{
+        const prevDuration=clips[i].end-clips[i-1].start;
+        const nextDuration=clips[i+1].end-clips[i].start;
+        const prevOver=Math.max(0,prevDuration-partMax);
+        const nextOver=Math.max(0,nextDuration-partMax);
+        mergeIntoPrev=prevOver===nextOver ? prevDuration<=nextDuration : prevOver<nextOver;
+      }
+
+      if(mergeIntoPrev){
+        clips[i-1].end=clips[i].end;
+        clips[i-1].reason=[clips[i-1].reason,clips[i].reason].filter(Boolean).join("; ");
+        clips[i-1].rationale=clips[i-1].reason;
+        clips.splice(i,1);
+        i=Math.max(0,i-1);
+      }else{
+        clips[i+1].start=clips[i].start;
+        clips[i+1].reason=[clips[i].reason,clips[i+1].reason].filter(Boolean).join("; ");
+        clips[i+1].rationale=clips[i+1].reason;
+        clips.splice(i,1);
+        i=Math.max(0,i-1);
+      }
+      mergedShortParts++;
+    }
+
     for(let i=0;i<clips.length;i++){
       const partDuration=clips[i].end-clips[i].start;
       if(partDuration+0.000001<partMin){
         throw new JobError(
           "segmentation_part_too_short",
-          "Part "+(i+1)+" is "+partDuration.toFixed(3)+" seconds; every BTY long-form Part must be at least "+partMin+" seconds. Merge it with a neighboring Part and choose the nearest natural boundary.",
+          "Part "+(i+1)+" remains below the "+partMin+" second hard minimum after orphan normalization.",
           "retryable"
         );
       }
@@ -551,7 +605,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
     kind,count:written,model:effectiveModel,prompt_profile:prompt.profile_key,prompt_version:prompt.version,
     duration_policy:isPart?{
       min_parts:partMinCount,max_parts:partMaxCount,preferred_min_parts:partPreferredMin,preferred_max_parts:partPreferredMax,
-      target_min:partMin,target_max:partMax,coverage_required:true,output_mode:"segment_boundary_indices_v1"
+      target_min:partMin,target_max:partMax,coverage_required:true,orphan_merge_normalization:true,output_mode:"segment_boundary_indices_v1"
     }:{
       preferred_min:shortPreferredMin,preferred_max:shortPreferredMax,allowed_min:shortAllowedMin,hard_max:shortHardMax,
       output_mode:"short_segment_indices_v1"
@@ -1072,7 +1126,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
   try{
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.9.0",
+      p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.10.0",
       p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
     });
     const result=await processJob(admin,job);
@@ -1096,7 +1150,7 @@ async function processClaimedTextJob(job:Job,workerId:string){
     try{
       await admin.rpc("heartbeat_ai_operations_video_worker",{
         p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"idle",
-        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.9.0",
+        p_current_job_id:null,p_current_project_id:null,p_worker_version:"2.10.0",
         p_last_error:null,p_metadata:{last_job_id:job.id,last_job_type:job.job_type,execution_mode:"wait_until_background"}
       });
     }catch(_){}
@@ -1125,7 +1179,7 @@ Deno.serve(async(req:Request)=>{
     const active=Array.isArray(owned)&&owned.length?owned[0]:null;
     await admin.rpc("heartbeat_ai_operations_video_worker",{
       p_worker_id:workerId,p_tenant_id:TENANT_ID,p_status:active?"working":"idle",
-      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.9.0",
+      p_current_job_id:active?.id??null,p_current_project_id:active?.project_id??null,p_worker_version:"2.10.0",
       p_last_error:null,p_metadata:active?{job_type:active.job_type,execution_mode:"wait_until_background",heartbeat_source:"concurrent_cron"}:{execution_mode:"wait_until_background"}
     });
     return json({ok:true,status:active?"busy":"idle",current_job_id:active?.id??null});
@@ -1133,7 +1187,7 @@ Deno.serve(async(req:Request)=>{
 
   await admin.rpc("heartbeat_ai_operations_video_worker",{
     p_worker_id:workerId,p_tenant_id:job.tenant_id,p_status:"working",
-    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.9.0",
+    p_current_job_id:job.id,p_current_project_id:job.project_id,p_worker_version:"2.10.0",
     p_last_error:null,p_metadata:{job_type:job.job_type,execution_mode:"wait_until_background"}
   });
 
