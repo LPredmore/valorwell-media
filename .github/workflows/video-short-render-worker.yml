@@ -49,6 +49,14 @@ jobs:
           echo "::add-mask::${OIDC_TOKEN}"
           echo "GITHUB_OIDC_TOKEN=${OIDC_TOKEN}" >> "${GITHUB_ENV}"
 
+      - name: Prepare Beyond the Yellow transcription audio
+        env:
+          SUPABASE_URL: https://ahqauomkgflopxgnlndd.supabase.co
+          WORKSPACE_ROOT: ${{ runner.temp }}/video-transcription-audio
+        run: |
+          mkdir -p "${WORKSPACE_ROOT}"
+          python workers/video-transcription-audio/app.py
+
       - name: Render queued Shorts
         env:
           SUPABASE_URL: https://ahqauomkgflopxgnlndd.supabase.co
