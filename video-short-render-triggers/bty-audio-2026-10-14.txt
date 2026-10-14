@@ -1,0 +1,1 @@
+Trigger the existing GitHub Actions video worker to prepare transcription audio for the failed BTY Purpose recording. Source video and publishing settings remain unchanged.
