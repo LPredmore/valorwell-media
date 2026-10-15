@@ -241,7 +241,24 @@ async function generateImage(apiKey:string,textModel:string,imageModel:string,pr
   const effectiveProfile:{profile_key:string;version:number;system_prompt:string;instruction_prompt:string;config:Record<string,unknown>}={
     ...promptProfile,config:{...(promptProfile.config||{}),text_model_override:textModel}
   };
-  const directed=await artDirect(apiKey,effectiveProfile,brief,references,aspectRatio);
+  // Some models exhaust their response on reasoning and return empty JSON content.
+  // Keep the configured model as primary; retry only malformed/empty outputs with a
+  // structured-output-capable multimodal text model, never by re-running image creation.
+  let directed:Awaited<ReturnType<typeof artDirect>>;
+  try{
+    directed=await artDirect(apiKey,effectiveProfile,brief,references,aspectRatio);
+  }catch(e){
+    if(!(e instanceof ImageJobError)||![
+      "openrouter_art_direction_empty","openrouter_art_direction_invalid_json",
+      "openrouter_art_direction_prompt_empty"
+    ].includes(e.code))throw e;
+    const fallbackModel="openai/gpt-4o-mini";
+    log("art_direction_fallback",{from:textModel,to:fallbackModel,reason:e.code});
+    directed=await artDirect(apiKey,{
+      ...effectiveProfile,
+      config:{...effectiveProfile.config,text_model_override:fallbackModel}
+    },brief,references,aspectRatio);
+  }
   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),120000);
   try{
     const r=await fetch(OPENROUTER_IMAGE_URL,{method:"POST",signal:controller.signal,headers:{authorization:"Bearer "+apiKey,"content-type":"application/json","HTTP-Referer":"https://valorwell.org","X-Title":"ValorWell BTY Thumbnail Generator"},body:JSON.stringify({
