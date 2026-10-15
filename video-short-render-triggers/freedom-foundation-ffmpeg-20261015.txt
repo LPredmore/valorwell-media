@@ -1,0 +1,3 @@
+Trigger BTY FFmpeg Shorts rendering after repairing the queued job routing for Freedom Foundation.
+Project: 57384933-9217-4134-bf97-0666207d0a41
+Date: 2026-10-15
