@@ -88,6 +88,37 @@ def download_http(url: str, path: Path) -> None:
         raise RuntimeError("Downloaded Short source is empty.")
 
 
+def download_drive_source(file_id: str, path: Path, token: str, wid: str) -> None:
+    """Fetch the original video once when Cloudflare did not provide a pretrimmed URL."""
+    if not file_id:
+        raise RuntimeError("Missing source Drive file ID.")
+    url = f"https://www.googleapis.com/drive/v3/files/{file_id}"
+    for attempt in range(2):
+        with requests.get(
+            url,
+            params={"alt": "media"},
+            headers={"authorization": f"Bearer {token}"},
+            stream=True,
+            timeout=(30, 900),
+        ) as response:
+            if response.status_code == 401 and attempt == 0:
+                token = drive_token(wid)
+                continue
+            response.raise_for_status()
+            try:
+                with path.open("wb") as output:
+                    for chunk in response.iter_content(CHUNK):
+                        if chunk:
+                            output.write(chunk)
+            except Exception:
+                path.unlink(missing_ok=True)
+                raise
+            if not path.exists() or path.stat().st_size <= 0:
+                raise RuntimeError("Google Drive source video was empty.")
+            return
+    raise RuntimeError("Unable to refresh Drive access for original video.")
+
+
 def ffprobe(path: Path) -> dict[str, Any]:
     p = subprocess.run(
         [
@@ -106,6 +137,7 @@ def render_short(
     expected_duration: float,
     cold_open_start: float | None = None,
     cold_open_end: float | None = None,
+    source_start_seconds: float | None = None,
 ) -> tuple[bool, float]:
     source_info = ffprobe(source)
     has_audio = any(s.get("codec_type") == "audio" for s in source_info.get("streams", []))
@@ -165,6 +197,10 @@ def render_short(
 
     cmd = [
         "ffmpeg", "-hide_banner", "-nostdin", "-y",
+        *(
+            ["-ss", f"{source_start_seconds:.3f}", "-t", f"{expected_duration:.3f}"]
+            if source_start_seconds is not None else []
+        ),
         "-i", str(source),
         "-filter_complex", filter_complex,
         *maps,
@@ -308,6 +344,7 @@ def main() -> dict[str, Any]:
     rendered = 0
     failures: list[dict[str, Any]] = []
     stop_reason = "queue_empty"
+    cached_sources: dict[str, Path] = {}
 
     while claimed_total < MAX_JOBS_PER_RUN:
         if time.monotonic() - started >= MAX_RUN_SECONDS:
@@ -357,13 +394,30 @@ def main() -> dict[str, Any]:
                 name = f"{source_base}__short_9x16__{start_ms}-{end_ms}__{clip_id[:8]}.mp4"
 
                 try:
-                    download_http(source_url, source)
+                    source_start = None
+                    if source_url:
+                        download_http(source_url, source)
+                    else:
+                        source_file_id = str(project.get("parent_file_id") or "")
+                        if not source_file_id:
+                            raise RuntimeError("Project has no original Drive source file.")
+                        if source_file_id not in cached_sources:
+                            original = WORKSPACE_ROOT / f"drive-source-{source_file_id}.mp4"
+                            download_drive_source(source_file_id, original, token, wid)
+                            expected_bytes = int(project.get("source_size_bytes") or 0)
+                            if expected_bytes and original.stat().st_size != expected_bytes:
+                                original.unlink(missing_ok=True)
+                                raise RuntimeError("Original Drive video download size mismatch.")
+                            cached_sources[source_file_id] = original
+                        source = cached_sources[source_file_id]
+                        source_start = start
                     cold_open_applied, cold_open_duration = render_short(
                         source,
                         output,
                         expected_duration,
                         cold_open_start=cold_open_start,
                         cold_open_end=cold_open_end,
+                        source_start_seconds=source_start,
                     )
                     file_id, file_url, size, token = upload_drive(
                         output, folder_id, name, token, wid
@@ -386,6 +440,9 @@ def main() -> dict[str, Any]:
                         api("fail", wid, job_id=job_id, clip_id=clip_id, error=str(exc))
                     except Exception:
                         pass
+
+    for original in cached_sources.values():
+        original.unlink(missing_ok=True)
 
     if claimed_total >= MAX_JOBS_PER_RUN:
         stop_reason = "job_limit"
