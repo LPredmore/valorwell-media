@@ -164,6 +164,123 @@ async function discover(db: ReturnType<typeof admin>, token: string) {
   return { found: false, folder_id: null };
 }
 
+
+/** One portrait per verified guest recording. Never choose the host as the guest. */
+function portraitIdentity(job: any) {
+  if (job.is_preview) return null;
+  const sources = job.sources as Array<{id:string;speaker:string;size:number}>;
+  const hosts = sources.filter(s => /^Luke\s+Predmore$/i.test(s.speaker.trim()));
+  const guests = sources.filter(s => !/^Luke\s+Predmore$/i.test(s.speaker.trim()));
+  if (hosts.length !== 1 || guests.length !== 1) return null;
+  const speaker = guests[0].speaker.trim();
+  const filename = "BTY-guest-" + job.fingerprint + "-" +
+    speaker.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 65) + ".jpg";
+  return {guest:guests[0],filename,speaker};
+}
+async function guestImageFolder(db: ReturnType<typeof admin>) {
+  const {data,error} = await db.from("ai_operations_video_settings")
+    .select("guest_image_folder_id").eq("tenant_id",TENANT_ID).single();
+  if(error||!data?.guest_image_folder_id)throw new Error("BTY guest image folder not configured");
+  return String(data.guest_image_folder_id);
+}
+async function attachPortrait(
+  db: ReturnType<typeof admin>, project: any, guestName: string,
+  driveFileId: string, provenance: Record<string,unknown>,
+) {
+  if(!project || String(project.guest_image_url||"").trim())return false;
+  const currentMeta=(project.metadata && typeof project.metadata==="object")?project.metadata:{};
+  const updates = {
+    guest_name: String(project.guest_name||"").trim() || guestName,
+    guest_image_url:"https://drive.google.com/file/d/"+driveFileId+"/view",
+    metadata:{...currentMeta,guest_image_auto:{
+      ...provenance,drive_file_id:driveFileId,source:"original_guest_webcam_frame",
+      updated_at:new Date().toISOString(),
+    }},
+    updated_at:new Date().toISOString(),
+  };
+  const {data,error}=await db.from("ai_operations_video_projects").update(updates)
+    .eq("id",project.id).eq("source_file_id",project.source_file_id)
+    .is("guest_image_url",null).select("id");
+  if(error)throw new Error("Guest photo database update failed: "+error.message);
+  return Boolean(data?.length);
+}
+async function projectForMaster(db:ReturnType<typeof admin>,job:any) {
+  if(!job.existing?.id)return null;
+  const {data,error}=await db.from("ai_operations_video_projects")
+    .select("id,source_file_id,guest_name,guest_image_url,metadata")
+    .eq("tenant_id",TENANT_ID).eq("source_file_id",String(job.existing.id)).maybeSingle();
+  if(error)throw new Error("Unable to match generated master to CRM project");
+  return data;
+}
+async function guestPortraitPrepare(db:ReturnType<typeof admin>,token:string,job:any) {
+  const identity=portraitIdentity(job);
+  if(!identity)return {needed:false,reason:"preview_or_no_unique_host_and_guest"};
+  const folder=await guestImageFolder(db);
+  const target=await driveGet(token,folder);
+  if(target.mimeType!=="application/vnd.google-apps.folder")throw new Error("Guest image destination is not a folder");
+  const project=await projectForMaster(db,job);
+  if(project && String(project.guest_image_url||"").trim())
+    return {needed:false,reason:"existing_manual_or_automated_reference"};
+  const files=await listChildren(token,folder);
+  const prior=files.find(x=>x.name===identity.filename&&x.mimeType==="image/jpeg"&&Number(x.size||0)>20000);
+  if(prior) {
+    const attached=await attachPortrait(db,project,identity.speaker,String(prior.id),
+      {source_fingerprint:job.fingerprint,guest_source_file_id:identity.guest.id,
+       reused_existing_asset:true});
+    return {needed:false,reason:"image_already_saved",attached,image_file_id:prior.id};
+  }
+  return {needed:true,guest_source:identity.guest,guest_name:identity.speaker,
+    output_name:identity.filename,output_folder_id:folder};
+}
+async function guestPortraitComplete(
+  db:ReturnType<typeof admin>,token:string,job:any,body:any,
+) {
+  const identity=portraitIdentity(job);
+  if(!identity || !job.existing?.id)throw new Error("No completed full master for guest portrait");
+  const folder=await guestImageFolder(db);
+  const imageId=String(body.image_id||"");
+  const file=await driveGet(token,imageId,"id,name,size,mimeType,parents");
+  if(file.name!==identity.filename || file.mimeType!=="image/jpeg" ||
+     !file.parents?.includes(folder) || Number(file.size||0)<20000 ||
+     Number(file.size||0)>8*1024*1024)throw new Error("Guest portrait failed verified Drive identity");
+  const time=Number(body.selected_time_seconds);
+  const quality=Number(body.quality_score);
+  if(!Number.isFinite(time)||time<0||!Number.isFinite(quality)||quality<0)
+    throw new Error("Invalid guest frame scoring metadata");
+  const project=await projectForMaster(db,job);
+  const attached=await attachPortrait(db,project,identity.speaker,imageId,{
+    source_fingerprint:job.fingerprint,guest_source_file_id:identity.guest.id,
+    selected_time_seconds:time,quality_score:quality,
+    evaluated_candidates:Number(body.evaluated_candidates||0),
+  });
+  return {ok:true,image_id:imageId,attached,pending_project:!project};
+}
+/** Reconciles images created before the master was ingested by the transcription pipeline. */
+async function reconcileGuestPortraits(db:ReturnType<typeof admin>,token:string) {
+  const folder=await guestImageFolder(db);
+  const files=(await listChildren(token,folder)).filter(x=>
+    x.mimeType==="image/jpeg" && Number(x.size||0)>=20000 &&
+    /^BTY-guest-[a-f0-9]{12}-[a-zA-Z0-9_-]+\.jpg$/.test(String(x.name||"")));
+  const {data:projects,error}=await db.from("ai_operations_video_projects")
+    .select("id,source_file_id,source_file_name,guest_name,guest_image_url,metadata")
+    .eq("tenant_id",TENANT_ID).is("guest_image_url",null)
+    .like("source_file_name","%-multicam-master-%").limit(100);
+  if(error)throw new Error("Guest portrait reconciliation query failed");
+  let attached=0;
+  for(const project of projects||[]) {
+    const match=String(project.source_file_name||"").match(/-multicam-master-([a-f0-9]{12})\.mp4$/);
+    if(!match)continue;
+    const choices=files.filter(x=>String(x.name).startsWith("BTY-guest-"+match[1]+"-"));
+    if(choices.length!==1)continue;
+    const asset=choices[0];
+    const name=String(asset.name).replace(/^BTY-guest-[a-f0-9]{12}-/,"").replace(/\.jpg$/,"").replace(/_/g," ");
+    if(await attachPortrait(db,project,name,String(asset.id),{
+      source_fingerprint:match[1],reconciled:true,
+    }))attached++;
+  }
+  return {ok:true,examined:(projects||[]).length,attached};
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") return reply({ error: "Method not allowed" }, 405);
   if (!(await authenticated(req))) return reply({ error: "Unauthorized" }, 401);
@@ -175,8 +292,15 @@ Deno.serve(async (req) => {
     const db = admin();
     const token = await googleToken(db);
     if (action === "discover") return reply({ ok: true, ...await discover(db, token) });
+    if (action === "guest_image_reconcile") return reply(await reconcileGuestPortraits(db,token));
     const job = await manifest(db, token, folderId, preview);
     if (action === "prepare") return reply({ ok: true, ...job, google_access_token: token });
+    if (action === "guest_image_prepare") return reply({
+      ok:true,...await guestPortraitPrepare(db,token,job),
+    });
+    if (action === "guest_image_complete") return reply(
+      await guestPortraitComplete(db,token,job,body)
+    );
     if (action === "drive_token") return reply({ ok: true, google_access_token: token });
     if (action === "complete") {
       const outputId = String(body.output_id || "");
