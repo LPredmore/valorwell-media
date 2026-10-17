@@ -2,5 +2,6 @@
   "folder_id": "1RjhPlVqKhYpq0cywOfrVJncfODSqZDke",
   "preview_seconds": 0,
   "requested_at": "2026-10-17",
-  "purpose": "Backfill reusable speaker timeline after first full multicamera master completes; preserve existing MP4"
+  "purpose": "Backfill automatically selected guest portrait and CRM guest reference, preserving existing master MP4",
+  "feature": "guest_portrait_v1"
 }
