@@ -153,7 +153,7 @@ async function discover(db: ReturnType<typeof admin>, token: string) {
       FILE_RE.test(String(f.name || "")));
     if (recordings.length !== 2) continue;
     const created = recordings.map((f) => Date.parse(f.createdTime || "") || 0);
-    if (Math.max(...created) < activation) continue;
+    if (Math.min(...created) < activation) continue;
     try {
       const prepared = await manifest(db, token, String(folder.id), 0);
       if (!prepared.existing) return { folder_id: String(folder.id), found: true };
