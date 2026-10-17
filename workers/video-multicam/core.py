@@ -89,7 +89,7 @@ def align_bins(activity: list[bool], offset: float, length: int) -> list[bool]:
     aligned = [False] * length
     for i in range(length):
         source_t = (i + 0.5) * BIN_SECONDS - offset
-        src = int(source_t / BIN_SECONDS)
+        src = math.floor(source_t / BIN_SECONDS)
         if 0 <= src < len(activity):
             aligned[i] = activity[src]
     return aligned
