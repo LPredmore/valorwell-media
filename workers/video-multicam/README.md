@@ -40,3 +40,7 @@ The initial release takes exactly two original StreamYard participant webcam MP4
 ## Automatic folder discovery
 
 GitHub Actions runs the render workflow every four hours on main, without manual credentials. The OIDC-authenticated API examines only direct episode subfolders of the configured Beyond The Yellow source root, requires exactly two named StreamYard local webcam recordings, and skips old recordings (before October 17, 2026 at 13:40 UTC) and already completed masters. Successful new masters return to the normal root and are consumed by the existing video pipeline. One episode is processed per scheduled run and duplicate filenames are not overwritten.
+
+## Persisted speaker timeline
+
+Every processed episode now writes a versioned JSON timeline alongside its preview/master MP4 in Drive. It records source IDs, participant names, join offsets, source fingerprint, and nonoverlapping speaker/camera shot intervals, allowing future 9:16 edits to reuse the same camera decisions. Repeating an existing successful render with no sidecar backfills only the timeline; it does not re-encode or overwrite the master video. This supports the first production episode, which was rendered before timeline persistence was introduced.
