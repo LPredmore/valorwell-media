@@ -1453,7 +1453,17 @@ async function processThumbnailVisualMetadata(admin:any,job:Job,project:Project,
   const configuredEffort=String((prompt.config as any)?.reasoning_effort??"low");
   const reasoningEffort=(["none","minimal","low","medium","high","xhigh"].includes(configuredEffort)
     ? configuredEffort : "low") as "none"|"minimal"|"low"|"medium"|"high"|"xhigh";
-  const schema={
+  // Shorts use database-curated poses. Model chooses only speaker and narrative.
+  // Parts keep their existing image metadata contract unchanged.
+  const isShort=clip.clip_type==="short";
+  const schema=isShort ? {
+    type:"object",additionalProperties:false,
+    properties:{
+      primary_speaker:{type:"string"},core_visual:{type:"string"},
+      hook_text_placement:{type:"string",enum:["top_left","top_right","left","right","bottom_left","bottom_right","center"]}
+    },
+    required:["primary_speaker","core_visual","hook_text_placement"]
+  } : {
     type:"object",additionalProperties:false,
     properties:{
       primary_speaker:{type:"string"},person_positioning:{type:"string"},
@@ -1468,6 +1478,10 @@ async function processThumbnailVisualMetadata(admin:any,job:Job,project:Project,
   }
   const user=[
     prompt.instruction_prompt,
+    ...(isShort ? [
+      "SHORT EXPRESSION CONTRACT: Your role is ONLY to choose primary_speaker, a script-grounded core_visual, and hook_text_placement. Facial expression, pose, gesture and framing will be supplied from the approved database preset library. Do not invent them.",
+      "KEEP the established tense high-contrast distressed collage, the on-screen hook unchanged, and the exact BTY brand styling. The speaker's mood is neutral-to-positive; the tension lives in graphics, story, composition and text."
+    ] : []),
     "Asset type: "+String(clip.clip_type),
     "On-screen hook (immutable; do not rewrite): "+String(clip.hook_text??""),
     "YouTube title: "+String(clip.youtube_title??""),
@@ -1488,12 +1502,33 @@ async function processThumbnailVisualMetadata(admin:any,job:Job,project:Project,
     }
   );
   const v=out.value as any;
-  const primarySpeaker=clip.clip_type==="part"
-    ? String(project.guest_name??"").trim()
-    : String(v.primary_speaker??"").trim();
+  const guestName=String(project.guest_name??"").trim();
+  const rawSpeaker=String(v.primary_speaker??"").trim();
+  const primarySpeaker=clip.clip_type==="part" ? guestName :
+    /^(luke|luke predmore)$/i.test(rawSpeaker) ? "Luke Predmore" :
+    rawSpeaker.toLowerCase()===guestName.toLowerCase() && guestName ? guestName : "";
+  if(!primarySpeaker)throw new JobError("thumbnail_primary_speaker_invalid",
+    "Model must choose Luke Predmore or the named episode guest.", "retryable");
   const nextRevision=Number(clip.thumbnail_generation_revision??0)+1;
   const now=new Date().toISOString();
-  const {error}=await admin.from("ai_operations_video_clips").update({
+  // Preset selection and audit must happen atomically. If it fails, fail closed:
+  // do not return to uncontrolled AI-defined expressions for Shorts.
+  let presetResult:Record<string,unknown>|null=null;
+  if(isShort){
+    const {data,error:assignmentError}=await admin.rpc("assign_bty_short_expression",{
+      p_clip_id:clip.id,p_tenant_id:project.tenant_id,
+      p_workflow_revision:job.workflow_revision,
+      p_hook_fingerprint:clip.hook_input_fingerprint,
+      p_metadata_fingerprint:job.input_fingerprint,
+      p_primary_speaker:primarySpeaker,
+      p_core_visual:String(v.core_visual??"").trim(),
+      p_hook_placement:String(v.hook_text_placement??"center")
+    });
+    if(assignmentError)throw new JobError("short_expression_selection_failed",
+      assignmentError.message,"retryable");
+    presetResult=data as Record<string,unknown>;
+  }
+  const {error}=isShort ? {error:null} : await admin.from("ai_operations_video_clips").update({
     primary_speaker:primarySpeaker,
     person_positioning:String(v.person_positioning??"").trim(),
     facial_expression:String(v.facial_expression??"").trim(),
@@ -1510,7 +1545,8 @@ async function processThumbnailVisualMetadata(admin:any,job:Job,project:Project,
   }).eq("clip_id",clip.id).in("status",["draft","ready","approved"]);
   if(pubThumbErr) throw new JobError("thumbnail_publication_invalidate_failed",pubThumbErr.message,"retryable");
   return {
-    clip_id:clip.id,generation_revision:nextRevision,model:effectiveModel,reasoning_effort:reasoningEffort,
+    clip_id:clip.id,generation_revision: isShort ? Number(presetResult?.revision ?? nextRevision) : nextRevision,
+    expression_preset:presetResult,model:effectiveModel,reasoning_effort:reasoningEffort,
     prompt_profile:prompt.profile_key,prompt_version:prompt.version,cost:out.cost,usage:out.usage,
     openrouter_diagnostic:out.diagnostic
   };
