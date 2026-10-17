@@ -74,7 +74,7 @@ def render(manifest: dict, destination: Path, width: int = 1920, height: int = 1
             ])
             segments.append(segment)
         concat_list = folder / "segments.txt"
-        concat_list.write_text("".join(f"file '{p.as_posix()}'\\n" for p in segments))
+        concat_list.write_text("".join(f"file '{p.as_posix()}'\n" for p in segments))
         picture = folder / "picture.mp4"
         command(["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
                  "-f", "concat", "-safe", "0", "-i", str(concat_list),
