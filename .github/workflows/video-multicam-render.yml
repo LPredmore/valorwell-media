@@ -1,0 +1,69 @@
+name: BTY Multi-Camera Render
+on:
+  workflow_dispatch:
+    inputs:
+      folder_id:
+        description: "Google Drive episode subfolder ID"
+        required: true
+        type: string
+      preview_seconds:
+        description: "Preview duration (0 = complete master, 180 = three-minute test)"
+        required: true
+        default: "180"
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - "video-multicam-triggers/next.json"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: bty-multicam-one-episode
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install FFmpeg and Python dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          python -m pip install "requests==2.32.5" "webrtcvad-wheels==2.0.14.post1"
+      - name: Resolve input
+        env:
+          DISPATCH_FOLDER: ${{ inputs.folder_id }}
+          DISPATCH_PREVIEW: ${{ inputs.preview_seconds }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "SOURCE_FOLDER_ID=$DISPATCH_FOLDER" >> "$GITHUB_ENV"
+            echo "PREVIEW_SECONDS=$DISPATCH_PREVIEW" >> "$GITHUB_ENV"
+          else
+            python - <<'PY'
+          import json, os, pathlib
+          obj = json.loads(pathlib.Path("video-multicam-triggers/next.json").read_text())
+          folder = str(obj.get("folder_id") or "")
+          seconds = int(obj.get("preview_seconds", 180))
+          if not folder or not 0 <= seconds <= 600:
+              raise SystemExit("Invalid trigger")
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write("SOURCE_FOLDER_ID=" + folder + "\n")
+              f.write("PREVIEW_SECONDS=" + str(seconds) + "\n")
+          PY
+          fi
+      - name: Render isolated-audio multi-camera episode
+        env:
+          SUPABASE_URL: https://ahqauomkgflopxgnlndd.supabase.co
+          WORKSPACE_ROOT: ${{ runner.temp }}/video-multicam
+        run: |
+          python workers/video-multicam/worker.py
