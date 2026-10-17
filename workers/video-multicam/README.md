@@ -44,3 +44,16 @@ GitHub Actions runs the render workflow every four hours on main, without manual
 ## Persisted speaker timeline
 
 Every processed episode now writes a versioned JSON timeline alongside its preview/master MP4 in Drive. It records source IDs, participant names, join offsets, source fingerprint, and nonoverlapping speaker/camera shot intervals, allowing future 9:16 edits to reuse the same camera decisions. Repeating an existing successful render with no sidecar backfills only the timeline; it does not re-encode or overwrite the master video. This supports the first production episode, which was rendered before timeline persistence was introduced.
+
+## Automatic guest-photo extraction (October 17, 2026)
+
+Full-length multicamera jobs now select approximately 18 frames from the **guest's isolated webcam source** (never from the composite master), detect a single frontal face, reject blurred/dim/ambiguous frames, and crop the best unchanged frame to an 800×1000 JPEG. Frame timestamps and quality scores are recorded with the resulting CRM image reference. No generative face replacement or invented details are used.
+
+- Saves once in the configured `ai_operations_video_settings.guest_image_folder_id` folder using a source fingerprint filename; does not overwrite any manual guest image.
+- Attaches the Drive URL to `ai_operations_video_projects.guest_image_url` and fills `guest_name` only if absent, matching the project's *verified* edited-master Drive ID.
+- When the image is saved before the Deepgram pipeline registers the project, an authenticated reconciliation pass on later scheduled renders attaches it.
+- Includes full-master idempotent backfill: rerunning the same episode does not rerender the MP4 if the master and speaker timeline exist.
+- Portrait extraction failures do **not** invalidate the finished video. Failed face-quality checks leave the image unset for manual review; the worker returns a `guest_portrait.manual_fallback` result.
+- Three-minute previews do not auto-publish a guest image. Manually selected portraits are never overwritten.
+
+Code: `guest_portrait.py` (frame quality/cropping), `worker.py` (selection and Drive upload), and `video-multicam-worker-api` (OAuth permissions, strict ID validation, metadata and CRM update). Synthetic unit tests run under `video-multicam-ci.yml`.
