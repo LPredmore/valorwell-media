@@ -13,6 +13,7 @@ from pathlib import Path
 import requests
 
 from core import align_bins, choose_shots, ffmpeg_master, parse_source, probe, validate_activity, voice_bins
+from guest_portrait import select_portrait
 
 API = os.environ.get("SUPABASE_URL", "").rstrip("/") + "/functions/v1/video-multicam-worker-api"
 FOLDER_ID = os.environ.get("SOURCE_FOLDER_ID", "").strip()
@@ -223,8 +224,96 @@ def upload_timeline(payload: dict, folder: str, name: str) -> str:
     raise RuntimeError("Speaker timeline upload not authorized")
 
 
+
+def upload_guest_jpeg(path: Path, filename: str, folder: str) -> str:
+    """Upload a small JPEG to the configured guest-image Drive folder."""
+    global _GOOGLE_TOKEN
+    content = path.read_bytes()
+    if not 20000 <= len(content) <= 8 * 1024 * 1024:
+        raise ValueError("Invalid guest image file size")
+    boundary = "btyguestportrait20261017"
+    metadata = json.dumps({
+        "name": filename, "parents": [folder], "mimeType": "image/jpeg",
+        "description": "Original still selected from the guest webcam recording",
+    }).encode("utf-8")
+    body = (
+        b"--" + boundary.encode() +
+        b"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" +
+        metadata + b"\r\n--" + boundary.encode() +
+        b"\r\nContent-Type: image/jpeg\r\n\r\n" +
+        content + b"\r\n--" + boundary.encode() + b"--\r\n"
+    )
+    for _ in range(2):
+        response = requests.post(
+            "https://www.googleapis.com/upload/drive/v3/files",
+            params={"uploadType": "multipart", "fields": "id,size,mimeType,name"},
+            headers={"authorization": "Bearer " + token(),
+                     "content-type": "multipart/related; boundary=" + boundary},
+            data=body, timeout=150,
+        )
+        if response.status_code == 401:
+            _GOOGLE_TOKEN = ""
+            continue
+        response.raise_for_status()
+        result = response.json()
+        if (result.get("id") and result.get("mimeType") == "image/jpeg" and
+                int(result.get("size") or 0) == len(content) and
+                result.get("name") == filename):
+            return str(result["id"])
+        raise RuntimeError("Guest image upload failed Drive verification")
+    raise RuntimeError("Guest image upload unauthorized")
+
+
+def ensure_guest_portrait(job: dict, available_sources: dict[str, Path] | None = None) -> dict:
+    """Fail open: portrait failure must not damage a successful episode render."""
+    if PREVIEW:
+        return {"skipped": "preview"}
+    try:
+        prepared = api("guest_image_prepare")
+        if not prepared.get("needed"):
+            return {"skipped": prepared.get("reason", "not_needed"),
+                    "attached": bool(prepared.get("attached"))}
+        source = dict(prepared["guest_source"])
+        source_id = str(source["id"])
+        source_file = (available_sources or {}).get(source_id)
+        with tempfile.TemporaryDirectory(prefix="bty-guest-portrait-", dir=ROOT) as directory:
+            if source_file is None:
+                source_file = Path(directory) / "guest-source.mp4"
+                fetch_source(source, source_file)
+                if source_file.stat().st_size != int(source["size"]):
+                    raise RuntimeError("Guest source download failed size check")
+            duration = probe(source_file)["duration"]
+            image = Path(directory) / "guest-portrait.jpg"
+            selection = select_portrait(source_file, image, duration)
+            file_id = upload_guest_jpeg(
+                image, str(prepared["output_name"]), str(prepared["output_folder_id"])
+            )
+            completion = api(
+                "guest_image_complete", image_id=file_id,
+                selected_time_seconds=selection["selected_time_seconds"],
+                quality_score=selection["quality_score"],
+                evaluated_candidates=selection["evaluated_candidates"],
+            )
+            return {
+                "image_file_id": file_id, "attached": completion.get("attached"),
+                "pending_project": completion.get("pending_project"),
+                "selected_time_seconds": selection["selected_time_seconds"],
+                "evaluated_candidates": selection["evaluated_candidates"],
+            }
+    except Exception as exc:
+        # Existing rendering/upload success remains intact; a curator can
+        # provide the image manually if no reliable source frame was found.
+        return {"portrait_error": str(exc)[:350], "manual_fallback": True}
+
+
 def main() -> dict:
     global FOLDER_ID, PREVIEW
+    # Reconcile earlier successfully uploaded guest photos with projects
+    # registered by the delayed transcription/ingest pipeline.
+    try:
+        api("guest_image_reconcile")
+    except Exception:
+        pass  # Portraits are optional; rendering must stay available.
     if FOLDER_ID.upper() == "AUTO":
         FOLDER_ID = ""
     if not FOLDER_ID:
@@ -233,6 +322,11 @@ def main() -> dict:
             return {"ok": True, "skipped": "no_new_paired_episode"}
         FOLDER_ID = str(candidate["folder_id"])
         PREVIEW = 0
+        # Make the discovered episode available to subsequent workflow steps.
+        env_file = os.environ.get("GITHUB_ENV", "")
+        if env_file:
+            with open(env_file, "a", encoding="utf-8") as output:
+                output.write("SOURCE_FOLDER_ID=" + FOLDER_ID + "\n")
     if not re.fullmatch(r"[a-zA-Z0-9_-]{10,150}", FOLDER_ID):
         raise ValueError("Specify a valid SOURCE_FOLDER_ID")
     if not 0 <= PREVIEW <= 600:
@@ -241,8 +335,11 @@ def main() -> dict:
     timeline_name = str(job["output_name"]).removesuffix(".mp4") + ".timeline.json"
     timeline_file = find_drive_file(str(job["output_folder_id"]), timeline_name)
     if job.get("existing") and timeline_file:
+        ROOT.mkdir(parents=True, exist_ok=True)
+        portrait = ensure_guest_portrait(job)
         return {"ok": True, "skipped": "identical_output_and_timeline_already_exist",
-                "drive_file_id": job["existing"]["id"], "timeline_file_id": timeline_file}
+                "drive_file_id": job["existing"]["id"], "timeline_file_id": timeline_file,
+                "guest_portrait": portrait}
     sources = list(job["sources"])
     if len(sources) != 2 or any(parse_source(x["name"])["speaker"] != x["speaker"] for x in sources):
         raise ValueError("Manifest speaker mapping is invalid")
@@ -288,17 +385,24 @@ def main() -> dict:
                 "preview": bool(job["is_preview"]),
             }, str(job["output_folder_id"]), timeline_name)
         if job.get("existing"):
+            portrait = ensure_guest_portrait(job, {
+                source["id"]: file for source, file in zip(sources, files)
+            })
             return {"ok": True, "skipped": "master_already_exists_timeline_backfilled",
-                    "drive_file_id": job["existing"]["id"],
+                    "drive_file_id": job["existing"]["id"], "guest_portrait": portrait,
                     "timeline_file_id": timeline_file, "speaker_segments": len(shots)}
         output = tmp / "master.mp4"
         ffmpeg_master(files[0], files[1], output, shots, offsets, duration)
         destination = upload(output, str(job["output_name"]),
                              str(job["output_folder_id"]), sources)
         confirmation = api("complete", output_id=destination)
+        portrait = ensure_guest_portrait(job, {
+            source["id"]: file for source, file in zip(sources, files)
+        })
         return {"ok": True, "drive_file_id": destination,
                 "timeline_file_id": timeline_file, "speaker_segments": len(shots),
                 "duration_seconds": duration, "preview": bool(job["is_preview"]),
+                "guest_portrait": portrait,
                 "ready_for_normal_intake": confirmation.get("ready_for_normal_intake", False)}
 
 
