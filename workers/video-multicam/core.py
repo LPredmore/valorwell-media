@@ -59,14 +59,15 @@ def probe(path: Path) -> dict:
     return {"duration": duration, "streams": data["streams"]}
 
 
-def voice_bins(path: Path, pcm_path: Path) -> list[bool]:
+def voice_bins(path: Path, pcm_path: Path, max_seconds: float | None = None) -> list[bool]:
     """Run WebRTC voice activity detection on local mic audio, 100ms time bins."""
     try:
         import webrtcvad
     except ImportError as exc:
         raise RuntimeError("Install webrtcvad-wheels for source-audio analysis") from exc
     run(["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y",
-         "-i", str(path), "-map", "0:a:0", "-vn", "-ac", "1",
+         "-i", str(path), *([] if max_seconds is None else ["-t", f"{max_seconds:.3f}"]),
+         "-map", "0:a:0", "-vn", "-ac", "1",
          "-ar", str(SAMPLE_RATE), "-f", "s16le", str(pcm_path)])
     frame_bytes = SAMPLE_RATE * FRAME_MS // 1000 * 2
     data = pcm_path.read_bytes()
