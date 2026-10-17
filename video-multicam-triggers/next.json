@@ -2,6 +2,7 @@
   "folder_id": "1RjhPlVqKhYpq0cywOfrVJncfODSqZDke",
   "preview_seconds": 0,
   "requested_at": "2026-10-17",
-  "purpose": "Backfill automatically selected guest portrait and CRM guest reference, preserving existing master MP4",
-  "feature": "guest_portrait_v1"
+  "purpose": "Verify The Boot identity correction is idempotent: reuse existing completed master, timeline, and guest portrait without rerender",
+  "feature": "guest_portrait_v1",
+  "verification": "the-boot-identity-reconciliation"
 }
