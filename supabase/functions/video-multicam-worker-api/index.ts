@@ -122,13 +122,21 @@ async function manifest(db: ReturnType<typeof admin>, token: string, folderId: s
   const inputSignature = JSON.stringify(sources.map((x) => [x.id, x.size, x.modified]));
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(inputSignature)));
   const fingerprint = [...digest].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 12);
-  const safeEpisode = sources[0].episode.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 100);
+  // The episode's approved Drive folder, not the participant recording filename,
+  // owns the organization/episode display name. Source names can be mislabeled.
+  const safeEpisode = String(folder.name || sources[0].episode)
+    .replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 100) || sources[0].episode;
   const isPreview = previewSeconds > 0;
-  const name = safeEpisode + (isPreview ? "-multicam-preview-" + previewSeconds + "s-" :
-                             "-multicam-master-") + fingerprint + ".mp4";
+  const suffix = (isPreview ? "-multicam-preview-" + previewSeconds + "s-" :
+                               "-multicam-master-") + fingerprint + ".mp4";
+  const canonicalName = safeEpisode + suffix;
   const outputFolderId = isPreview ? folderId : rootId;
-  const existing = (await listChildren(token, outputFolderId))
-    .find((f) => f.name === name && f.mimeType === "video/mp4");
+  const previousOutputs = await listChildren(token, outputFolderId);
+  // A previously completed output with an old episode prefix is the SAME
+  // fingerprinted render. Reuse it rather than creating duplicate masters.
+  const existing = previousOutputs.find((f) => f.name === canonicalName && f.mimeType === "video/mp4")
+    || previousOutputs.find((f) => f.name?.endsWith(suffix) && f.mimeType === "video/mp4");
+  const name = existing ? String(existing.name) : canonicalName;
   return {
     folder_id: folderId, output_folder_id: outputFolderId, output_name: name,
     preview_seconds: previewSeconds, is_preview: isPreview, sources, fingerprint,
