@@ -17,7 +17,7 @@ await initializeImageMagick(wasmBytes);
 type ErrorClass="retryable"|"permanent"|"systemic";
 type JobRow={id:number;tenant_id:string;project_id:string;clip_id:string|null;job_type:string;workflow_revision:number;attempts:number;payload:Record<string,unknown>|null;input_fingerprint:string|null};
 type ProjectRow={id:string;tenant_id:string;guest_name:string|null;organization_name:string|null;guest_image_url:string|null;source_file_name:string;workflow_revision:number;cover_image_file_id:string|null;cover_image_url:string|null;cover_hook_text:string|null;cover_primary_speaker:string|null;cover_person_positioning:string|null;cover_facial_expression:string|null;cover_gesture_action:string|null;cover_camera_framing:string|null;cover_pose_family:string|null;cover_core_visual:string|null;cover_hook_text_placement:string|null;cover_metadata_revision:number};
-type ClipRow={id:string;project_id:string;clip_type:string;transcript_text:string;youtube_title:string|null;hook_text:string|null;primary_speaker:string|null;person_positioning:string|null;facial_expression:string|null;gesture_action:string|null;camera_framing:string|null;pose_family:string|null;core_visual:string|null;hook_text_placement:string|null;thumbnail_generation_revision:number;workflow_revision:number;pipeline_status:string;cover_image_file_id:string|null;cover_image_url:string|null};
+type ClipRow={id:string;project_id:string;clip_type:string;transcript_text:string;youtube_title:string|null;hook_text:string|null;primary_speaker:string|null;person_positioning:string|null;facial_expression:string|null;gesture_action:string|null;camera_framing:string|null;pose_family:string|null;core_visual:string|null;hook_text_placement:string|null;thumbnail_expression_preset_id:string|null;thumbnail_expression_family:string|null;thumbnail_generation_revision:number;workflow_revision:number;pipeline_status:string;cover_image_file_id:string|null;cover_image_url:string|null};
 type SettingsRow={workflow_enabled:boolean;cover_image_folder_id:string|null;host_reference_name:string|null;host_reference_file_id:string|null;host_reference_url:string|null;text_provider:string;text_model_id:string;image_provider:string;image_model_id:string;ai_config_revision:number};
 type PromptProfile={profile_key:string;version:number;system_prompt:string;instruction_prompt:string;config:Record<string,unknown>};
 
@@ -259,10 +259,16 @@ async function generateImage(apiKey:string,textModel:string,imageModel:string,pr
       config:{...effectiveProfile.config,text_model_override:fallbackModel}
     },brief,references,aspectRatio);
   }
+  // A second hard boundary protects the saved pose if the art-director text model
+  // drifts into sad/angry reaction-face language despite the creative brief.
+  const enforcedPrompt=aspectRatio==="9:16" ?
+    directed.prompt+"\\n\\nHARD REQUIREMENTS OVERRIDING ANY CONTRADICTIONS ABOVE:\\n"+
+    brief.slice(0,12500)+"\\nPreserve the exact on-screen hook verbatim. Speaker expression must remain excited, astonished, alert, curious or confidently neutral — not angry, crying, frightened, grieving, disgusted or miserable. Preserve dark high-stakes distressed narrative collage and vibrant red/cyan lighting accents." :
+    directed.prompt;
   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),120000);
   try{
     const r=await fetch(OPENROUTER_IMAGE_URL,{method:"POST",signal:controller.signal,headers:{authorization:"Bearer "+apiKey,"content-type":"application/json","HTTP-Referer":"https://valorwell.org","X-Title":"ValorWell BTY Thumbnail Generator"},body:JSON.stringify({
-      model:imageModel,prompt:directed.prompt,aspect_ratio:aspectRatio,quality:"high",background:"opaque",n:1,
+      model:imageModel,prompt:enforcedPrompt,aspect_ratio:aspectRatio,quality:"high",background:"opaque",n:1,
       input_references:references.map(ref=>({type:"image_url",image_url:{url:"data:"+ref.mimeType+";base64,"+bytesToBase64(ref.bytes)}}))
     })});
     const body=await r.json().catch(()=>({}));
@@ -275,7 +281,7 @@ async function generateImage(apiKey:string,textModel:string,imageModel:string,pr
     if(!encoded)throw new ImageJobError("openrouter_empty_image","OpenRouter returned no image bytes.","retryable");
     const imageCost=Number.isFinite(Number(body?.usage?.cost))?Number(body.usage.cost):null;
     const costs=[directed.cost,imageCost].filter((x):x is number=>x!==null);
-    return {bytes:base64ToBytes(encoded),totalCost:costs.length?costs.reduce((a,b)=>a+b,0):null,imageCost,artCost:directed.cost,imageUsage:body?.usage??{},artUsage:directed.usage,prompt:directed.prompt};
+    return {bytes:base64ToBytes(encoded),totalCost:costs.length?costs.reduce((a,b)=>a+b,0):null,imageCost,artCost:directed.cost,imageUsage:body?.usage??{},artUsage:directed.usage,prompt:enforcedPrompt};
   }catch(e){
     if(e instanceof ImageJobError)throw e;
     throw new ImageJobError("openrouter_image_request_failed",safeMessage(e),"retryable");
@@ -392,14 +398,41 @@ async function processJob(admin:SupabaseClient,job:JobRow){
     assetName="project-"+project.id+"-cover-r"+job.workflow_revision+"-"+String(job.input_fingerprint??"image").slice(0,10)+".jpg";
   }else if(job.job_type==="generate_thumbnail"){
     if(!job.clip_id)throw new ImageJobError("clip_id_missing","Thumbnail job has no clip_id.","permanent");
-    const {data,error}=await admin.from("ai_operations_video_clips").select("id,project_id,clip_type,transcript_text,youtube_title,hook_text,primary_speaker,person_positioning,facial_expression,gesture_action,camera_framing,pose_family,core_visual,hook_text_placement,thumbnail_generation_revision,workflow_revision,pipeline_status,cover_image_file_id,cover_image_url").eq("id",job.clip_id).maybeSingle();
+    const {data,error}=await admin.from("ai_operations_video_clips").select("id,project_id,clip_type,transcript_text,youtube_title,hook_text,primary_speaker,person_positioning,facial_expression,gesture_action,camera_framing,pose_family,core_visual,hook_text_placement,thumbnail_expression_preset_id,thumbnail_expression_family,thumbnail_generation_revision,workflow_revision,pipeline_status,cover_image_file_id,cover_image_url").eq("id",job.clip_id).maybeSingle();
     if(error)throw new ImageJobError("clip_lookup_failed",error.message,"retryable");
     if(!data)throw new ImageJobError("clip_missing","Thumbnail clip no longer exists.","permanent");
     const clip=data as ClipRow;const requestedRevision=Number(job.payload?.generation_revision??-1);
     if(Number(clip.workflow_revision)!==Number(job.workflow_revision)||Number(clip.thumbnail_generation_revision)!==requestedRevision){await completeJob(admin,job,{applied:false,skipped:"stale_clip_revision"});return {status:"skipped_stale"};}
     if(clip.cover_image_file_id){await completeJob(admin,job,{applied:false,skipped:"clip_cover_already_exists"});return {status:"skipped_existing"};}
     if(!String(clip.hook_text??"").trim())throw new ImageJobError("hook_text_missing","Clip hook_text is empty.","permanent");
-    references=await clipReferences(admin,clip,project,settings);aspectRatio=clip.clip_type==="short"?"9:16":"16:9";brief=clipCreativeBrief(clip,project,aspectRatio);
+    references=await clipReferences(admin,clip,project,settings);aspectRatio=clip.clip_type==="short"?"9:16":"16:9";
+    brief=clipCreativeBrief(clip,project,aspectRatio);
+    if(clip.clip_type==="short"){
+      if(!clip.thumbnail_expression_preset_id)throw new ImageJobError(
+        "short_expression_preset_missing",
+        "Short thumbnail has no curated expression preset; regenerate thumbnail visual metadata before rendering.",
+        "retryable");
+      const {data:preset,error:presetError}=await admin.from("ai_operations_thumbnail_expression_presets")
+        .select("code,name,valence,active,facial_expression,person_positioning,gesture_action,camera_framing,pose_family,eye_direction,mouth_style,brow_style,head_angle,shoulder_angle,prompt_fragment")
+        .eq("id",clip.thumbnail_expression_preset_id).eq("tenant_id",project.tenant_id).maybeSingle();
+      if(presetError||!preset||!preset.active||preset.valence==="negative")
+        throw new ImageJobError("short_expression_preset_invalid",
+          "Active, nonnegative curated Short preset required.", "retryable");
+      // Fail if a writer tried to override the preset after the atomic selection.
+      if(clip.facial_expression!==preset.facial_expression ||
+         clip.person_positioning!==preset.person_positioning ||
+         clip.gesture_action!==preset.gesture_action ||
+         clip.camera_framing!==preset.camera_framing ||
+         clip.pose_family!==preset.pose_family)
+        throw new ImageJobError("short_expression_drift",
+          "Short creative metadata no longer matches its locked database preset.", "retryable");
+      brief += "\\n\\nCURATED PRESET (MANDATORY, never improvise): "+preset.code+" — "+preset.name+
+        "\\nEyes: "+preset.eye_direction+"; Mouth: "+preset.mouth_style+
+        "; Brows: "+preset.brow_style+"; Head: "+preset.head_angle+
+        "; Shoulders: "+preset.shoulder_angle+"."+
+        "\\n"+preset.prompt_fragment+
+        "\\nKEEP expression neutral-to-positive: visibly excited, surprised, intrigued or alert; never depict the main face as sad, furious, terrified, grieving, defeated or distressed. Tension comes from the collage, hook typography, contrast and composition.";
+    }
     assetName="clip-"+clip.id+"-"+clip.clip_type+"-r"+requestedRevision+"-"+String(job.input_fingerprint??"image").slice(0,10)+".jpg";
   }else throw new ImageJobError("unsupported_job_type","Unsupported image job: "+job.job_type,"permanent");
 
