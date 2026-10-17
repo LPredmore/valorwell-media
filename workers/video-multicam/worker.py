@@ -166,6 +166,13 @@ def upload(path: Path, name: str, folder: str, sources: list[dict]) -> str:
 
 
 def main() -> dict:
+    global FOLDER_ID, PREVIEW
+    if not FOLDER_ID:
+        candidate = api("discover")
+        if not candidate.get("found") or not candidate.get("folder_id"):
+            return {"ok": True, "skipped": "no_new_paired_episode"}
+        FOLDER_ID = str(candidate["folder_id"])
+        PREVIEW = 0
     if not re.fullmatch(r"[a-zA-Z0-9_-]{10,150}", FOLDER_ID):
         raise ValueError("Specify a valid SOURCE_FOLDER_ID")
     if not 0 <= PREVIEW <= 600:
