@@ -27,7 +27,7 @@ async function authenticated(req: Request) {
       String(payload.ref) === "refs/heads/main" &&
       String(payload.workflow_ref) === WORKFLOW &&
       String(payload.runner_environment) === "github-hosted" &&
-      ["push", "workflow_dispatch"].includes(String(payload.event_name));
+      ["push", "workflow_dispatch", "schedule"].includes(String(payload.event_name));
   } catch {
     return false;
   }
@@ -71,7 +71,7 @@ async function listChildren(token: string, folder: string) {
   do {
     const url = new URL("https://www.googleapis.com/drive/v3/files");
     url.searchParams.set("q", "'" + folder + "' in parents and trashed = false");
-    url.searchParams.set("fields", "nextPageToken,files(id,name,mimeType,size,modifiedTime,parents)");
+    url.searchParams.set("fields", "nextPageToken,files(id,name,mimeType,size,createdTime,modifiedTime,parents)");
     url.searchParams.set("pageSize", "1000");
     if (next) url.searchParams.set("pageToken", next);
     const r = await fetch(url, { headers: { authorization: "Bearer " + token } });
@@ -136,6 +136,34 @@ async function manifest(db: ReturnType<typeof admin>, token: string, folderId: s
   };
 }
 
+
+/** Poll only new, complete paired recordings; older episodes remain manual. */
+async function discover(db: ReturnType<typeof admin>, token: string) {
+  const { data: settings, error } = await db.from("ai_operations_video_settings")
+    .select("drive_folder_id").eq("tenant_id", TENANT_ID).single();
+  if (error || !settings?.drive_folder_id) throw new Error("Video intake root unavailable");
+  const root = String(settings.drive_folder_id);
+  const all = await listChildren(token, root);
+  const folders = all.filter((f) => f.mimeType === "application/vnd.google-apps.folder")
+    .sort((a, b) => Date.parse(b.createdTime || "") - Date.parse(a.createdTime || ""));
+  const activation = Date.parse("2026-10-17T13:40:00Z");
+  for (const folder of folders) {
+    const children = await listChildren(token, String(folder.id));
+    const recordings = children.filter((f) => f.mimeType === "video/mp4" &&
+      FILE_RE.test(String(f.name || "")));
+    if (recordings.length !== 2) continue;
+    const created = recordings.map((f) => Date.parse(f.createdTime || "") || 0);
+    if (Math.max(...created) < activation) continue;
+    try {
+      const prepared = await manifest(db, token, String(folder.id), 0);
+      if (!prepared.existing) return { folder_id: String(folder.id), found: true };
+    } catch {
+      // Old or malformed folders never block discovery of another valid episode.
+    }
+  }
+  return { found: false, folder_id: null };
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") return reply({ error: "Method not allowed" }, 405);
   if (!(await authenticated(req))) return reply({ error: "Unauthorized" }, 401);
@@ -146,6 +174,7 @@ Deno.serve(async (req) => {
   try {
     const db = admin();
     const token = await googleToken(db);
+    if (action === "discover") return reply({ ok: true, ...await discover(db, token) });
     const job = await manifest(db, token, folderId, preview);
     if (action === "prepare") return reply({ ok: true, ...job, google_access_token: token });
     if (action === "drive_token") return reply({ ok: true, google_access_token: token });
