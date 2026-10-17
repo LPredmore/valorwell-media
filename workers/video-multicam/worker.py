@@ -165,6 +165,64 @@ def upload(path: Path, name: str, folder: str, sources: list[dict]) -> str:
     raise RuntimeError("Google Drive upload completed without final ID")
 
 
+def find_drive_file(folder: str, name: str) -> str | None:
+    global _GOOGLE_TOKEN
+    q = "'" + folder + "' in parents and name = '" + name.replace("'", "\\'") + "' and trashed = false"
+    for _ in range(2):
+        response = requests.get(
+            "https://www.googleapis.com/drive/v3/files",
+            headers={"authorization": "Bearer " + token()},
+            params={"q": q, "fields": "files(id,mimeType,size)", "pageSize": "10"},
+            timeout=60,
+        )
+        if response.status_code == 401:
+            _GOOGLE_TOKEN = ""
+            continue
+        response.raise_for_status()
+        items = [x for x in response.json().get("files", [])
+                 if x.get("mimeType") == "application/json" and int(x.get("size") or 0) > 0]
+        return str(items[0]["id"]) if items else None
+    raise RuntimeError("Unable to query existing speaker timeline")
+
+
+def upload_timeline(payload: dict, folder: str, name: str) -> str:
+    global _GOOGLE_TOKEN
+    existing = find_drive_file(folder, name)
+    if existing:
+        return existing
+    data = json.dumps(payload, sort_keys=True, indent=2).encode("utf-8")
+    if len(data) > 10 * 1024 * 1024:
+        raise ValueError("Speaker timeline exceeds upload limit")
+    metadata = json.dumps({
+        "name": name, "parents": [folder], "mimeType": "application/json",
+        "description": "Machine-generated BTY two-camera shot timeline and source metadata",
+    }).encode("utf-8")
+    boundary = "btystreamyardtimeline2026"
+    body = (
+        b"--" + boundary.encode() + b"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" +
+        metadata + b"\r\n--" + boundary.encode() +
+        b"\r\nContent-Type: application/json\r\n\r\n" + data +
+        b"\r\n--" + boundary.encode() + b"--\r\n"
+    )
+    for _ in range(2):
+        response = requests.post(
+            "https://www.googleapis.com/upload/drive/v3/files",
+            params={"uploadType": "multipart", "fields": "id,size,mimeType"},
+            headers={"authorization": "Bearer " + token(),
+                     "content-type": "multipart/related; boundary=" + boundary},
+            data=body, timeout=120,
+        )
+        if response.status_code == 401:
+            _GOOGLE_TOKEN = ""
+            continue
+        response.raise_for_status()
+        result = response.json()
+        if not result.get("id") or result.get("mimeType") != "application/json":
+            raise RuntimeError("Speaker timeline upload was not confirmed")
+        return str(result["id"])
+    raise RuntimeError("Speaker timeline upload not authorized")
+
+
 def main() -> dict:
     global FOLDER_ID, PREVIEW
     if not FOLDER_ID:
@@ -178,9 +236,11 @@ def main() -> dict:
     if not 0 <= PREVIEW <= 600:
         raise ValueError("PREVIEW_SECONDS must be 0 (full) or 1-600")
     job = api("prepare")
-    if job.get("existing"):
-        return {"ok": True, "skipped": "identical_output_already_exists",
-                "drive_file_id": job["existing"]["id"]}
+    timeline_name = str(job["output_name"]).removesuffix(".mp4") + ".timeline.json"
+    timeline_file = find_drive_file(str(job["output_folder_id"]), timeline_name)
+    if job.get("existing") and timeline_file:
+        return {"ok": True, "skipped": "identical_output_and_timeline_already_exist",
+                "drive_file_id": job["existing"]["id"], "timeline_file_id": timeline_file}
     sources = list(job["sources"])
     if len(sources) != 2 or any(parse_source(x["name"])["speaker"] != x["speaker"] for x in sources):
         raise ValueError("Manifest speaker mapping is invalid")
@@ -214,14 +274,29 @@ def main() -> dict:
         shots = choose_shots(*activities)
         if len(shots) < 2:
             raise ValueError("Speaker timeline does not contain a verified camera change")
+        if not timeline_file:
+            timeline_file = upload_timeline({
+                "schema_version": 1,
+                "episode_duration_seconds": duration,
+                "source_fingerprint": job["fingerprint"],
+                "sources": [{"id": x["id"], "name": x["name"], "speaker": x["speaker"],
+                             "offset_seconds": x["offset"]} for x in sources],
+                "shots": shots,
+                "method": "webrtcvad_20ms_100ms_bins_hold_1700ms",
+                "preview": bool(job["is_preview"]),
+            }, str(job["output_folder_id"]), timeline_name)
+        if job.get("existing"):
+            return {"ok": True, "skipped": "master_already_exists_timeline_backfilled",
+                    "drive_file_id": job["existing"]["id"],
+                    "timeline_file_id": timeline_file, "speaker_segments": len(shots)}
         output = tmp / "master.mp4"
         ffmpeg_master(files[0], files[1], output, shots, offsets, duration)
         destination = upload(output, str(job["output_name"]),
                              str(job["output_folder_id"]), sources)
         confirmation = api("complete", output_id=destination)
         return {"ok": True, "drive_file_id": destination,
-                "speaker_segments": len(shots), "duration_seconds": duration,
-                "preview": bool(job["is_preview"]),
+                "timeline_file_id": timeline_file, "speaker_segments": len(shots),
+                "duration_seconds": duration, "preview": bool(job["is_preview"]),
                 "ready_for_normal_intake": confirmation.get("ready_for_normal_intake", False)}
 
 
