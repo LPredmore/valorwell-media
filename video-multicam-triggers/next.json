@@ -2,5 +2,5 @@
   "folder_id": "1RjhPlVqKhYpq0cywOfrVJncfODSqZDke",
   "preview_seconds": 0,
   "requested_at": "2026-10-17",
-  "purpose": "First complete BTY speaker-aware master; verified preview passed technical and sampled visual/audio QA"
+  "purpose": "Backfill reusable speaker timeline after first full multicamera master completes; preserve existing MP4"
 }
