@@ -1,5 +1,7 @@
 name: BTY Multi-Camera Render
 on:
+  schedule:
+    - cron: "37 */4 * * *"
   workflow_dispatch:
     inputs:
       folder_id:
@@ -48,6 +50,9 @@ jobs:
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "SOURCE_FOLDER_ID=$DISPATCH_FOLDER" >> "$GITHUB_ENV"
             echo "PREVIEW_SECONDS=$DISPATCH_PREVIEW" >> "$GITHUB_ENV"
+          elif [ "$EVENT_NAME" = "schedule" ]; then
+            echo "SOURCE_FOLDER_ID=" >> "$GITHUB_ENV"
+            echo "PREVIEW_SECONDS=0" >> "$GITHUB_ENV"
           else
             python - <<'PY'
           import json, os, pathlib

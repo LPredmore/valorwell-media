@@ -23,7 +23,7 @@ The initial release takes exactly two original StreamYard participant webcam MP4
 
 ## Next phases
 
-- This release is opt-in and does NOT automatically poll nested folders. Add automatic discovery only after real-world acceptance tests.
+- New matching episode subfolders are discovered every four hours after the first real-world preview/full acceptance test. The scan processes one folder per run, skips already rendered source fingerprints, and ignores recordings imported before the initial activation cutoff. Manual triggering remains supported.
 - Source microphones must be isolated. Mixed audio is rejected rather than assigning unreliable speakers.
 - Shorts currently crop the edited master. Future revisions can render directly from the original cameras using a persisted speaker timeline.
 - A future CRM edit UI should support manual speaker/camera overrides, per-shot previews and timeline regeneration.
@@ -36,3 +36,7 @@ The initial release takes exactly two original StreamYard participant webcam MP4
 - test_core.py: unit tests and a real two-color-camera FFmpeg integration test.
 - .github/workflows/video-multicam-ci.yml: CI.
 - .github/workflows/video-multicam-render.yml: controlled production workflow.
+
+## Automatic folder discovery
+
+GitHub Actions runs the render workflow every four hours on main, without manual credentials. The OIDC-authenticated API examines only direct episode subfolders of the configured Beyond The Yellow source root, requires exactly two named StreamYard local webcam recordings, and skips old recordings (before October 17, 2026 at 13:40 UTC) and already completed masters. Successful new masters return to the normal root and are consumed by the existing video pipeline. One episode is processed per scheduled run and duplicate filenames are not overwritten.
