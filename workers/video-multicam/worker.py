@@ -225,6 +225,8 @@ def upload_timeline(payload: dict, folder: str, name: str) -> str:
 
 def main() -> dict:
     global FOLDER_ID, PREVIEW
+    if FOLDER_ID.upper() == "AUTO":
+        FOLDER_ID = ""
     if not FOLDER_ID:
         candidate = api("discover")
         if not candidate.get("found") or not candidate.get("folder_id"):
