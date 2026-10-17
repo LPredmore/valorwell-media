@@ -28,9 +28,9 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
           python -m pip install --upgrade pip
-          python -m pip install webrtcvad-wheels requests
+          python -m pip install webrtcvad-wheels requests "opencv-python-headless==4.10.0.84" "numpy==2.1.3"
       - name: Syntax checks
         run: python -m compileall -q workers/video-multicam
       - name: Run actual dual-camera FFmpeg integration tests
         working-directory: workers/video-multicam
-        run: python -m unittest -v test_core.py
+        run: python -m unittest -v test_core.py test_guest_portrait.py
