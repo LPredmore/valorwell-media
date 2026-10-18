@@ -142,6 +142,9 @@ async function openRouterJson(
   for(let attempt=0;attempt<=emptyRetries;attempt++){
     const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),120000);
     try{
+      // Give a truncated structured response more output room on the built-in
+      // second attempt. Retain the prompt-profile version and all fingerprints.
+      const attemptMaxTokens=attempt>0?Math.min(20000,maxTokens*2):maxTokens;
       const isOpenAIReasoning=/^openai\/gpt-(?:5|6)/i.test(model);
       const requestBody:any={
         model,
@@ -152,10 +155,10 @@ async function openRouterJson(
           : {allow_fallbacks:true}
       };
       if(isOpenAIReasoning){
-        requestBody.max_completion_tokens=maxTokens;
+        requestBody.max_completion_tokens=attemptMaxTokens;
         requestBody.reasoning={effort:options.reasoningEffort??"low"};
       }else{
-        requestBody.max_tokens=maxTokens;
+        requestBody.max_tokens=attemptMaxTokens;
         requestBody.temperature=attempt>0?0:Number(options.temperature??0.25);
         requestBody.reasoning={effort:options.reasoningEffort??"low"};
       }
@@ -1381,6 +1384,52 @@ async function processHookGeneration(admin:any,job:Job,project:Project,model:str
     })
     .sort((a:any,b:any)=>b.score-a.score);
 
+  if(candidates.length<candidateCount){
+    // A valid model response can still contain one duplicate or overlong hook.
+    // Ask for precisely the missing alternatives instead of discarding the
+    // otherwise valid candidates and exhausting the entire video workflow.
+    const missing=candidateCount-candidates.length;
+    const repairSchema={
+      type:"object",additionalProperties:false,
+      properties:{
+        candidates:{
+          type:"array",minItems:missing,maxItems:missing,
+          items:{
+            type:"object",additionalProperties:false,
+            properties:{
+              hook_text:{type:"string"},
+              score:{type:"number",minimum:0,maximum:100}
+            },
+            required:["hook_text","score"]
+          }
+        }
+      },
+      required:["candidates"]
+    };
+    const repair=await openRouterJson(
+      apiKey,effectiveModel,
+      prompt.system_prompt+"\\n\\nREPAIR MODE OVERRIDE: Return only the requested missing candidates, not the whole original set.",
+      [
+        "Create exactly "+missing+" ADDITIONAL candidate hooks grounded ONLY in the script.",
+        "Every new hook must be "+minHookWords+"-"+maxHookWords+" words.",
+        "Every new hook must differ from ALL previously accepted hooks, ignoring case.",
+        "Previously accepted hooks (DO NOT REPEAT):",
+        candidates.map((x:any)=>x.hook_text).join(" | "),
+        "Use distinctive, high-impact, truthful hooks, not generic filler.",
+        "\\nSCRIPT\\n"+script
+      ].join("\\n"),
+      "bty_hook_candidate_repair",repairSchema,
+      {maxTokens:5500,reasoningEffort:"medium",emptyRetries:1,temperature:0.2}
+    );
+    for(const x of ((repair.value as any).candidates??[])){
+      const hook_text=normalizeHook(x?.hook_text);
+      const key=hook_text.toLowerCase();
+      if(!validHook(hook_text)||seen.has(key)) continue;
+      seen.add(key);
+      candidates.push({hook_text,score:Math.max(0,Math.min(100,Number(x?.score??0)))});
+    }
+    candidates.sort((a:any,b:any)=>b.score-a.score);
+  }
   if(candidates.length!==candidateCount){
     throw new JobError(
       "hook_candidate_count_invalid",
