@@ -1093,8 +1093,14 @@ async function processTitleGeneration(admin:any,job:Job,project:Project,model:st
   const script=String(clip.transcript_text??"").trim();
   if(!script) throw new JobError("title_script_missing","Title generation requires a non-empty clip script.","permanent");
 
-  const effectiveModel=model;
-  const configuredEffort=String((prompt.config as any)?.reasoning_effort??"high");
+  // Operator-controlled recovery for a single repeatedly failed title job.
+  // Do not alter the tenant-wide model or prompt versions for completed clips.
+  const titleModelOverride=String((job.payload as any)?.title_model_override??"");
+  if(titleModelOverride && titleModelOverride!=="openai/gpt-5.6-luna")
+    throw new JobError("title_model_override_invalid","Unsupported recovery model override.","permanent");
+  const effectiveModel=titleModelOverride||model;
+  const configuredEffort=titleModelOverride
+    ? "low" : String((prompt.config as any)?.reasoning_effort??"high");
   const reasoningEffort=(["none","minimal","low","medium","high","xhigh"].includes(configuredEffort)
     ? configuredEffort : "high") as "none"|"minimal"|"low"|"medium"|"high"|"xhigh";
   const candidateCount=Math.min(10,Math.max(3,Number((prompt.config as any)?.candidate_count??10)));
