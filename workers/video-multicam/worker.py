@@ -359,7 +359,7 @@ def main() -> dict:
         sources = list(job["sources"])
         fingerprint = str(job["fingerprint"])
         organization = re.sub(
-            r"-multicam-master-[a-f0-9]{12}\\.mp4$", "",
+            r"-multicam-master-[a-f0-9]{12}\.mp4$", "",
             str(job["output_name"])
         ).replace("_", " ")
         claim = episode_gate(
