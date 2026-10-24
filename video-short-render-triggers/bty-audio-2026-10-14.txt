@@ -1,1 +1,3 @@
 Trigger the existing GitHub Actions video worker to prepare transcription audio for the failed BTY Purpose recording. Source video and publishing settings remain unchanged.
+
+Re-run the existing worker for the newly registered FOCUS Marines Foundation recording, 2026-10-23.
