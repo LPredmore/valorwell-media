@@ -160,7 +160,8 @@ const SOURCE_RE=/^(.+)-([^-]+)-webcam-(\d+)h_(\d+)m_(\d+)s_(\d+)ms-StreamYard\.m
 async function discoverEpisode(database:ReturnType<typeof db>){
  const {data:pending,error:pe}=await database.from("bty_episode_processing")
   .select("id,organization_folder_id,source_fingerprint,status,research_status")
-  .eq("tenant_id",TENANT).eq("status","awaiting_intake")
+  .eq("tenant_id",TENANT).in("status",["awaiting_intake","processing"])
+  .not("master_file_id","is",null)
   .order("discovered_at",{ascending:true}).limit(1);
  if(pe)throw Error("Episode registry lookup failed");
  if(pending?.length)return {found:true,folder_id:pending[0].organization_folder_id,
@@ -217,11 +218,13 @@ Deno.serve(async req=>{
   }
   if(action==="pending"){
    const {data:pending,error}=await database.from("bty_episode_processing")
-    .select("id,status,research_status,source_fingerprint")
+    .select("id,status,research_status,source_fingerprint,master_file_id")
     .eq("tenant_id",TENANT).eq("organization_folder_id",String(b.folder_id||""))
     .eq("source_fingerprint",String(b.fingerprint||"")).maybeSingle();
    if(error)throw Error("Pending episode lookup failed");
-   if(!pending||pending.status!=="awaiting_intake")return reply({ok:true,pending:false});
+   if(!pending||!pending.master_file_id||
+    !["awaiting_intake","processing"].includes(pending.status))
+    return reply({ok:true,pending:false});
    return reply({ok:true,pending:true,episode_id:pending.id,
        research_status:pending.research_status});
   }
