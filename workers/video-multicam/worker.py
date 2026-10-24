@@ -287,6 +287,25 @@ def upload_guest_jpeg(path: Path, filename: str, folder: str) -> str:
     raise RuntimeError("Guest image upload unauthorized")
 
 
+def record_guest_portrait(job: dict, portrait: dict) -> None:
+    """Persist a verified Drive image so a later project-intake run can attach it."""
+    if PREVIEW or not portrait.get("image_file_id"):
+        return
+    guest_sources = [
+        source for source in job["sources"]
+        if not re.fullmatch(r"Luke\s+Predmore", str(source["speaker"]).strip(), re.I)
+    ]
+    if len(guest_sources) != 1:
+        return
+    stored = episode_gate(
+        "portrait", folder_id=FOLDER_ID, fingerprint=str(job["fingerprint"]),
+        portrait_file_id=str(portrait["image_file_id"]),
+        guest_label=str(guest_sources[0]["speaker"]),
+    )
+    if not stored.get("updated"):
+        raise RuntimeError("Guest portrait was not attached to the episode registry")
+
+
 def ensure_guest_portrait(job: dict, available_sources: dict[str, Path] | None = None) -> dict:
     """Fail open: portrait failure must not damage a successful episode render."""
     if PREVIEW:
@@ -295,7 +314,8 @@ def ensure_guest_portrait(job: dict, available_sources: dict[str, Path] | None =
         prepared = api("guest_image_prepare")
         if not prepared.get("needed"):
             return {"skipped": prepared.get("reason", "not_needed"),
-                    "attached": bool(prepared.get("attached"))}
+                    "attached": bool(prepared.get("attached")),
+                    "image_file_id": prepared.get("image_file_id")}
         source = dict(prepared["guest_source"])
         source_id = str(source["id"])
         source_file = (available_sources or {}).get(source_id)
@@ -374,6 +394,7 @@ def main() -> dict:
                     raise RuntimeError("Previously rendered episode needs verified intake review")
             ROOT.mkdir(parents=True, exist_ok=True)
             portrait = ensure_guest_portrait(job)
+            record_guest_portrait(job, portrait)
             return {"ok": True, "skipped": "existing_master_intake_reconciled",
                     "drive_file_id": job["existing"]["id"],
                     "guest_portrait": portrait}
@@ -480,6 +501,7 @@ def main() -> dict:
         portrait = ensure_guest_portrait(job, {
             source["id"]: file for source, file in zip(sources, files)
         })
+        record_guest_portrait(job, portrait)
         return {"ok": True, "drive_file_id": destination,
                 "timeline_file_id": timeline_file, "speaker_segments": len(shots),
                 "duration_seconds": duration, "preview": bool(job["is_preview"]),
