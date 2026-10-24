@@ -3,11 +3,13 @@ on:
   pull_request:
     paths:
       - "workers/video-multicam/**"
+      - "supabase/functions/video-bty-nightly-gate/**"
       - ".github/workflows/video-multicam-ci.yml"
   push:
     branches: [main]
     paths:
       - "workers/video-multicam/**"
+      - "supabase/functions/video-bty-nightly-gate/**"
       - ".github/workflows/video-multicam-ci.yml"
   workflow_dispatch:
 
@@ -34,3 +36,14 @@ jobs:
       - name: Run actual dual-camera FFmpeg integration tests
         working-directory: workers/video-multicam
         run: python -m unittest -v test_core.py test_guest_portrait.py
+
+  nightly-gate-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Validate nightly gate TypeScript
+        run: deno check supabase/functions/video-bty-nightly-gate/index.ts
