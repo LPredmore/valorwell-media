@@ -1,9 +1,9 @@
 name: BTY Multi-Camera Render
 on:
-  # GitHub cron is UTC. One of these two slots is 23:00 America/Chicago
+  # GitHub cron is UTC. One of these two slots is 13:00 America/Chicago
   # depending on DST; the runtime guard below rejects the other slot.
   schedule:
-    - cron: "0 4,5 * * *"
+    - cron: "0 18,19 * * *"
   workflow_dispatch:
     inputs:
       folder_id:
@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - name: Enforce nightly 11 PM Central startup
+      - name: Enforce nightly 1 PM Central startup
         id: nightly_window
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -37,11 +37,11 @@ jobs:
         run: |
           if [ "$EVENT_NAME" != "schedule" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [ "$(TZ=America/Chicago date +%H)" = "23" ]; then
+          elif [ "$(TZ=America/Chicago date +%H)" = "13" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping UTC alternate slot; not 11 PM Central."
+            echo "Skipping UTC alternate slot; not 1 PM Central."
           fi
       - uses: actions/checkout@v4
         if: steps.nightly_window.outputs.run == 'true'
