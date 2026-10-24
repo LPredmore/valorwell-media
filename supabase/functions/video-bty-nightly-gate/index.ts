@@ -187,8 +187,13 @@ async function discoverEpisode(database:ReturnType<typeof db>){
   .not("master_file_id","is",null)
   .order("discovered_at",{ascending:true}).limit(1);
  if(pe)throw Error("Episode registry lookup failed");
- if(pending?.length)return {found:true,folder_id:pending[0].organization_folder_id,
+ if(pending?.length){
+  if(pending[0].research_status==="needs_review")
+   return {found:false,reason:"verified_research_needs_manual_review",
+      blocked_episode_id:pending[0].id};
+  return {found:true,folder_id:pending[0].organization_folder_id,
    pending:true,record_id:pending[0].id,fingerprint:pending[0].source_fingerprint};
+ }
  const {data:busy}=await database.from("bty_episode_processing").select("id")
   .eq("tenant_id",TENANT).eq("status","processing").limit(1);
  if(busy?.length)return {found:false,reason:"another_episode_processing"};
