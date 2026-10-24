@@ -1,7 +1,9 @@
 name: BTY Multi-Camera Render
 on:
+  # GitHub cron is UTC. One of these two slots is 23:00 America/Chicago
+  # depending on DST; the runtime guard below rejects the other slot.
   schedule:
-    - cron: "37 */4 * * *"
+    - cron: "0 4,5 * * *"
   workflow_dispatch:
     inputs:
       folder_id:
@@ -31,16 +33,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
+      - name: Enforce nightly 11 PM Central startup
+        id: nightly_window
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          if [ "$EVENT_NAME" != "schedule" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$(TZ=America/Chicago date +%H)" = "23" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping UTC alternate slot; not 11 PM Central."
+          fi
       - uses: actions/checkout@v4
+        if: steps.nightly_window.outputs.run == 'true'
       - uses: actions/setup-python@v5
+        if: steps.nightly_window.outputs.run == 'true'
         with:
           python-version: "3.12"
       - name: Install FFmpeg and Python dependencies
+        if: steps.nightly_window.outputs.run == 'true'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
           python -m pip install "requests==2.32.5" "webrtcvad-wheels==2.0.14.post1" "opencv-python-headless==4.10.0.84" "numpy==2.1.3"
       - name: Resolve input
+        if: steps.nightly_window.outputs.run == 'true'
         env:
           DISPATCH_FOLDER: ${{ inputs.folder_id }}
           DISPATCH_PREVIEW: ${{ inputs.preview_seconds }}
@@ -67,6 +87,7 @@ jobs:
           PY
           fi
       - name: Render isolated-audio multi-camera episode
+        if: steps.nightly_window.outputs.run == 'true'
         env:
           SUPABASE_URL: https://ahqauomkgflopxgnlndd.supabase.co
           WORKSPACE_ROOT: ${{ runner.temp }}/video-multicam
