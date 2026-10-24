@@ -1,9 +1,11 @@
 name: BTY Multi-Camera Render
 on:
-  # GitHub cron is UTC. One of these two slots is 13:00 America/Chicago
-  # depending on DST; the runtime guard below rejects the other slot.
+  # Exactly 4:00 PM America/Chicago every day (CDT/CST, DST-aware).
+  # GitHub's native timezone schedule eliminates duplicate UTC slots.
+  # Do not gate execution by the actual runner clock: GitHub can start late.
   schedule:
-    - cron: "0 18,19 * * *"
+    - cron: "0 16 * * *"
+      timezone: "America/Chicago"
   workflow_dispatch:
     inputs:
       folder_id:
@@ -29,34 +31,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - name: Enforce nightly 1 PM Central startup
-        id: nightly_window
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        shell: bash
-        run: |
-          if [ "$EVENT_NAME" != "schedule" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [ "$(TZ=America/Chicago date +%H)" = "13" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping UTC alternate slot; not 1 PM Central."
-          fi
       - uses: actions/checkout@v4
-        if: steps.nightly_window.outputs.run == 'true'
       - uses: actions/setup-python@v5
-        if: steps.nightly_window.outputs.run == 'true'
         with:
           python-version: "3.12"
       - name: Install FFmpeg and Python dependencies
-        if: steps.nightly_window.outputs.run == 'true'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
           python -m pip install "requests==2.32.5" "webrtcvad-wheels==2.0.14.post1" "opencv-python-headless==4.10.0.84" "numpy==2.1.3"
       - name: Resolve input
-        if: steps.nightly_window.outputs.run == 'true'
         env:
           DISPATCH_FOLDER: ${{ inputs.folder_id }}
           DISPATCH_PREVIEW: ${{ inputs.preview_seconds }}
@@ -70,20 +54,10 @@ jobs:
             echo "SOURCE_FOLDER_ID=" >> "$GITHUB_ENV"
             echo "PREVIEW_SECONDS=0" >> "$GITHUB_ENV"
           else
-            python - <<'PY'
-          import json, os, pathlib
-          obj = json.loads(pathlib.Path("video-multicam-triggers/next.json").read_text())
-          folder = str(obj.get("folder_id") or "")
-          seconds = int(obj.get("preview_seconds", 180))
-          if not folder or not 0 <= seconds <= 600:
-              raise SystemExit("Invalid trigger")
-          with open(os.environ["GITHUB_ENV"], "a") as f:
-              f.write("SOURCE_FOLDER_ID=" + folder + "\n")
-              f.write("PREVIEW_SECONDS=" + str(seconds) + "\n")
-          PY
+            echo "Unsupported workflow event: $EVENT_NAME" >&2
+            exit 1
           fi
       - name: Render isolated-audio multi-camera episode
-        if: steps.nightly_window.outputs.run == 'true'
         env:
           SUPABASE_URL: https://ahqauomkgflopxgnlndd.supabase.co
           WORKSPACE_ROOT: ${{ runner.temp }}/video-multicam
