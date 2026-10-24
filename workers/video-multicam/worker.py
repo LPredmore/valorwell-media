@@ -16,6 +16,8 @@ from core import align_bins, choose_shots, ffmpeg_master, parse_source, probe, v
 from guest_portrait import select_portrait
 
 API = os.environ.get("SUPABASE_URL", "").rstrip("/") + "/functions/v1/video-multicam-worker-api"
+GATE_API = os.environ.get("SUPABASE_URL", "").rstrip("/") + "/functions/v1/video-bty-nightly-gate"
+_CLAIMED_EPISODE: dict = {}
 FOLDER_ID = os.environ.get("SOURCE_FOLDER_ID", "").strip()
 PREVIEW = int(os.environ.get("PREVIEW_SECONDS", "0") or "0")
 ROOT = Path(os.environ.get("WORKSPACE_ROOT", "/tmp/bty-multicam"))
@@ -60,6 +62,27 @@ def api(action: str, **extra: object) -> dict:
             _GOOGLE_TOKEN = str(result["google_access_token"])
         return result
     raise RuntimeError("GitHub worker identity rejected")
+
+
+def episode_gate(action: str, **details: object) -> dict:
+    """Use the GitHub workload identity to atomically claim and track one episode."""
+    global _OIDC
+    for attempt in range(2):
+        response = requests.post(
+            GATE_API,
+            json={"action": action, **details},
+            headers={"authorization": "Bearer " + oidc()},
+            timeout=120,
+        )
+        if response.status_code == 401 and attempt == 0:
+            _OIDC = ""
+            continue
+        response.raise_for_status()
+        result = response.json()
+        if not result.get("ok"):
+            raise RuntimeError("Episode gate refused " + action)
+        return result
+    raise RuntimeError("Episode gate identity rejected")
 
 
 def token() -> str:
@@ -332,6 +355,33 @@ def main() -> dict:
     if not 0 <= PREVIEW <= 600:
         raise ValueError("PREVIEW_SECONDS must be 0 (full) or 1-600")
     job = api("prepare")
+    if not PREVIEW and not job.get("existing"):
+        sources = list(job["sources"])
+        fingerprint = str(job["fingerprint"])
+        organization = re.sub(
+            r"-multicam-master-[a-f0-9]{12}\\.mp4$", "",
+            str(job["output_name"])
+        ).replace("_", " ")
+        claim = episode_gate(
+            "claim", folder_id=FOLDER_ID, fingerprint=fingerprint,
+            organization_name=organization, sources=sources
+        )
+        if not claim.get("claimed"):
+            return {"ok": True, "skipped": "episode_already_active_or_processed",
+                    "reason": claim.get("reason"), "state": claim.get("status")}
+        _CLAIMED_EPISODE.update({
+            "folder_id": FOLDER_ID,
+            "fingerprint": fingerprint,
+            "episode_id": claim["id"],
+        })
+        research = episode_gate(
+            "research", episode_id=claim["id"], fingerprint=fingerprint,
+            sources=sources, organization_name=organization
+        )
+        if research.get("status") != "complete":
+            raise RuntimeError(
+                "Verified organization intake incomplete; needs review before rendering"
+            )
     timeline_name = str(job["output_name"]).removesuffix(".mp4") + ".timeline.json"
     timeline_file = find_drive_file(str(job["output_folder_id"]), timeline_name)
     if job.get("existing") and timeline_file:
@@ -396,6 +446,14 @@ def main() -> dict:
         destination = upload(output, str(job["output_name"]),
                              str(job["output_folder_id"]), sources)
         confirmation = api("complete", output_id=destination)
+        if _CLAIMED_EPISODE:
+            marked = episode_gate(
+                "rendered", folder_id=FOLDER_ID,
+                fingerprint=_CLAIMED_EPISODE["fingerprint"],
+                master_file_id=destination
+            )
+            if not marked.get("updated"):
+                raise RuntimeError("Master uploaded but episode registry did not confirm it")
         portrait = ensure_guest_portrait(job, {
             source["id"]: file for source, file in zip(sources, files)
         })
@@ -411,6 +469,16 @@ if __name__ == "__main__":
         result = main()
         print(json.dumps(result, sort_keys=True))
     except Exception as error:
+        if _CLAIMED_EPISODE:
+            try:
+                episode_gate(
+                    "failed",
+                    folder_id=_CLAIMED_EPISODE["folder_id"],
+                    fingerprint=_CLAIMED_EPISODE["fingerprint"],
+                    error=str(error)[:900],
+                )
+            except Exception:
+                print("Episode registry failure callback was unavailable", file=sys.stderr)
         # Do not dump provider tokens or source URLs into GitHub Actions logs.
         print(json.dumps({"ok": False, "error": str(error)[:800]}), file=sys.stderr)
         sys.exit(1)
