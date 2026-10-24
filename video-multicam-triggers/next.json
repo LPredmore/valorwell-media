@@ -1,8 +1,8 @@
 {
-  "folder_id": "1RjhPlVqKhYpq0cywOfrVJncfODSqZDke",
+  "folder_id": "1tPw1D6kUqP9EDaxEdycl1actjUSwvNPz",
   "preview_seconds": 0,
-  "requested_at": "2026-10-17",
-  "purpose": "Verify The Boot identity correction is idempotent: reuse existing completed master, timeline, and guest portrait without rerender",
-  "feature": "guest_portrait_v1",
-  "verification": "the-boot-identity-reconciliation"
+  "requested_at": "2026-10-23",
+  "purpose": "Process FOCUS Marines Foundation full two-camera StreamYard recording for BTY intake",
+  "feature": "multicam_full_with_guest_portrait",
+  "verification": "focus-marines-20261023"
 }
