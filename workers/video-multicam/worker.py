@@ -340,7 +340,7 @@ def main() -> dict:
     if FOLDER_ID.upper() == "AUTO":
         FOLDER_ID = ""
     if not FOLDER_ID:
-        candidate = api("discover")
+        candidate = episode_gate("discover")
         if not candidate.get("found") or not candidate.get("folder_id"):
             return {"ok": True, "skipped": "no_new_paired_episode"}
         FOLDER_ID = str(candidate["folder_id"])
@@ -355,6 +355,27 @@ def main() -> dict:
     if not 0 <= PREVIEW <= 600:
         raise ValueError("PREVIEW_SECONDS must be 0 (full) or 1-600")
     job = api("prepare")
+    if not PREVIEW and job.get("existing"):
+        pending = episode_gate(
+            "pending", folder_id=FOLDER_ID, fingerprint=str(job["fingerprint"])
+        )
+        if pending.get("pending"):
+            if pending.get("research_status") != "complete":
+                researched = episode_gate(
+                    "research", episode_id=pending["episode_id"],
+                    fingerprint=str(job["fingerprint"]),
+                    sources=list(job["sources"]),
+                    organization_name=re.sub(
+                        r"-multicam-master-[a-f0-9]{12}\.mp4$", "",
+                        str(job["output_name"])
+                    ).replace("_", " "),
+                )
+                if researched.get("status") != "complete":
+                    raise RuntimeError("Previously rendered episode needs verified intake review")
+            portrait = ensure_guest_portrait(job)
+            return {"ok": True, "skipped": "existing_master_intake_reconciled",
+                    "drive_file_id": job["existing"]["id"],
+                    "guest_portrait": portrait}
     if not PREVIEW and not job.get("existing"):
         sources = list(job["sources"])
         fingerprint = str(job["fingerprint"])
@@ -454,6 +475,7 @@ def main() -> dict:
             )
             if not marked.get("updated"):
                 raise RuntimeError("Master uploaded but episode registry did not confirm it")
+            _CLAIMED_EPISODE.clear()
         portrait = ensure_guest_portrait(job, {
             source["id"]: file for source, file in zip(sources, files)
         })
