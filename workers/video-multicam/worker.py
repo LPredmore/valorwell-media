@@ -372,6 +372,7 @@ def main() -> dict:
                 )
                 if researched.get("status") != "complete":
                     raise RuntimeError("Previously rendered episode needs verified intake review")
+            ROOT.mkdir(parents=True, exist_ok=True)
             portrait = ensure_guest_portrait(job)
             return {"ok": True, "skipped": "existing_master_intake_reconciled",
                     "drive_file_id": job["existing"]["id"],
