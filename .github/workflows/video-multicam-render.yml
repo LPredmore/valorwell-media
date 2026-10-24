@@ -15,10 +15,6 @@ on:
         required: true
         default: "180"
         type: string
-  push:
-    branches: [main]
-    paths:
-      - "video-multicam-triggers/next.json"
 
 permissions:
   contents: read
