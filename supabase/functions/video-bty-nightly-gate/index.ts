@@ -246,6 +246,18 @@ Deno.serve(async req=>{
        Array.isArray(b.sources)?b.sources:[],String(b.organization_name||""));
    return reply({ok:true,...result});
   }
+  if(action==="portrait"){
+   const fileId=String(b.portrait_file_id||"");
+   if(!/^[a-zA-Z0-9_-]{10,150}$/.test(fileId))
+    return reply({error:"Invalid portrait file ID"},400);
+   const {data,error}=await database.rpc("bty_record_episode_portrait_v1",{
+    p_tenant_id:TENANT,p_folder_id:String(b.folder_id||""),
+    p_fingerprint:String(b.fingerprint||""),
+    p_portrait_file_id:fileId,p_guest_label:String(b.guest_label||"")
+   });
+   if(error)throw Error("Portrait registry failed: "+error.message);
+   return reply({ok:true,...data});
+  }
   if(action==="rendered" || action==="failed"){
    const {data,error}=await database.rpc("bty_mark_episode_render_result_v1",{
     p_tenant_id:TENANT,p_folder_id:String(b.folder_id||""),
