@@ -318,7 +318,7 @@ function jpegAt(generated:Uint8Array,width:number,height:number,quality:number){
 }
 function renderFinalImage(generated:Uint8Array,aspectRatio:string){
   const width=aspectRatio==="9:16"?1080:1280;const height=aspectRatio==="9:16"?1920:720;
-  const qualities=[88,82,76,70,64,58];let out=new Uint8Array();
+  const qualities=[88,82,76,70,64,58];let out:Uint8Array=new Uint8Array();
   for(const q of qualities){out=jpegAt(generated,width,height,q);if(out.byteLength<=MAX_YOUTUBE_THUMBNAIL_BYTES)return {bytes:out,width,height,quality:q};}
   const sw=aspectRatio==="9:16"?960:1152;const sh=aspectRatio==="9:16"?1707:648;
   out=jpegAt(generated,sw,sh,56);
@@ -327,7 +327,7 @@ function renderFinalImage(generated:Uint8Array,aspectRatio:string){
 async function uploadDriveFile(access:string,folderId:string,fileName:string,bytes:Uint8Array){
   const boundary="valorwell-thumbnail-"+crypto.randomUUID();
   const meta={name:fileName,parents:[folderId],mimeType:"image/jpeg"};
-  const body=new Blob(["--"+boundary+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n",JSON.stringify(meta),"\r\n--"+boundary+"\r\nContent-Type: image/jpeg\r\n\r\n",bytes,"\r\n--"+boundary+"--\r\n"]);
+  const body=new Blob(["--"+boundary+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n",JSON.stringify(meta),"\r\n--"+boundary+"\r\nContent-Type: image/jpeg\r\n\r\n",new Uint8Array(bytes),"\r\n--"+boundary+"--\r\n"]);
   const r=await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",{method:"POST",headers:{authorization:"Bearer "+access,"content-type":"multipart/related; boundary="+boundary},body,signal:AbortSignal.timeout(45000)});
   const result=await r.json().catch(()=>({}));
   if(!r.ok||!result?.id)throw new ImageJobError("drive_upload_failed","Drive thumbnail upload failed ("+r.status+"): "+String(result?.error?.message??"unknown error"),r.status===429||r.status>=500?"retryable":"permanent",{status:r.status});
