@@ -3,6 +3,8 @@ import "jsr:@supabase/functions-js@2.4.5/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.93.1";
 import { ImageMagick, initializeImageMagick, MagickFormat } from "npm:@imagemagick/magick-wasm@0.0.40";
 
+import { requireIndependentReferences, multiGuestRules, type GuestManifest, type GuestReference } from "./guest-identity.ts";
+
 const TENANT_ID="00000000-0000-0000-0000-000000000001";
 const OPENROUTER_IMAGE_URL="https://openrouter.ai/api/v1/images";
 const OPENROUTER_CHAT_URL="https://openrouter.ai/api/v1/chat/completions";
@@ -16,7 +18,7 @@ await initializeImageMagick(wasmBytes);
 
 type ErrorClass="retryable"|"permanent"|"systemic";
 type JobRow={id:number;tenant_id:string;project_id:string;clip_id:string|null;job_type:string;workflow_revision:number;attempts:number;payload:Record<string,unknown>|null;input_fingerprint:string|null};
-type ProjectRow={id:string;tenant_id:string;guest_name:string|null;organization_name:string|null;guest_image_url:string|null;metadata:Record<string,unknown>|null;source_file_name:string;workflow_revision:number;cover_image_file_id:string|null;cover_image_url:string|null;cover_hook_text:string|null;cover_primary_speaker:string|null;cover_person_positioning:string|null;cover_facial_expression:string|null;cover_gesture_action:string|null;cover_camera_framing:string|null;cover_pose_family:string|null;cover_core_visual:string|null;cover_hook_text_placement:string|null;cover_metadata_revision:number};
+type ProjectRow={guestReferences?:GuestReference[];id:string;tenant_id:string;guest_name:string|null;organization_name:string|null;guest_image_url:string|null;metadata:Record<string,unknown>|null;source_file_name:string;workflow_revision:number;cover_image_file_id:string|null;cover_image_url:string|null;cover_hook_text:string|null;cover_primary_speaker:string|null;cover_person_positioning:string|null;cover_facial_expression:string|null;cover_gesture_action:string|null;cover_camera_framing:string|null;cover_pose_family:string|null;cover_core_visual:string|null;cover_hook_text_placement:string|null;cover_metadata_revision:number};
 type ClipRow={id:string;project_id:string;clip_type:string;transcript_text:string;youtube_title:string|null;hook_text:string|null;primary_speaker:string|null;person_positioning:string|null;facial_expression:string|null;gesture_action:string|null;camera_framing:string|null;pose_family:string|null;core_visual:string|null;hook_text_placement:string|null;thumbnail_expression_preset_id:string|null;thumbnail_expression_family:string|null;thumbnail_generation_revision:number;workflow_revision:number;pipeline_status:string;cover_image_file_id:string|null;cover_image_url:string|null};
 type SettingsRow={workflow_enabled:boolean;cover_image_folder_id:string|null;host_reference_name:string|null;host_reference_file_id:string|null;host_reference_url:string|null;text_provider:string;text_model_id:string;image_provider:string;image_model_id:string;ai_config_revision:number};
 type PromptProfile={profile_key:string;version:number;system_prompt:string;instruction_prompt:string;config:Record<string,unknown>};
@@ -143,24 +145,33 @@ async function hostReference(admin:SupabaseClient,settings:SettingsRow){
 }
 
 function episodeGuestPair(project:ProjectRow):boolean{
-  return String(project.metadata?.thumbnail_subject_mode??"")==="guest_pair"
-    && Array.isArray(project.metadata?.thumbnail_required_guests)
-    && (project.metadata.thumbnail_required_guests as unknown[]).length===2
-    && String(project.guest_image_url??"").trim()!=="";
+  return (project.guestReferences?.length??0)>1;
 }
 function guestPairRules(project:ProjectRow):string{
-  if(!episodeGuestPair(project))return "";
-  const names=project.metadata?.thumbnail_required_guests as string[];
-  return "EPISODE-LEVEL GUEST-PAIR OVERRIDE (HIGHEST PRIORITY): Reference Image A contains both verified guests: "+
-    names[0]+" is the person on the left wearing a dark cowboy hat; "+names[1]+
-    " is the person on the right with long dark hair. BOTH people MUST be clearly visible, recognizable and presented as equal co-subjects in the FINAL thumbnail. "+
-    "Use the supplied actual two-person reference photo to preserve BOTH faces. Compose BOTH in the vertical 9:16 Short or horizontal 16:9 thumbnail without cropping either person's face. "+
-    "Do not show Luke Predmore, don't substitute either face, don't merge faces, and don't add any third recognizable person. "+
-    "Ignore contradictory template wording requiring only one person, one main speaker, or one guest. "+
-    "Existing singular pose/expression guidance applies to the overall emotional scene, NOT a requirement to depict a single subject.";
+  return multiGuestRules(project.guestReferences??[]);
+}
+async function independentReferences(admin:SupabaseClient,project:ProjectRow){
+  return await Promise.all((project.guestReferences??[]).map(async(guest)=>{
+    const fileId=guest.reference_image_file_id || parseDriveFileId(String(guest.reference_image_url??""));
+    const bytes=fileId ? await driveFileBytes(await googleAccessToken(admin),fileId)
+      : await publicImageBytes(String(guest.reference_image_url));
+    return {bytes:normalizeReference(bytes),mimeType:"image/jpeg",
+      source:fileId?"drive:"+fileId:String(guest.reference_image_url),label:guest.display_name};
+  }));
+}
+async function referenceManifest(admin:SupabaseClient,projectId:string):Promise<GuestManifest>{
+  const {data,error}=await admin.rpc("get_ai_operations_video_guest_references",{p_project_id:projectId});
+  if(error)throw new ImageJobError("guest_reference_lookup_failed",error.message,"retryable");
+  return data as GuestManifest;
+}
+async function assertReferenceRevision(admin:SupabaseClient,job:JobRow){
+  const manifest=await referenceManifest(admin,job.project_id);
+  if(manifest.multi && (!manifest.ready || manifest.fingerprint!==job.payload?.guest_reference_fingerprint)){
+    throw new ImageJobError("guest_reference_revision_changed","Guest identities changed during generation; discard this result and requeue.","permanent");
+  }
 }
 async function clipReferences(admin:SupabaseClient,clip:ClipRow,project:ProjectRow,settings:SettingsRow){
-  if(episodeGuestPair(project))return [await guestReference(admin,project)];
+  if(episodeGuestPair(project))return await independentReferences(admin,project);
   const speaker=String(clip.primary_speaker??"").trim().toLowerCase();
   const guestName=String(project.guest_name??"").trim().toLowerCase();
   if(clip.clip_type==="part"){
@@ -361,7 +372,23 @@ async function loadProject(admin:SupabaseClient,id:string):Promise<ProjectRow>{
   if(!data)throw new ImageJobError("project_missing","Image project no longer exists.","permanent");
   return data as ProjectRow;
 }
+async function applyIndependentGuestImage(admin:SupabaseClient,job:JobRow,uploaded:{id:string;url:string},details:Record<string,unknown>){
+  if(!job.payload?.guest_reference_fingerprint)return null;
+  const {data:applied,error}=await admin.rpc("apply_ai_operations_video_guest_thumbnail",{
+    p_job_id:job.id,p_file_id:uploaded.id,p_file_url:uploaded.url,
+  });
+  if(error)throw new ImageJobError("guest_thumbnail_apply_failed",error.message,"retryable");
+  if(!applied){
+    await deleteDriveFile(await googleAccessToken(admin),uploaded.id);
+    // The job may already be canceled by identity invalidation. Never complete another lease.
+    return {applied:false,reason:"stale_guest_reference_or_revision"};
+  }
+  await completeJob(admin,job,{...details,applied:true,file_id:uploaded.id,file_url:uploaded.url});
+  return {applied:true};
+}
 async function applyClipImage(admin:SupabaseClient,job:JobRow,uploaded:{id:string;url:string},details:Record<string,unknown>){
+  const independent=await applyIndependentGuestImage(admin,job,uploaded,details);
+  if(independent)return independent;
   if(!job.clip_id)throw new ImageJobError("clip_id_missing","Clip thumbnail job has no clip_id.","permanent");
   const {data:clip,error}=await admin.from("ai_operations_video_clips").select("id,workflow_revision,thumbnail_generation_revision,cover_image_file_id").eq("id",job.clip_id).maybeSingle();
   if(error)throw new ImageJobError("clip_recheck_failed",error.message,"retryable");
@@ -370,6 +397,7 @@ async function applyClipImage(admin:SupabaseClient,job:JobRow,uploaded:{id:strin
   if(Number(clip.workflow_revision)!==Number(job.workflow_revision)||Number(clip.thumbnail_generation_revision)!==requestedRevision){
     const token=await googleAccessToken(admin);await deleteDriveFile(token,uploaded.id);await completeJob(admin,job,{...details,applied:false,skipped:"stale_clip_revision"});return {applied:false,reason:"stale_clip_revision"};
   }
+  await assertReferenceRevision(admin,job);
   const now=new Date().toISOString();
   const {error:updateError}=await admin.from("ai_operations_video_clips").update({cover_image_file_id:uploaded.id,cover_image_url:uploaded.url,thumbnail_input_fingerprint:job.input_fingerprint,pipeline_status:"thumbnail_ready",last_progress_at:now,updated_at:now}).eq("id",job.clip_id).eq("workflow_revision",job.workflow_revision).eq("thumbnail_generation_revision",requestedRevision);
   if(updateError)throw new ImageJobError("clip_cover_update_failed",updateError.message,"retryable");
@@ -378,6 +406,8 @@ async function applyClipImage(admin:SupabaseClient,job:JobRow,uploaded:{id:strin
   await completeJob(admin,job,{...details,applied:true,file_id:uploaded.id,file_url:uploaded.url});return {applied:true};
 }
 async function applyProjectImage(admin:SupabaseClient,job:JobRow,uploaded:{id:string;url:string},details:Record<string,unknown>){
+  const independent=await applyIndependentGuestImage(admin,job,uploaded,details);
+  if(independent)return independent;
   const {data:project,error}=await admin.from("ai_operations_video_projects").select("id,workflow_revision,cover_metadata_revision").eq("id",job.project_id).maybeSingle();
   if(error)throw new ImageJobError("project_recheck_failed",error.message,"retryable");
   if(!project)throw new ImageJobError("project_missing","Project no longer exists.","permanent");
@@ -385,6 +415,7 @@ async function applyProjectImage(admin:SupabaseClient,job:JobRow,uploaded:{id:st
   if(Number(project.workflow_revision)!==Number(job.workflow_revision)||Number((project as any).cover_metadata_revision??-1)!==requestedRevision){
     const token=await googleAccessToken(admin);await deleteDriveFile(token,uploaded.id);await completeJob(admin,job,{...details,applied:false,skipped:"stale_project_revision"});return {applied:false,reason:"stale_project_revision"};
   }
+  await assertReferenceRevision(admin,job);
   const now=new Date().toISOString();
   const {error:updateError}=await admin.from("ai_operations_video_projects").update({cover_image_file_id:uploaded.id,cover_image_url:uploaded.url,cover_input_fingerprint:job.input_fingerprint,last_progress_at:now,updated_at:now}).eq("id",job.project_id).eq("workflow_revision",job.workflow_revision);
   if(updateError)throw new ImageJobError("project_cover_update_failed",updateError.message,"retryable");
@@ -393,9 +424,22 @@ async function applyProjectImage(admin:SupabaseClient,job:JobRow,uploaded:{id:st
   await completeJob(admin,job,{...details,applied:true,file_id:uploaded.id,file_url:uploaded.url});return {applied:true};
 }
 async function processJob(admin:SupabaseClient,job:JobRow){
+  const project=await loadProject(admin,job.project_id);
+  const manifest=await referenceManifest(admin,project.id);
+  try{project.guestReferences=requireIndependentReferences(manifest);}
+  catch{
+    const {error}=await admin.rpc("request_ai_operations_video_guest_review",{
+      p_project_id:project.id,p_reason:"Image worker blocked: a separate approved reference is missing for one or more guests.",
+    });
+    if(error)throw new ImageJobError("guest_review_task_failed",error.message,"retryable");
+    throw new ImageJobError("guest_references_pending","Thumbnail generation blocked pending independent guest references and review.","permanent");
+  }
+  if(manifest.multi){
+    if(job.payload?.guest_reference_fingerprint!==manifest.fingerprint)
+      throw new ImageJobError("guest_reference_revision_changed","Queued identity snapshot is stale; requeue with current references.","permanent");
+  }
   const key=Deno.env.get("OPENROUTER_API_KEY")??"";
   if(!key)throw new ImageJobError("openrouter_key_missing","OPENROUTER_API_KEY is not configured.","systemic");
-  const project=await loadProject(admin,job.project_id);
   if(Number(project.workflow_revision)!==Number(job.workflow_revision)){await completeJob(admin,job,{applied:false,skipped:"stale_workflow_revision"});return {status:"skipped_stale"};}
   const settings=await loadSettings(admin,project.tenant_id);
   // Validate writable Drive authorization before any paid image generation work.
@@ -420,7 +464,7 @@ async function processJob(admin:SupabaseClient,job:JobRow){
     if(!String(project.cover_hook_text??"").trim()||!String(project.cover_primary_speaker??"").trim()||!String(project.cover_person_positioning??"").trim()||!String(project.cover_facial_expression??"").trim()||!String(project.cover_gesture_action??"").trim()||!String(project.cover_camera_framing??"").trim()||!String(project.cover_pose_family??"").trim()){
       throw new ImageJobError("project_cover_metadata_missing","Full-episode cover creative metadata is incomplete.","retryable");
     }
-    references=[await guestReference(admin,project)];brief=projectCreativeBrief(project,title);aspectRatio="16:9";
+    references=episodeGuestPair(project)?await independentReferences(admin,project):[await guestReference(admin,project)];brief=projectCreativeBrief(project,title);aspectRatio="16:9";
     assetName="project-"+project.id+"-cover-r"+job.workflow_revision+"-"+String(job.input_fingerprint??"image").slice(0,10)+".jpg";
   }else if(job.job_type==="generate_thumbnail"){
     if(!job.clip_id)throw new ImageJobError("clip_id_missing","Thumbnail job has no clip_id.","permanent");

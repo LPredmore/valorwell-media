@@ -2,6 +2,8 @@ import "jsr:@supabase/functions-js@2.4.5/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.93.1";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@6.1.0";
 
+import { guestReferenceAction } from "./guest-reference-jobs.ts";
+
 const TENANT_ID = "00000000-0000-0000-0000-000000000001";
 const PROJECT = "LPredmore/valorwell-media";
 const WORKFLOW = PROJECT + "/.github/workflows/video-multicam-render.yml@refs/heads/main";
@@ -25,9 +27,10 @@ async function authenticated(req: Request) {
       String(payload.repository_id) === "1180964076" &&
       String(payload.repository_owner_id) === "124374222" &&
       String(payload.ref) === "refs/heads/main" &&
-      String(payload.workflow_ref) === WORKFLOW &&
+      [WORKFLOW, PROJECT+"/.github/workflows/video-guest-references.yml@refs/heads/main"].includes(String(payload.workflow_ref)) &&
       String(payload.runner_environment) === "github-hosted" &&
-      ["push", "workflow_dispatch", "schedule"].includes(String(payload.event_name));
+      ["push", "workflow_dispatch", "schedule"].includes(String(payload.event_name))
+      ? (String(payload.workflow_ref)===WORKFLOW?"multicam":"guest_refs") : false;
   } catch {
     return false;
   }
@@ -291,14 +294,19 @@ async function reconcileGuestPortraits(db:ReturnType<typeof admin>,token:string)
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return reply({ error: "Method not allowed" }, 405);
-  if (!(await authenticated(req))) return reply({ error: "Unauthorized" }, 401);
+  const identity=await authenticated(req);
+  if (!identity) return reply({ error: "Unauthorized" }, 401);
   const body = await req.json().catch(() => ({}));
   const action = String(body.action || "");
+  if(identity==="guest_refs" && !["guest_refs_claim","guest_refs_complete","guest_refs_review","guest_refs_token"].includes(action))
+    return reply({error:"Workflow cannot access this action"},403);
   const folderId = String(body.folder_id || "");
   const preview = Number(body.preview_seconds || 0);
   try {
     const db = admin();
     const token = await googleToken(db);
+    if (["guest_refs_claim","guest_refs_complete","guest_refs_review","guest_refs_token"].includes(action))
+      return reply(await guestReferenceAction(db,token,action,body,driveGet,()=>guestImageFolder(db)));
     if (action === "discover") return reply({ ok: true, ...await discover(db, token) });
     if (action === "guest_image_reconcile") return reply(await reconcileGuestPortraits(db,token));
     const job = await manifest(db, token, folderId, preview);

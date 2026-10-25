@@ -24,6 +24,8 @@ ROOT = Path(os.environ.get("WORKSPACE_ROOT", "/tmp/bty-multicam"))
 CHUNK = 8 * 1024 * 1024
 _OIDC = ""
 _GOOGLE_TOKEN = ""
+_TOKEN_REFRESH_ACTION = "drive_token"
+_TOKEN_REFRESH_CONTEXT: dict = {}
 
 
 def oidc() -> str:
@@ -88,7 +90,7 @@ def episode_gate(action: str, **details: object) -> dict:
 def token() -> str:
     global _GOOGLE_TOKEN
     if not _GOOGLE_TOKEN:
-        api("drive_token")
+        api(_TOKEN_REFRESH_ACTION, **_TOKEN_REFRESH_CONTEXT)
     return _GOOGLE_TOKEN
 
 
