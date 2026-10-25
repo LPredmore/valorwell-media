@@ -1,6 +1,7 @@
 
 import "jsr:@supabase/functions-js@2.4.5/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.93.1";
+import { resolveThumbnailSpeaker, verifiedGuestParticipants } from "./speaker-identity.ts";
 
 const TENANT_ID = "00000000-0000-0000-0000-000000000001";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -497,6 +498,8 @@ async function processFullMetadata(admin:any,job:Job,project:Project,model:strin
   const user=[
     prompt.instruction_prompt,
     "Guest: "+String(project.guest_name??""),
+    "Verified individual guest participants: "+verifiedGuestParticipants(String(project.guest_name??"")).join("; "),
+    "Recording attribution rule: Luke Predmore has an isolated host recording. Multiple guests may share the other isolated recording; one guest camera does NOT establish individual voice identities. For a Short, if Luke drives the excerpt use Luke Predmore; otherwise use the exact complete verified guest group name. Do not guess Scott versus Karolyn based on a shared camera or unlabelled transcript. Unknown speakers must not be invented.",
     "Organization: "+String(project.organization_name??""),
     "Known links: "+JSON.stringify(links),
     "\nTRANSCRIPT\n"+transcript
@@ -1559,11 +1562,10 @@ async function processThumbnailVisualMetadata(admin:any,job:Job,project:Project,
   const v=out.value as any;
   const guestName=String(project.guest_name??"").trim();
   const rawSpeaker=String(v.primary_speaker??"").trim();
-  const primarySpeaker=clip.clip_type==="part" ? guestName :
-    /^(luke|luke predmore)$/i.test(rawSpeaker) ? "Luke Predmore" :
-    rawSpeaker.toLowerCase()===guestName.toLowerCase() && guestName ? guestName : "";
+  const primarySpeaker=resolveThumbnailSpeaker(rawSpeaker,guestName,
+    clip.clip_type==="part" ? "part" : "short");
   if(!primarySpeaker)throw new JobError("thumbnail_primary_speaker_invalid",
-    "Model must choose Luke Predmore or the named episode guest.", "retryable");
+    "Speaker is not present in the verified isolated-host / shared-guest recording identities.", "retryable");
   const nextRevision=Number(clip.thumbnail_generation_revision??0)+1;
   const now=new Date().toISOString();
   // Preset selection and audit must happen atomically. If it fails, fail closed:
@@ -1603,6 +1605,8 @@ async function processThumbnailVisualMetadata(admin:any,job:Job,project:Project,
     clip_id:clip.id,generation_revision: isShort ? Number(presetResult?.revision ?? nextRevision) : nextRevision,
     expression_preset:presetResult,model:effectiveModel,reasoning_effort:reasoningEffort,
     prompt_profile:prompt.profile_key,prompt_version:prompt.version,cost:out.cost,usage:out.usage,
+    speaker_resolution:{model_label:rawSpeaker,canonical_recording_identity:primarySpeaker,
+      shared_guest_camera:verifiedGuestParticipants(guestName).length>1},
     openrouter_diagnostic:out.diagnostic
   };
 }
