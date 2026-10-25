@@ -6,6 +6,10 @@ on:
       - "supabase/functions/video-bty-nightly-gate/**"
       - "supabase/functions/video-bty-text-dispatcher/**"
       - "supabase/functions/video-thumbnail-generation-dispatcher/**"
+      - "supabase/functions/video-multicam-worker-api/**"
+      - "supabase/migrations/*multi_guest_thumbnail_identity.sql"
+      - "supabase/tests/fixtures/multi_guest_claim_baseline.sql"
+      - "scripts/test-multi-guest-queue.mjs"
       - ".github/workflows/video-multicam-ci.yml"
   push:
     branches: [main]
@@ -14,6 +18,10 @@ on:
       - "supabase/functions/video-bty-nightly-gate/**"
       - "supabase/functions/video-bty-text-dispatcher/**"
       - "supabase/functions/video-thumbnail-generation-dispatcher/**"
+      - "supabase/functions/video-multicam-worker-api/**"
+      - "supabase/migrations/*multi_guest_thumbnail_identity.sql"
+      - "supabase/tests/fixtures/multi_guest_claim_baseline.sql"
+      - "scripts/test-multi-guest-queue.mjs"
       - ".github/workflows/video-multicam-ci.yml"
   workflow_dispatch:
 
@@ -39,7 +47,7 @@ jobs:
         run: python -m compileall -q workers/video-multicam
       - name: Run actual dual-camera FFmpeg integration tests
         working-directory: workers/video-multicam
-        run: python -m unittest -v test_core.py test_guest_portrait.py
+        run: python -m unittest discover -p "test_*.py" -v
 
   nightly-gate-typecheck:
     runs-on: ubuntu-latest
@@ -57,3 +65,20 @@ jobs:
         run: deno check --node-modules-dir=auto supabase/functions/video-bty-text-dispatcher/index.ts
       - name: Type-check BTY thumbnail generator
         run: deno check --node-modules-dir=auto supabase/functions/video-thumbnail-generation-dispatcher/index.ts
+
+      - name: Type-check guest reference worker API
+        run: deno check --node-modules-dir=auto supabase/functions/video-multicam-worker-api/index.ts
+
+  guest-reference-queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Exercise migration and queue contracts in isolated PostgreSQL
+        run: |
+          validation_dir=$(mktemp -d)
+          npm install --prefix "$validation_dir" --save-exact @electric-sql/pglite@0.5.11
+          PGLITE_MODULE="$validation_dir/node_modules/@electric-sql/pglite/dist/index.js" node scripts/test-multi-guest-queue.mjs
