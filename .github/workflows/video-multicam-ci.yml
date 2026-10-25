@@ -4,12 +4,14 @@ on:
     paths:
       - "workers/video-multicam/**"
       - "supabase/functions/video-bty-nightly-gate/**"
+      - "supabase/functions/video-bty-text-dispatcher/**"
       - ".github/workflows/video-multicam-ci.yml"
   push:
     branches: [main]
     paths:
       - "workers/video-multicam/**"
       - "supabase/functions/video-bty-nightly-gate/**"
+      - "supabase/functions/video-bty-text-dispatcher/**"
       - ".github/workflows/video-multicam-ci.yml"
   workflow_dispatch:
 
@@ -47,3 +49,7 @@ jobs:
           deno-version: v2.x
       - name: Validate nightly gate TypeScript
         run: deno check --node-modules-dir=auto supabase/functions/video-bty-nightly-gate/index.ts
+      - name: Unit-test isolated camera speaker identities
+        run: deno test supabase/functions/video-bty-text-dispatcher/speaker-identity.test.ts
+      - name: Type-check BTY text dispatcher
+        run: deno check --node-modules-dir=auto supabase/functions/video-bty-text-dispatcher/index.ts
