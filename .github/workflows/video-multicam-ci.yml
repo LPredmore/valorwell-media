@@ -5,6 +5,7 @@ on:
       - "workers/video-multicam/**"
       - "supabase/functions/video-bty-nightly-gate/**"
       - "supabase/functions/video-bty-text-dispatcher/**"
+      - "supabase/functions/video-thumbnail-generation-dispatcher/**"
       - ".github/workflows/video-multicam-ci.yml"
   push:
     branches: [main]
@@ -12,6 +13,7 @@ on:
       - "workers/video-multicam/**"
       - "supabase/functions/video-bty-nightly-gate/**"
       - "supabase/functions/video-bty-text-dispatcher/**"
+      - "supabase/functions/video-thumbnail-generation-dispatcher/**"
       - ".github/workflows/video-multicam-ci.yml"
   workflow_dispatch:
 
@@ -53,3 +55,5 @@ jobs:
         run: deno test supabase/functions/video-bty-text-dispatcher/speaker-identity.test.ts
       - name: Type-check BTY text dispatcher
         run: deno check --node-modules-dir=auto supabase/functions/video-bty-text-dispatcher/index.ts
+      - name: Type-check BTY thumbnail generator
+        run: deno check --node-modules-dir=auto supabase/functions/video-thumbnail-generation-dispatcher/index.ts
