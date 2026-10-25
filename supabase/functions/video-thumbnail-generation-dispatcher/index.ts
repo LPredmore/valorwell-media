@@ -144,11 +144,9 @@ async function hostReference(admin:SupabaseClient,settings:SettingsRow){
 
 function episodeGuestPair(project:ProjectRow):boolean{
   return String(project.metadata?.thumbnail_subject_mode??"")==="guest_pair"
-    && String(project.metadata?.thumbnail_guest_pair?.toString?.()??"")==="" // explicit condition supplied below
-    || (String(project.metadata?.thumbnail_subject_mode??"")==="guest_pair"
-      && Array.isArray(project.metadata?.thumbnail_required_guests)
-      && (project.metadata?.thumbnail_required_guests as unknown[]).length===2
-      && String(project.guest_image_url??"").trim()!=="");
+    && Array.isArray(project.metadata?.thumbnail_required_guests)
+    && (project.metadata.thumbnail_required_guests as unknown[]).length===2
+    && String(project.guest_image_url??"").trim()!=="";
 }
 function guestPairRules(project:ProjectRow):string{
   if(!episodeGuestPair(project))return "";
