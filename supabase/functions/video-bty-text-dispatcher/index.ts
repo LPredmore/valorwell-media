@@ -2,6 +2,8 @@
 import "jsr:@supabase/functions-js@2.4.5/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.93.1";
 import { resolveThumbnailSpeaker, verifiedGuestParticipants } from "./speaker-identity.ts";
+// Supabase Edge Runtime provides waitUntil at request execution time.
+declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
 
 const TENANT_ID = "00000000-0000-0000-0000-000000000001";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -19,7 +21,7 @@ const JOB_TYPES = [
 
 type Job = {
   id:number; tenant_id:string; project_id:string; clip_id:string|null; job_type:string;
-  attempts:number; payload:Record<string,unknown>|null; input_fingerprint:string|null;
+  attempts:number; workflow_revision:number; payload:Record<string,unknown>|null; input_fingerprint:string|null;
 };
 type TranscriptWord = {
   start:number; end:number; word:string; punctuated_word:string;
@@ -427,8 +429,8 @@ async function processSingleShortColdOpen(
   const timingChanged=oldEnabled!==newEnabled
     || (newEnabled && (
       oldStart==null || oldEnd==null
-      || Math.abs(oldStart-newStart)>0.035
-      || Math.abs(oldEnd-newEnd)>0.035
+      || Math.abs(oldStart-(newStart??0))>0.035
+      || Math.abs(oldEnd-(newEnd??0))>0.035
     ));
 
   const now=new Date().toISOString();
@@ -466,7 +468,7 @@ async function processSingleShortColdOpen(
     enabled:newEnabled,
     start_seconds:newStart,
     end_seconds:newEnd,
-    duration_seconds:newEnabled?(newEnd-newStart):0,
+    duration_seconds:newEnabled?((newEnd??0)-(newStart??0)):0,
     text:newEnabled?String(decision.text??""):"",
     score:Number(decision.score??0),
     reason:String(decision.reason??""),
