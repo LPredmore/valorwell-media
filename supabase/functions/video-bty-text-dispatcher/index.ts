@@ -1022,6 +1022,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       }
       (job as any).__short_quality_review={model:effectiveModel,quality_floor:qualityFloor,candidates:selected.length,approved:reviewed.length,cost:review.cost,usage:review.usage};
     }
+    if(selected.length>0 && reviewed.length===0)throw new JobError("short_review_no_approved_clips","Editorial gate approved no candidates; existing Shorts remain unchanged.","retryable");
     clips=reviewed;
 
     clips.sort((a:any,b:any)=>b.total_score-a.total_score);
@@ -1065,7 +1066,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
   let written=0;
   for(let i=0;i<clips.length;i++){
     const x=clips[i];
-    const text=clipTranscript(segments,x.start,x.end,project.transcript_text);
+    const text=kind==="short"?reconstructWords(flattenWords(segments),x.start,x.end):clipTranscript(segments,x.start,x.end,project.transcript_text);
     const {data:existing,error:eErr}=await admin.from("ai_operations_video_clips")
       .select("id,drive_file_id,drive_file_url,rendered_at,output_size_bytes,source_revision,cold_open_enabled,cold_open_start_seconds,cold_open_end_seconds,cold_open_text,cold_open_score,cold_open_reason,cold_open_prompt_version")
       .eq("project_id",project.id).eq("clip_type",kind)
