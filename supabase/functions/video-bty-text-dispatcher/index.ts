@@ -560,7 +560,9 @@ async function processFullMetadata(admin:any,job:Job,project:Project,model:strin
 async function processSegments(admin:any,job:Job,project:Project,model:string,apiKey:string,kind:"part"|"short"){
   const promptKey=kind==="part"?"bty_segment_parts":"bty_segment_shorts";
   const prompt=await getPrompt(admin,job,project,promptKey);
-  // Isolate stronger discovery reasoning to Shorts segmentation only.\n  // All other BTY text jobs continue using the shared configured model.\n  const effectiveModel=kind==="short"?"z-ai/glm-5.3":model;\n  const segments=await getSegments(admin,project.id);
+  // Isolate stronger discovery reasoning to Shorts segmentation only.
+  // All other BTY text jobs continue using the shared configured model.
+  const effectiveModel=kind==="short"?"z-ai/glm-5.3":model;\n  const segments=await getSegments(admin,project.id);
   const isPart=kind==="part";
   const partsOnly=isPart && String((project as any)?.metadata?.workflow_mode??"")==="parts_only";
   if(!segments.length){
