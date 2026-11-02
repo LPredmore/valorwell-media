@@ -562,7 +562,8 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
   const prompt=await getPrompt(admin,job,project,promptKey);
   // Isolate stronger discovery reasoning to Shorts segmentation only.
   // All other BTY text jobs continue using the shared configured model.
-  const effectiveModel=kind==="short"?"z-ai/glm-5.3":model;\n  const segments=await getSegments(admin,project.id);
+  const effectiveModel=kind==="short"?"z-ai/glm-5.3":model;
+  const segments=await getSegments(admin,project.id);
   const isPart=kind==="part";
   const partsOnly=isPart && String((project as any)?.metadata?.workflow_mode??"")==="parts_only";
   if(!segments.length){
