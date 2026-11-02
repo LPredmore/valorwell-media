@@ -560,8 +560,7 @@ async function processFullMetadata(admin:any,job:Job,project:Project,model:strin
 async function processSegments(admin:any,job:Job,project:Project,model:string,apiKey:string,kind:"part"|"short"){
   const promptKey=kind==="part"?"bty_segment_parts":"bty_segment_shorts";
   const prompt=await getPrompt(admin,job,project,promptKey);
-  const effectiveModel=model;
-  const segments=await getSegments(admin,project.id);
+  // Isolate stronger discovery reasoning to Shorts segmentation only.\n  // All other BTY text jobs continue using the shared configured model.\n  const effectiveModel=kind==="short"?"z-ai/glm-5.3":model;\n  const segments=await getSegments(admin,project.id);
   const isPart=kind==="part";
   const partsOnly=isPart && String((project as any)?.metadata?.workflow_mode??"")==="parts_only";
   if(!segments.length){
@@ -969,7 +968,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
     }
     clips=deduped;
 
-    const coldSelection=await selectShortColdOpens(admin,project,effectiveModel,apiKey,segments,clips);
+    const coldSelection=await selectShortColdOpens(admin,project,model,apiKey,segments,clips);
     clips=clips.map((clip:any,i:number)=>({
       ...clip,
       cold_open:coldSelection.decisions[i]??{
