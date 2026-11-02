@@ -959,7 +959,72 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       });
     }
 
-    clips.sort((a:any,b:any)=>a.start-b.start);
+    // Independent editorial gate: the finder is a candidate generator, not an approver.
+    // Review in a separate reasoning call, permitting repair using supplied neighboring segments.
+    // Fail closed on reviewer outages, malformed indices, or absent word timestamps.
+    const qualityFloor=Math.max(0,Math.min(100,Number((prompt.config as any)?.minimum_quality_score??85)));
+    const selected=clips.filter(x=>Number(x.total_score)>=qualityFloor);
+    const reviewed:any[]=[];
+    if(selected.length){
+      const reviewSchema={
+        type:"object",additionalProperties:false,
+        properties:{decisions:{type:"array",minItems:selected.length,maxItems:selected.length,items:{
+          type:"object",additionalProperties:false,properties:{
+            candidate_number:{type:"integer"},
+            approved:{type:"boolean"},
+            start_segment_index:{type:"integer"},
+            end_segment_index:{type:"integer"},
+            start_word_seconds:{type:"number"},
+            end_word_seconds:{type:"number"},
+            quality_score:{type:"number",minimum:0,maximum:100},
+            complete_story:{type:"boolean"},
+            standalone_clear:{type:"boolean"},
+            faithful_to_source:{type:"boolean"},
+            reason:{type:"string"}
+          },required:["candidate_number","approved","start_segment_index","end_segment_index","start_word_seconds","end_word_seconds","quality_score","complete_story","standalone_clear","faithful_to_source","reason"]
+        }}},required:["decisions"]
+      };
+      const reviewContexts=selected.map((clip:any,i:number)=>{
+        const begin=segments.findIndex(s=>Math.abs(s.start_seconds-clip.start)<0.05);
+        const finish=segments.findIndex(s=>Math.abs(s.end_seconds-clip.end)<0.05);
+        const nearby=segments.slice(Math.max(0,begin-3),Math.min(segments.length,finish+5));
+        return "CANDIDATE "+(i+1)+" (finder score "+clip.total_score+")\\n"+
+          nearby.map(s=>"[SEG "+s.segment_index+" | "+s.start_seconds+"-"+s.end_seconds+"] "+s.text+
+            "\\nWORDS: "+formatExactWords(s.words??[])).join("\\n");
+      }).join("\\n\\n");
+      const review=await openRouterJson(
+        apiKey,effectiveModel,
+        "You are an independent, skeptical short-form documentary editor. Your responsibility is to REJECT incomplete or weak shorts, not maximize count. Judge each candidate as a standalone story. A complete sentence without a meaningful payoff is insufficient. Reject weak hooks, context-dependent anecdotes, unsupported claims and missing outcomes. Repair boundaries only with exact supplied transcript SEG indices and word timestamps. Preserve actual spoken meaning. Approve only compelling, self-contained clips.",
+        "Return exactly one decision per candidate_number, in order. For each approved clip choose start_segment_index/end_segment_index enclosing the story, then start_word_seconds equal to the START of a supplied word and end_word_seconds equal to the END of a supplied word. Require complete_story, standalone_clear, faithful_to_source all true and quality_score >= "+qualityFloor+". Reject otherwise. Never end before the speaker resolves their claim or explanation.\\n"+reviewContexts,
+        "bty_shorts_editorial_review",reviewSchema,
+        {maxTokens:12000,reasoningEffort:"high",emptyRetries:1,temperature:0.1}
+      );
+      const decisions=(review.value as any).decisions??[];
+      if(decisions.length!==selected.length)throw new JobError("short_review_count_invalid","Editorial review returned wrong candidate count.","retryable");
+      const allWords=flattenWords(segments);
+      for(let i=0;i<decisions.length;i++){
+        const decision=decisions[i];
+        if(Number(decision.candidate_number)!==i+1)throw new JobError("short_review_order_invalid","Editorial review candidate mapping is invalid.","retryable");
+        if(!decision.approved||!decision.complete_story||!decision.standalone_clear||!decision.faithful_to_source||Number(decision.quality_score)<qualityFloor)continue;
+        const begin=posBySegmentIndex.get(Number(decision.start_segment_index));
+        const finish=posBySegmentIndex.get(Number(decision.end_segment_index));
+        if(begin===undefined||finish===undefined||begin>finish)continue;
+        const first=Number(decision.start_word_seconds),last=Number(decision.end_word_seconds);
+        const startWord=allWords.find(w=>Math.abs(w.start-first)<0.04);
+        const endWord=allWords.find(w=>Math.abs(w.end-last)<0.04);
+        if(!startWord||!endWord)continue;
+        const start=startWord.start,end=endWord.end,d=end-start;
+        if(start<segments[begin].start_seconds-0.05||end>segments[finish].end_seconds+0.05||d<shortAllowedMin||d>shortHardMax||d>=180)continue;
+        const text=reconstructWords(allWords,start,end);
+        // Deterministic fail-safe: do not terminate on obvious connective/punctuation fragments.
+        if(!text||/[,:;–-]$/.test(text)||/\\b(?:and|but|because|if|when|that|or|so|to|the|a)$/i.test(text))continue;
+        reviewed.push({...selected[i],start,end,total_score:Number(decision.quality_score),review_reason:String(decision.reason??"")});
+      }
+      (job as any).__short_quality_review={model:effectiveModel,quality_floor:qualityFloor,candidates:selected.length,approved:reviewed.length,cost:review.cost,usage:review.usage};
+    }
+    clips=reviewed;
+
+    clips.sort((a:any,b:any)=>b.total_score-a.total_score);
     const deduped:any[]=[];
     for(const clip of clips){
       const duplicate=deduped.some((kept:any)=>{
@@ -969,7 +1034,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       });
       if(!duplicate) deduped.push(clip);
     }
-    clips=deduped;
+    clips=deduped.sort((a:any,b:any)=>a.start-b.start);
 
     const coldSelection=await selectShortColdOpens(admin,project,model,apiKey,segments,clips);
     clips=clips.map((clip:any,i:number)=>({
