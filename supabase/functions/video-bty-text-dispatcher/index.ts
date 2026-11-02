@@ -994,7 +994,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       }).join("\\n\\n");
       const review=await openRouterJson(
         apiKey,effectiveModel,
-        "You are an independent, skeptical short-form documentary editor. Your responsibility is to REJECT incomplete or weak shorts, not maximize count. Judge each candidate as a standalone story. A complete sentence without a meaningful payoff is insufficient. Reject weak hooks, context-dependent anecdotes, unsupported claims and missing outcomes. Repair boundaries only with exact supplied transcript SEG indices and word timestamps. Preserve actual spoken meaning. Approve only compelling, self-contained clips.",
+        "You are an independent, skeptical short-form documentary editor. Your responsibility is to REJECT incomplete or weak shorts, not maximize count. Judge each candidate as a standalone story. A complete sentence without a meaningful payoff is insufficient. Reject weak hooks, context-dependent anecdotes, unsupported claims and missing outcomes. Reject semantically duplicate candidates even if their timestamps do not overlap; prefer the stronger complete story. Repair boundaries only with exact supplied transcript SEG indices and word timestamps. Preserve actual spoken meaning. Approve only compelling, self-contained clips.",
         "Return exactly one decision per candidate_number, in order. For each approved clip choose start_segment_index/end_segment_index enclosing the story, then start_word_seconds equal to the START of a supplied word and end_word_seconds equal to the END of a supplied word. Require complete_story, standalone_clear, faithful_to_source all true and quality_score >= "+qualityFloor+". Reject otherwise. Never end before the speaker resolves their claim or explanation.\\n"+reviewContexts,
         "bty_shorts_editorial_review",reviewSchema,
         {maxTokens:12000,reasoningEffort:"high",emptyRetries:1,temperature:0.1}
@@ -1049,6 +1049,11 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       prompt_version:coldSelection.prompt_version,
       cost:coldSelection.cost,usage:coldSelection.usage,diagnostic:coldSelection.diagnostic
     };
+  }
+
+  if(!isPart && clips.length===0){
+    // Quality over quantity: never wipe previous approved Shorts on an empty result.
+    return {project_id:project.id,shorts_written:0,editorial_decision:"no_approved_shorts_preserved",model:effectiveModel};
   }
 
   if(isPart){
