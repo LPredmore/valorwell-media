@@ -565,6 +565,9 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
   const effectiveModel=kind==="short"?"z-ai/glm-5.3":model;
   const segments=await getSegments(admin,project.id);
   const isPart=kind==="part";
+  // A Shorts-only Redo is additive: keep existing source clips, publications and
+  // their renders intact. Newly discovered boundaries produce new clip records.
+  const redoShorts=!isPart && job.payload?.redo_shorts_only===true;
   const partsOnly=isPart && String((project as any)?.metadata?.workflow_mode??"")==="parts_only";
   if(!segments.length){
     throw new JobError(
@@ -1061,7 +1064,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       .update({part_number:null,pipeline_status:"superseded",updated_at:new Date().toISOString()})
       .eq("project_id",project.id).eq("clip_type","part");
     if(error) throw new JobError("part_supersede_failed",error.message,"retryable");
-  }else{
+  }else if(!redoShorts){
     const {error}=await admin.from("ai_operations_video_clips")
       .update({pipeline_status:"superseded",updated_at:new Date().toISOString()})
       .eq("project_id",project.id).eq("clip_type","short");
@@ -1069,6 +1072,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
   }
 
   let written=0;
+  let preservedExisting=0;
   for(let i=0;i<clips.length;i++){
     const x=clips[i];
     const text=kind==="short"?reconstructWords(flattenWords(segments),x.start,x.end):clipTranscript(segments,x.start,x.end,project.transcript_text);
@@ -1078,6 +1082,13 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       .eq("start_seconds",x.start).eq("end_seconds",x.end).maybeSingle();
     if(eErr) throw new JobError("clip_boundary_lookup_failed",eErr.message,"retryable");
 
+    // The (project,type,start,end) unique index prevents duplicate assets.
+    // A redo must never mutate the pre-existing clip, particularly when it is
+    // scheduled or published. Preserve it instead of resetting render metadata.
+    if(redoShorts&&existing){
+      preservedExisting++;
+      continue;
+    }
     const desiredCold=(!isPart&&x.cold_open)?x.cold_open:{
       enabled:false,start_seconds:null,end_seconds:null,text:"",score:0,reason:"Not a Short.",prompt_version:null
     };
@@ -1139,12 +1150,15 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
   const countField=isPart?"expected_part_count":"expected_short_count";
   const fpField=isPart?"parts_input_fingerprint":"shorts_input_fingerprint";
   const {error:pErr}=await admin.from("ai_operations_video_projects")
-    .update({[countField]:written,[fpField]:job.input_fingerprint,last_progress_at:new Date().toISOString(),updated_at:new Date().toISOString()})
+    .update(redoShorts
+      ? {last_progress_at:new Date().toISOString(),updated_at:new Date().toISOString()}
+      : {[countField]:written,[fpField]:job.input_fingerprint,last_progress_at:new Date().toISOString(),updated_at:new Date().toISOString()})
     .eq("id",project.id);
   if(pErr) throw new JobError("project_expected_count_failed",pErr.message,"retryable");
 
   return {
-    kind,count:written,model:effectiveModel,prompt_profile:prompt.profile_key,prompt_version:prompt.version,
+    kind,count:written,redo_shorts_only:redoShorts,preserved_existing:preservedExisting,
+    model:effectiveModel,prompt_profile:prompt.profile_key,prompt_version:prompt.version,
     duration_policy:isPart?{
       min_parts:partMinCount,max_parts:partMaxCount,preferred_min_parts:partPreferredMin,preferred_max_parts:partPreferredMax,
       target_min:partMin,target_max:partMax,coverage_required:true,orphan_merge_normalization:true,oversize_refinement:true,output_mode:"segment_boundary_indices_v1"
