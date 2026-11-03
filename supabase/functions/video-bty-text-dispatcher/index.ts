@@ -592,9 +592,10 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
   const partMax=Math.max(partMin,Number(job.payload?.max_seconds??(prompt.config as any)?.target_max_seconds??600));
 
   const shortPreferredMin=Number((prompt.config as any)?.preferred_min_seconds??20);
-  const shortPreferredMax=Number((prompt.config as any)?.preferred_max_seconds??90);
+  const shortPreferredMax=Math.min(179.999,Number((prompt.config as any)?.preferred_max_seconds??179.999));
   const shortAllowedMin=Number((prompt.config as any)?.allowed_min_seconds??10);
-  const shortHardMax=Number((prompt.config as any)?.hard_max_seconds??179.999);
+  // YouTube Shorts must remain strictly under 180 seconds after any optional cold opener.
+  const shortHardMax=Math.min(179.999,Number((prompt.config as any)?.hard_max_seconds??179.999));
 
   const schema=isPart ? {
     type:"object",additionalProperties:false,
@@ -652,9 +653,12 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
         "BTY Shorts runtime policy:",
         "- Return only final surviving clips after Finder, Critic, Ranker, Deduplicator, and Boundary Refiner.",
         "- Use real start_segment_index and end_segment_index values from the supplied transcript. Do NOT return timestamps.",
-        "- Preferred duration: "+shortPreferredMin+"-"+shortPreferredMax+" seconds.",
+        "- No preferred short runtime: choose the natural complete story length, from "+shortPreferredMin+" up to "+shortPreferredMax+" seconds. A quiet 1-3 minute narrative is as welcome as a punchy moment.",
+         "- Scan every part of the interview for sustained 60-179 second insights, stories, practical lessons, and meaningful reflections; do not stop after the quickest hooks.",
         "- Allowed duration: "+shortAllowedMin+"-"+shortHardMax+" seconds; hard maximum strictly under 180 seconds.",
-        "- Do not pad clips. Exceed the preferred maximum only when context is genuinely required.",
+        "- Never pad a clip; never trim meaning, context, or resolution merely to create a faster hook.",
+         "- Prioritize memorability, authentic storytelling, insight, emotional resonance, and standalone completeness. A flashy opening or high-energy delivery is OPTIONAL, never a requirement.",
+         "- Optionally identify a memorable moment within the complete clip for a separate cold open; do not reject the whole story if no cold open fits.",
         "- Do not return substantially overlapping or duplicate ideas."
       ].join("\n");
 
@@ -965,7 +969,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
     // Independent editorial gate: the finder is a candidate generator, not an approver.
     // Review in a separate reasoning call, permitting repair using supplied neighboring segments.
     // Fail closed on reviewer outages, malformed indices, or absent word timestamps.
-    const qualityFloor=Math.max(0,Math.min(100,Number((prompt.config as any)?.minimum_quality_score??85)));
+    const qualityFloor=Math.max(0,Math.min(100,Number((prompt.config as any)?.minimum_quality_score??80)));
     const selected=clips; // Finder scores are provisional; the independent reviewer enforces the >=85 threshold.
     const reviewed:any[]=[];
     if(selected.length){
@@ -997,8 +1001,8 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       }).join("\\n\\n");
       const review=await openRouterJson(
         apiKey,model,
-        "You are an independent, skeptical short-form documentary editor. Your responsibility is to REJECT incomplete or weak shorts, not maximize count. Judge each candidate as a standalone story. A complete sentence without a meaningful payoff is insufficient. Reject weak hooks, context-dependent anecdotes, unsupported claims and missing outcomes. Reject semantically duplicate candidates even if their timestamps do not overlap; prefer the stronger complete story. Repair boundaries only with exact supplied transcript SEG indices and word timestamps. Preserve actual spoken meaning. Approve only compelling, self-contained clips.",
-        "Return exactly one decision per candidate_number, in order. For each approved clip choose start_segment_index/end_segment_index enclosing the story, then start_word_seconds equal to the START of a supplied word and end_word_seconds equal to the END of a supplied word. Require complete_story, standalone_clear, faithful_to_source all true and quality_score >= "+qualityFloor+". Reject otherwise. Never end before the speaker resolves their claim or explanation.\\n"+reviewContexts,
+        "You are an independent, skeptical short-form documentary editor. Your responsibility is to REJECT incomplete or weak shorts, not maximize count. Judge each candidate as a standalone story. A complete sentence without a meaningful payoff is insufficient. DO NOT require an aggressive hook, sensational language, conflict, fast pacing, or a cold opener. A calm, reflective, practical or educational story may be outstanding if memorable, coherent, truthful, and valuable to viewers. Reject context-dependent anecdotes, unsupported claims and missing outcomes. Reject genuinely redundant candidates even if their timestamps do not overlap; allow distinct lessons from the same topic. Repair boundaries only with exact supplied transcript SEG indices and word timestamps. Preserve actual spoken meaning. Approve only compelling, self-contained clips.",
+        "Return exactly one decision per candidate_number, in order. For each approved clip choose start_segment_index/end_segment_index enclosing the story, then start_word_seconds equal to the START of a supplied word and end_word_seconds equal to the END of a supplied word. Score especially on memorable substance, standalone insight, complete thought, authentic emotional or practical relevance, and fidelity to the speaker. Hook intensity and brevity are optional bonuses, not prerequisites. Require complete_story, standalone_clear, faithful_to_source all true and quality_score >= "+qualityFloor+". Reject otherwise. Never end before the speaker resolves their claim or explanation.\\n"+reviewContexts,
         "bty_shorts_editorial_review",reviewSchema,
         {maxTokens:7000,reasoningEffort:"medium",emptyRetries:1,temperature:0.1}
       );
