@@ -973,9 +973,14 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
     const selected=clips; // Finder scores are provisional; the independent reviewer enforces the >=85 threshold.
     const reviewed:any[]=[];
     if(selected.length){
+      const allWords=allTranscriptWords(segments);
+      // Review bounded batches, not one enormous request containing every candidate's
+      // word timestamps. This prevents truncated/empty review responses on long episodes.
+      for(let batchStart=0;batchStart<selected.length;batchStart+=4){
+      const batch=selected.slice(batchStart,batchStart+4);
       const reviewSchema={
         type:"object",additionalProperties:false,
-        properties:{decisions:{type:"array",minItems:selected.length,maxItems:selected.length,items:{
+        properties:{decisions:{type:"array",minItems:batch.length,maxItems:batch.length,items:{
           type:"object",additionalProperties:false,properties:{
             candidate_number:{type:"integer"},
             approved:{type:"boolean"},
@@ -991,11 +996,11 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
           },required:["candidate_number","approved","start_segment_index","end_segment_index","start_word_seconds","end_word_seconds","quality_score","complete_story","standalone_clear","faithful_to_source","reason"]
         }}},required:["decisions"]
       };
-      const reviewContexts=selected.map((clip:any,i:number)=>{
+      const reviewContexts=batch.map((clip:any,i:number)=>{
         const begin=segments.findIndex(s=>Math.abs(s.start_seconds-clip.start)<0.05);
         const finish=segments.findIndex(s=>Math.abs(s.end_seconds-clip.end)<0.05);
         const nearby=segments.slice(Math.max(0,begin-1),Math.min(segments.length,finish+2));
-        return "CANDIDATE "+(i+1)+" (finder score "+clip.total_score+")\\n"+
+        return "CANDIDATE "+(batchStart+i+1)+" (finder score "+clip.total_score+")\\n"+
           nearby.map(s=>"[SEG "+s.segment_index+" | "+s.start_seconds+"-"+s.end_seconds+"] "+s.text+
             "\\nWORDS: "+formatExactWords(s.words??[])).join("\\n");
       }).join("\\n\\n");
@@ -1007,11 +1012,10 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
         {maxTokens:7000,reasoningEffort:"medium",emptyRetries:1,temperature:0.1}
       );
       const decisions=(review.value as any).decisions??[];
-      if(decisions.length!==selected.length)throw new JobError("short_review_count_invalid","Editorial review returned wrong candidate count.","retryable");
-      const allWords=allTranscriptWords(segments);
+      if(decisions.length!==batch.length)throw new JobError("short_review_count_invalid","Editorial review returned wrong candidate count.","retryable");
       for(let i=0;i<decisions.length;i++){
         const decision=decisions[i];
-        if(Number(decision.candidate_number)!==i+1)throw new JobError("short_review_order_invalid","Editorial review candidate mapping is invalid.","retryable");
+        if(Number(decision.candidate_number)!==batchStart+i+1)throw new JobError("short_review_order_invalid","Editorial review candidate mapping is invalid.","retryable");
         if(!decision.approved||!decision.complete_story||!decision.standalone_clear||!decision.faithful_to_source||Number(decision.quality_score)<qualityFloor)continue;
         const begin=posBySegmentIndex.get(Number(decision.start_segment_index));
         const finish=posBySegmentIndex.get(Number(decision.end_segment_index));
@@ -1025,9 +1029,13 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
         const text=reconstructWords(allWords,start,end);
         // Deterministic fail-safe: do not terminate on obvious connective/punctuation fragments.
         if(!text||/[,:;–-]$/.test(text)||/\\b(?:and|but|because|if|when|that|or|so|to|the|a)$/i.test(text))continue;
-        reviewed.push({...selected[i],start,end,total_score:Number(decision.quality_score),review_reason:String(decision.reason??"")});
+        reviewed.push({...batch[i],start,end,total_score:Number(decision.quality_score),review_reason:String(decision.reason??"")});
       }
-      (job as any).__short_quality_review={model,quality_floor:qualityFloor,candidates:selected.length,approved:reviewed.length,cost:review.cost,usage:review.usage};
+      (job as any).__short_quality_review={
+        model,quality_floor:qualityFloor,candidates:selected.length,approved:reviewed.length,
+        batches:Math.ceil(selected.length/4),last_batch_cost:review.cost
+      };
+      }
     }
     if(selected.length>0 && reviewed.length===0)throw new JobError("short_review_no_approved_clips","Editorial gate approved no candidates; existing Shorts remain unchanged.","retryable");
     clips=reviewed;
