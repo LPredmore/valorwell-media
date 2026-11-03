@@ -966,7 +966,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
     // Review in a separate reasoning call, permitting repair using supplied neighboring segments.
     // Fail closed on reviewer outages, malformed indices, or absent word timestamps.
     const qualityFloor=Math.max(0,Math.min(100,Number((prompt.config as any)?.minimum_quality_score??85)));
-    const selected=clips.filter(x=>Number(x.total_score)>=qualityFloor);
+    const selected=clips; // Finder scores are provisional; the independent reviewer enforces the >=85 threshold.
     const reviewed:any[]=[];
     if(selected.length){
       const reviewSchema={
@@ -1067,6 +1067,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
 
   if(!isPart && clips.length===0){
     // Quality over quantity: never wipe previous approved Shorts on an empty result.
+    if(redoShorts)throw new JobError("short_redo_no_approved_clips","No editorially approved Shorts produced; rerun needs investigation.","retryable");
     return {project_id:project.id,shorts_written:0,editorial_decision:"no_approved_shorts_preserved",model:effectiveModel};
   }
 
