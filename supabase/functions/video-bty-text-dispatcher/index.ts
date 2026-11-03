@@ -990,17 +990,17 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       const reviewContexts=selected.map((clip:any,i:number)=>{
         const begin=segments.findIndex(s=>Math.abs(s.start_seconds-clip.start)<0.05);
         const finish=segments.findIndex(s=>Math.abs(s.end_seconds-clip.end)<0.05);
-        const nearby=segments.slice(Math.max(0,begin-3),Math.min(segments.length,finish+5));
+        const nearby=segments.slice(Math.max(0,begin-1),Math.min(segments.length,finish+2));
         return "CANDIDATE "+(i+1)+" (finder score "+clip.total_score+")\\n"+
           nearby.map(s=>"[SEG "+s.segment_index+" | "+s.start_seconds+"-"+s.end_seconds+"] "+s.text+
             "\\nWORDS: "+formatExactWords(s.words??[])).join("\\n");
       }).join("\\n\\n");
       const review=await openRouterJson(
-        apiKey,effectiveModel,
+        apiKey,model,
         "You are an independent, skeptical short-form documentary editor. Your responsibility is to REJECT incomplete or weak shorts, not maximize count. Judge each candidate as a standalone story. A complete sentence without a meaningful payoff is insufficient. Reject weak hooks, context-dependent anecdotes, unsupported claims and missing outcomes. Reject semantically duplicate candidates even if their timestamps do not overlap; prefer the stronger complete story. Repair boundaries only with exact supplied transcript SEG indices and word timestamps. Preserve actual spoken meaning. Approve only compelling, self-contained clips.",
         "Return exactly one decision per candidate_number, in order. For each approved clip choose start_segment_index/end_segment_index enclosing the story, then start_word_seconds equal to the START of a supplied word and end_word_seconds equal to the END of a supplied word. Require complete_story, standalone_clear, faithful_to_source all true and quality_score >= "+qualityFloor+". Reject otherwise. Never end before the speaker resolves their claim or explanation.\\n"+reviewContexts,
         "bty_shorts_editorial_review",reviewSchema,
-        {maxTokens:12000,reasoningEffort:"high",emptyRetries:1,temperature:0.1}
+        {maxTokens:7000,reasoningEffort:"medium",emptyRetries:1,temperature:0.1}
       );
       const decisions=(review.value as any).decisions??[];
       if(decisions.length!==selected.length)throw new JobError("short_review_count_invalid","Editorial review returned wrong candidate count.","retryable");
@@ -1023,7 +1023,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
         if(!text||/[,:;–-]$/.test(text)||/\\b(?:and|but|because|if|when|that|or|so|to|the|a)$/i.test(text))continue;
         reviewed.push({...selected[i],start,end,total_score:Number(decision.quality_score),review_reason:String(decision.reason??"")});
       }
-      (job as any).__short_quality_review={model:effectiveModel,quality_floor:qualityFloor,candidates:selected.length,approved:reviewed.length,cost:review.cost,usage:review.usage};
+      (job as any).__short_quality_review={model,quality_floor:qualityFloor,candidates:selected.length,approved:reviewed.length,cost:review.cost,usage:review.usage};
     }
     if(selected.length>0 && reviewed.length===0)throw new JobError("short_review_no_approved_clips","Editorial gate approved no candidates; existing Shorts remain unchanged.","retryable");
     clips=reviewed;
