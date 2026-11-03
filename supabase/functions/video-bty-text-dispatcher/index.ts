@@ -1028,6 +1028,17 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
     if(selected.length>0 && reviewed.length===0)throw new JobError("short_review_no_approved_clips","Editorial gate approved no candidates; existing Shorts remain unchanged.","retryable");
     clips=reviewed;
 
+    // Explicitly protect operator-retained source moments when rebuilding a project's
+    // Shorts library. A protected moment is not re-selected under slightly different bounds.
+    if(redoShorts && Array.isArray(job.payload?.preserve_source_intervals)){
+      const ranges=(job.payload.preserve_source_intervals as any[]).filter(x=>
+        Number.isFinite(Number(x?.start)) && Number.isFinite(Number(x?.end)) && Number(x.end)>Number(x.start));
+      clips=clips.filter((x:any)=>!ranges.some((range:any)=>{
+        const intersection=Math.max(0,Math.min(Number(x.end),Number(range.end))-Math.max(Number(x.start),Number(range.start)));
+        return intersection>=10 && intersection/Math.min(Number(x.end)-Number(x.start),Number(range.end)-Number(range.start))>=0.4;
+      }));
+    }
+
     clips.sort((a:any,b:any)=>b.total_score-a.total_score);
     const deduped:any[]=[];
     for(const clip of clips){
@@ -1149,9 +1160,18 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
 
   const countField=isPart?"expected_part_count":"expected_short_count";
   const fpField=isPart?"parts_input_fingerprint":"shorts_input_fingerprint";
+  // Recount all current Shorts after additive Redo so the orchestrator's expected
+  // count matches actual active clips rather than the prior generation's count.
+  const {count:activeShortCount,error:countError}=redoShorts
+    ? await admin.from("ai_operations_video_clips")
+      .select("id",{head:true,count:"exact"})
+      .eq("project_id",project.id).eq("clip_type","short")
+      .eq("workflow_revision",project.workflow_revision).neq("pipeline_status","superseded")
+    : {count:null,error:null};
+  if(countError) throw new JobError("short_redo_count_failed",countError.message,"retryable");
   const {error:pErr}=await admin.from("ai_operations_video_projects")
     .update(redoShorts
-      ? {last_progress_at:new Date().toISOString(),updated_at:new Date().toISOString()}
+      ? {expected_short_count:activeShortCount,last_progress_at:new Date().toISOString(),updated_at:new Date().toISOString()}
       : {[countField]:written,[fpField]:job.input_fingerprint,last_progress_at:new Date().toISOString(),updated_at:new Date().toISOString()})
     .eq("id",project.id);
   if(pErr) throw new JobError("project_expected_count_failed",pErr.message,"retryable");
