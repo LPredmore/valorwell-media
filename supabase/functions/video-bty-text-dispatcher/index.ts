@@ -1004,7 +1004,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
       );
       const decisions=(review.value as any).decisions??[];
       if(decisions.length!==selected.length)throw new JobError("short_review_count_invalid","Editorial review returned wrong candidate count.","retryable");
-      const allWords=flattenWords(segments);
+      const allWords=allTranscriptWords(segments);
       for(let i=0;i<decisions.length;i++){
         const decision=decisions[i];
         if(Number(decision.candidate_number)!==i+1)throw new JobError("short_review_order_invalid","Editorial review candidate mapping is invalid.","retryable");
@@ -1087,7 +1087,7 @@ async function processSegments(admin:any,job:Job,project:Project,model:string,ap
   let preservedExisting=0;
   for(let i=0;i<clips.length;i++){
     const x=clips[i];
-    const text=kind==="short"?reconstructWords(flattenWords(segments),x.start,x.end):clipTranscript(segments,x.start,x.end,project.transcript_text);
+    const text=kind==="short"?reconstructWords(allTranscriptWords(segments),x.start,x.end):clipTranscript(segments,x.start,x.end,project.transcript_text);
     const {data:existing,error:eErr}=await admin.from("ai_operations_video_clips")
       .select("id,drive_file_id,drive_file_url,rendered_at,output_size_bytes,source_revision,cold_open_enabled,cold_open_start_seconds,cold_open_end_seconds,cold_open_text,cold_open_score,cold_open_reason,cold_open_prompt_version")
       .eq("project_id",project.id).eq("clip_type",kind)
